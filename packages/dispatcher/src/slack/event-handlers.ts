@@ -359,25 +359,21 @@ export class SlackEventHandlers {
 
       this.activeSessions.set(sessionKey, threadSession);
 
+      // Add immediate acknowledgment reaction
+      try {
+        await client.reactions.add({
+          channel: context.channelId,
+          timestamp: context.messageTs,
+          name: "eyes"
+        });
+        logger.info(`Added eyes reaction to message ${context.messageTs}`);
+      } catch (reactionError) {
+        logger.warn("Failed to add eyes reaction:", reactionError);
+      }
+
       // Determine if this is a new conversation or continuation
       // For the first message in any thread (including DMs), always create new session
       const isNewConversation = !context.threadTs || isNewSession;
-      const hasActiveWorker = existingSession && existingSession.status === "running";
-      
-      let initialResponse: any = null;
-      
-      if (isNewConversation || !hasActiveWorker) {
-        // Post initial Slack response only for new conversations or when restarting worker
-        logger.info(`[TIMING] Posting initial response at: ${new Date().toISOString()}`);
-        initialResponse = await client.chat.postMessage({
-          channel: context.channelId,
-          thread_ts: threadTs,
-          text: "🚀 Starting environment setup...",
-        });
-      } else {
-        // For continuation messages, don't post new response - worker will handle
-        logger.info(`Continuing existing session ${existingClaudeSessionId}, no new response message`);
-      }
       
       if (isNewConversation) {
         const deploymentPayload: WorkerDeploymentPayload = {
@@ -395,8 +391,9 @@ export class SlackEventHandlers {
             userDisplayName: context.userDisplayName,
             repositoryUrl: repository.repositoryUrl,
             slackResponseChannel: context.channelId,
-            slackResponseTs: initialResponse.ts,
+            slackResponseTs: threadTs, // Will be updated when bot posts first message
             originalMessageTs: context.messageTs,
+            botResponseTs: threadSession.botResponseTs, // Track bot's response for updates
           },
           claudeOptions: {
             allowedTools: this.config.claude.allowedTools,
@@ -428,8 +425,9 @@ export class SlackEventHandlers {
             userDisplayName: context.userDisplayName,
             repositoryUrl: repository.repositoryUrl,
             slackResponseChannel: context.channelId,
-            slackResponseTs: initialResponse?.ts || context.messageTs, // Use message timestamp if no response
+            slackResponseTs: threadSession.botResponseTs || threadTs, // Use bot's response or thread
             originalMessageTs: context.messageTs,
+            botResponseTs: threadSession.botResponseTs, // Track bot's response for updates
           },
           claudeOptions: {
             ...this.config.claude,

@@ -70,7 +70,7 @@ class ProcessManager {
     return path.join(this.logsDir, `${id}.log`);
   }
 
-  async startProcess(id: string, command: string, description: string, port?: number): Promise<ProcessInfo> {
+  async startProcess(id: string, command: string, description: string, port?: number, isRestart: boolean = false): Promise<ProcessInfo> {
     if (this.processes.has(id)) {
       const existing = this.processes.get(id)!;
       if (existing.status === "running" && existing.pid) {
@@ -78,14 +78,18 @@ class ProcessManager {
       }
     }
 
+    // Preserve existing process info on restart, including tunnel URL
+    const existingInfo = this.processes.get(id);
     const info: ProcessInfo = {
       id,
       command,
       description,
       status: "starting",
       startedAt: new Date().toISOString(),
-      restartCount: 0,
+      restartCount: existingInfo?.restartCount || 0,
       port,
+      // Preserve tunnel URL on restart to avoid creating new tunnels
+      tunnelUrl: isRestart ? existingInfo?.tunnelUrl : undefined,
     };
 
     const logPath = this.getLogPath(id);
@@ -147,30 +151,55 @@ class ProcessManager {
     await this.saveProcessInfo(info);
 
     // Start cloudflared tunnel if port is specified
-    if (port) {
-      this.startTunnel(id, port);
+    // Skip if we already have a tunnel URL (from restart)
+    if (port && !info.tunnelUrl) {
+      this.startTunnel(id, port, 0);
+    } else if (port && info.tunnelUrl) {
+      console.log(`[Process Manager] Reusing existing tunnel URL for ${id}: ${info.tunnelUrl}`);
     }
 
     return info;
   }
 
-  private async startTunnel(id: string, port: number): Promise<void> {
+  private async startTunnel(id: string, port: number, retryCount: number = 0): Promise<void> {
     const info = this.processes.get(id);
     if (!info) return;
+
+    // Skip if we already have a working tunnel
+    if (info.tunnelUrl && info.tunnelProcess) {
+      console.log(`[MCP Process Manager] Tunnel already exists for ${id}: ${info.tunnelUrl}`);
+      return;
+    }
+
+    // Add exponential backoff delay between retries to avoid rate limiting
+    if (retryCount > 0) {
+      // Start with 30s, then 60s, then 120s
+      const delay = Math.min(30000 * Math.pow(2, retryCount - 1), 120000);
+      console.error(`[MCP Process Manager] Cloudflare rate limit detected. Waiting ${delay/1000}s before retry attempt ${retryCount + 1} for tunnel`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
 
     const tunnelLogPath = path.join(this.logsDir, `${id}-tunnel.log`);
     const tunnelLogStream = await import("fs").then(fs => 
       fs.createWriteStream(tunnelLogPath, { flags: "a" })
     );
 
-    tunnelLogStream.write(`Starting cloudflared tunnel for port ${port} at ${new Date().toISOString()}\n`);
+    tunnelLogStream.write(`Starting cloudflared tunnel for port ${port} at ${new Date().toISOString()} (attempt ${retryCount + 1})\n`);
     
-    // Log to worker console
-    console.log(`[Process Manager] Starting cloudflared tunnel for process ${id} on port ${port}`);
+    // Log to worker console (use stderr so it appears in pod logs)
+    console.error(`[MCP Process Manager] Starting cloudflared tunnel for process ${id} on port ${port} (attempt ${retryCount + 1})`);
 
     const tunnelChild = spawn("cloudflared", ["tunnel", "--url", `http://localhost:${port}`], {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    // Handle spawn errors
+    tunnelChild.on('error', (err) => {
+      console.error(`[Process Manager] Failed to spawn cloudflared: ${err.message}`);
+      tunnelLogStream.write(`ERROR: Failed to spawn cloudflared: ${err.message}\n`);
+      info.tunnelUrl = undefined;
+      delete info.tunnelProcess;
     });
 
     info.tunnelProcess = tunnelChild;
@@ -195,22 +224,42 @@ class ProcessManager {
       }
     }, 15000);
 
+    let rateLimitDetected = false;
+    
     const extractUrl = (data: Buffer) => {
       const output = data.toString();
       tunnelLogStream.write(output);
       
-      // Also pipe tunnel logs to worker stderr with identifier
-      process.stderr.write(`[Tunnel ${id}] ${output}`);
+      // Log extraction attempt to tunnel log
+      if (output.includes('trycloudflare.com')) {
+        tunnelLogStream.write(`\n[MCP] Found trycloudflare.com in output, attempting extraction...\n`);
+      }
+      
+      // Log cloudflared output to console for debugging (use stderr so it appears in pod logs)
+      console.error(`[MCP Process Manager - Cloudflared Output] ${output.trim()}`);
+      
+      // Check for rate limiting error
+      if (output.includes('429 Too Many Requests') || output.includes('error code: 1015')) {
+        rateLimitDetected = true;
+        tunnelLogStream.write(`\n[MCP] Rate limit detected (429 Too Many Requests)\n`);
+        console.error(`[MCP Process Manager] Cloudflare rate limit detected (429 Too Many Requests)`);
+      }
       
       // Look for the trycloudflare.com URL in the output
-      const urlMatch = output.match(/https?:\/\/([a-z0-9-]+)\.trycloudflare\.com/);
+      // The most reliable approach is to just look for the URL pattern anywhere in the output
+      const urlMatch = output.match(/https?:\/\/([a-z0-9-]+)\.trycloudflare\.com/i);
       if (urlMatch && !urlExtracted) {
         urlExtracted = true;
         clearTimeout(extractTimeout);
         const prefix = urlMatch[1];
         info.tunnelUrl = `https://${prefix}.peerbot.ai`;
-        console.log(`[Tunnel ${id}] Established: ${info.tunnelUrl}`);
+        tunnelLogStream.write(`\n[MCP] Successfully extracted URL: ${urlMatch[0]}\n`);
+        tunnelLogStream.write(`[MCP] Converted to peerbot.ai: ${info.tunnelUrl}\n`);
+        console.error(`[MCP Process Manager - Tunnel ${id}] Established: ${info.tunnelUrl}`);
+        console.error(`[MCP Process Manager - Tunnel ${id}] Original cloudflared URL: ${urlMatch[0]}`);
         this.saveProcessInfo(info);
+      } else if (output.includes('trycloudflare.com') && urlExtracted) {
+        tunnelLogStream.write(`\n[MCP] URL already extracted, skipping\n`);
       }
     };
 
@@ -222,10 +271,30 @@ class ProcessManager {
       tunnelLogStream.write(`\nTunnel process exited with code ${code} at ${new Date().toISOString()}\n`);
       tunnelLogStream.end();
       
+      // Log exit details for debugging
+      console.error(`[MCP Process Manager] Cloudflared exited with code ${code}, signal: ${signal}`);
+      
       if (info.tunnelProcess === tunnelChild) {
         delete info.tunnelProcess;
         info.tunnelUrl = undefined;
         this.saveProcessInfo(info);
+        
+        // Retry if failed and haven't extracted URL, up to 3 attempts
+        // Use longer delays if rate limited
+        if (code !== 0 && !urlExtracted && retryCount < 2) {
+          if (rateLimitDetected) {
+            console.error(`[MCP Process Manager] Cloudflared hit rate limit - will retry with longer backoff (attempt ${retryCount + 2}/3)`);
+          } else {
+            console.error(`[MCP Process Manager] Cloudflared failed with exit code ${code} - retrying tunnel (attempt ${retryCount + 2}/3)`);
+          }
+          this.startTunnel(id, port, retryCount + 1);
+        } else if (code !== 0 && !urlExtracted) {
+          if (rateLimitDetected) {
+            console.error(`[MCP Process Manager] Cloudflared rate limited after ${retryCount + 1} attempts - consider using alternative tunnel solution`);
+          } else {
+            console.error(`[MCP Process Manager] Cloudflared failed after ${retryCount + 1} attempts - tunnel not established`);
+          }
+        }
       }
     });
 
@@ -292,14 +361,33 @@ class ProcessManager {
       throw new Error(`Process ${id} not found`);
     }
 
-    // Stop if running
+    // Preserve tunnel URL and process before stopping
+    const preservedTunnelUrl = info.tunnelUrl;
+    const preservedTunnelProcess = info.tunnelProcess;
+
+    // Stop the main process but NOT the tunnel
     if (info.status === "running" && info.pid) {
-      await this.stopProcess(id);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        process.kill(info.pid, "SIGTERM");
+        // Give process time to terminate gracefully
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+          process.kill(info.pid!, "SIGKILL");
+        } catch (e) {
+          // Process already terminated
+        }
+      } catch (error) {
+        // Process already terminated
+      }
     }
 
     info.restartCount++;
-    return this.startProcess(id, info.command, info.description, info.port);
+    
+    // Restore tunnel information before restarting
+    info.tunnelUrl = preservedTunnelUrl;
+    info.tunnelProcess = preservedTunnelProcess;
+    
+    return this.startProcess(id, info.command, info.description, info.port, true);
   }
 
   getStatus(id?: string): ProcessInfo | ProcessInfo[] | null {

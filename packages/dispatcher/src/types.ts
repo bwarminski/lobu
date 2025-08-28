@@ -98,6 +98,8 @@ export interface ThreadSession {
   lastActivity: number;
   status: "pending" | "starting" | "running" | "completed" | "error" | "timeout";
   createdAt: number;
+  botResponseTs?: string; // Bot's response message timestamp for updates
+  messageReactions?: Map<string, string>; // Track reactions per message (messageTs -> reaction)
 }
 
 export interface UserRepository {

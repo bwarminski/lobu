@@ -21,6 +21,7 @@ interface ThreadResponsePayload {
   timestamp: number;
   originalMessageTs?: string; // User's original message timestamp for reactions
   gitBranch?: string; // Current git branch for Edit button URLs
+  botResponseTs?: string; // Bot's response message timestamp for updates
 }
 
 export class QueueIntegration {
@@ -29,6 +30,7 @@ export class QueueIntegration {
   private responseChannel: string;
   private responseTs: string;
   private messageId: string;
+  private botResponseTs?: string; // Track bot's response message timestamp
   private lastUpdateTime = 0;
   private updateQueue: string[] = [];
   private isProcessingQueue = false;
@@ -54,6 +56,7 @@ export class QueueIntegration {
     this.responseChannel = config.responseChannel || process.env.SLACK_RESPONSE_CHANNEL!;
     this.responseTs = config.responseTs || process.env.INITIAL_SLACK_RESPONSE_TS || process.env.SLACK_RESPONSE_TS!;
     this.messageId = config.messageId || process.env.INITIAL_SLACK_MESSAGE_ID || process.env.SLACK_MESSAGE_ID!;
+    this.botResponseTs = process.env.BOT_RESPONSE_TS; // Bot's response message timestamp if it exists
     
     // Get deployment name from environment for stop button
     this.deploymentName = process.env.DEPLOYMENT_NAME;
@@ -319,7 +322,8 @@ export class QueueIntegration {
         isDone: false, // Agent is still running
         timestamp: Date.now(),
         originalMessageTs: process.env.ORIGINAL_MESSAGE_TS, // User's original message for reactions
-        gitBranch: await this.getCurrentGitBranch() // Current git branch for Edit button URLs
+        gitBranch: await this.getCurrentGitBranch(), // Current git branch for Edit button URLs
+        botResponseTs: this.botResponseTs // Bot's response message for updates
       };
 
       // Send to thread_response queue
@@ -376,7 +380,8 @@ export class QueueIntegration {
         isDone: true, // Agent is done
         timestamp: Date.now(),
         originalMessageTs: process.env.ORIGINAL_MESSAGE_TS, // User's original message for reactions
-        gitBranch: await this.getCurrentGitBranch() // Current git branch for Edit button URLs
+        gitBranch: await this.getCurrentGitBranch(), // Current git branch for Edit button URLs
+        botResponseTs: this.botResponseTs // Bot's response message for updates
       };
 
       const jobId = await this.pgBoss.send('thread_response', payload, {
@@ -413,7 +418,8 @@ export class QueueIntegration {
         isDone: true, // Agent is done due to error
         timestamp: Date.now(),
         originalMessageTs: process.env.ORIGINAL_MESSAGE_TS, // User's original message for reactions
-        gitBranch: await this.getCurrentGitBranch() // Current git branch for Edit button URLs
+        gitBranch: await this.getCurrentGitBranch(), // Current git branch for Edit button URLs
+        botResponseTs: this.botResponseTs // Bot's response message for updates
       };
 
       const jobId = await this.pgBoss.send('thread_response', payload, {

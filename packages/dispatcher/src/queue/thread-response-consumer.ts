@@ -196,6 +196,7 @@ interface ThreadResponsePayload {
   timestamp: number;
   originalMessageTs?: string; // User's original message timestamp for reactions
   gitBranch?: string; // Current git branch for Edit button URLs
+  botResponseTs?: string; // Bot's response message timestamp for updates
 }
 
 /**
@@ -304,63 +305,37 @@ export class ThreadResponseConsumer {
       
       logger.info(`Processing thread response job for message ${data.messageId}`);
 
-      // Handle different types of responses and manage reactions based on isDone status
-      // Use originalMessageTs for reactions (user's message), not the bot's message
+      // Determine if this is the first response from the worker
+      const isFirstResponse = !data.botResponseTs;
       const reactionTimestamp = data.originalMessageTs || data.messageId;
       
+      // Handle reaction transitions
+      if (reactionTimestamp) {
+        if (isFirstResponse && !data.isDone && !data.error) {
+          // First pickup by worker: Replace eyes with gear
+          await this.updateReaction(data.channelId, reactionTimestamp, "eyes", "gear");
+        } else if (data.isDone) {
+          // Processing completed: Replace gear with checkmark
+          await this.updateReaction(data.channelId, reactionTimestamp, "gear", "white_check_mark");
+        } else if (data.error) {
+          // Error occurred: Replace current reaction with error
+          await this.updateReaction(data.channelId, reactionTimestamp, "gear", "x");
+          await this.updateReaction(data.channelId, reactionTimestamp, "eyes", "x");
+        }
+      }
+      
+      // Handle message content
       if (data.content) {
-        await this.handleMessageUpdate(data);
+        const newBotResponseTs = await this.handleMessageUpdate(data, isFirstResponse);
         
-        // Handle reactions based on isDone status
-        if (!data.isDone) {
-          // Worker is processing - add gear reaction to user's message
-          try {
-            await this.slackClient.reactions.add({
-              channel: data.channelId,
-              timestamp: reactionTimestamp,
-              name: "gear",
-            });
-            logger.info(`Added gear reaction to message ${reactionTimestamp}`);
-          } catch (error) {
-            logger.warn(`Failed to add gear reaction:`, error);
-          }
-        } else {
-          // Processing completed - replace gear with checkmark on user's message
-          try {
-            await this.slackClient.reactions.remove({
-              channel: data.channelId,
-              timestamp: reactionTimestamp,
-              name: "gear",
-            });
-            await this.slackClient.reactions.add({
-              channel: data.channelId,
-              timestamp: reactionTimestamp,
-              name: "white_check_mark",
-            });
-            logger.info(`Replaced gear with checkmark on message ${reactionTimestamp}`);
-          } catch (error) {
-            logger.warn(`Failed to update reactions to checkmark:`, error);
-          }
+        // Store the bot response timestamp for future updates
+        if (isFirstResponse && newBotResponseTs) {
+          // TODO: Pass this back to dispatcher or store in persistent storage
+          // For now, we'll rely on it being passed in subsequent messages
+          logger.info(`Bot created first response with ts: ${newBotResponseTs}`);
         }
       } else if (data.error) {
-        await this.handleError(data);
-        
-        // Add error reaction to user's message
-        try {
-          await this.slackClient.reactions.remove({
-            channel: data.channelId,
-            timestamp: reactionTimestamp,
-            name: "gear",
-          });
-          await this.slackClient.reactions.add({
-            channel: data.channelId,
-            timestamp: reactionTimestamp,
-            name: "x",
-          });
-          logger.info(`Added error reaction to message ${reactionTimestamp}`);
-        } catch (error) {
-          logger.warn(`Failed to add error reaction:`, error);
-        }
+        await this.handleError(data, isFirstResponse);
       }
 
       // Log completion
@@ -400,16 +375,44 @@ export class ThreadResponseConsumer {
 
 
   /**
+   * Update reactions atomically (remove old, add new)
+   */
+  private async updateReaction(channel: string, timestamp: string, oldReaction: string, newReaction: string): Promise<void> {
+    try {
+      // Remove old reaction
+      await this.slackClient.reactions.remove({
+        channel,
+        timestamp,
+        name: oldReaction
+      });
+    } catch (error) {
+      // Ignore - reaction might not exist
+      logger.debug(`Failed to remove ${oldReaction} reaction (might not exist):`, error);
+    }
+    
+    try {
+      // Add new reaction
+      await this.slackClient.reactions.add({
+        channel,
+        timestamp,
+        name: newReaction
+      });
+      logger.info(`Updated reaction: ${oldReaction} → ${newReaction} on message ${timestamp}`);
+    } catch (error) {
+      // Ignore - reaction might already exist
+      logger.debug(`Failed to add ${newReaction} reaction (might already exist):`, error);
+    }
+  }
+
+  /**
    * Handle message content updates
    */
-  private async handleMessageUpdate(data: ThreadResponsePayload): Promise<void> {
+  private async handleMessageUpdate(data: ThreadResponsePayload, isFirstResponse: boolean): Promise<string | void> {
     const { content, channelId, threadTs, userId } = data;
     
     if (!content) return;
 
     try {
-      logger.info(`Updating message in channel ${channelId}, thread ${threadTs}`);
-      
       // Process markdown and blockkit content
       const result = processMarkdownAndBlockkit(content);
       
@@ -434,22 +437,46 @@ export class ThreadResponseConsumer {
         ? (result.text || content).substring(0, MAX_TEXT_LENGTH - 20) + '\n...[truncated]'
         : (result.text || content);
       
-      const updateOptions: any = {
-        channel: channelId,
-        ts: threadTs,
-        text: truncatedText,
-        mrkdwn: true,
-      };
-      
       // Add blocks (always have at least one)
       const MAX_BLOCKS = 50;
-      updateOptions.blocks = result.blocks.slice(0, MAX_BLOCKS);
+      const blocks = result.blocks.slice(0, MAX_BLOCKS);
       
-      const updateResult = await this.slackClient.chat.update(updateOptions);
-      logger.info(`Slack update result: ${updateResult.ok}`);
-      
-      if (!updateResult.ok) {
-        logger.error(`Slack update failed with error: ${updateResult.error}`);
+      if (isFirstResponse) {
+        // Create new message for first response
+        logger.info(`Creating new bot message in channel ${channelId}, thread ${threadTs}`);
+        const postResult = await this.slackClient.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: truncatedText,
+          mrkdwn: true,
+          blocks: blocks
+        });
+        
+        logger.info(`Bot message created: ${postResult.ok}, ts: ${postResult.ts}`);
+        
+        if (!postResult.ok) {
+          logger.error(`Failed to create bot message: ${postResult.error}`);
+          return;
+        }
+        
+        return postResult.ts as string; // Return the new message timestamp
+      } else {
+        // Update existing message
+        const botTs = data.botResponseTs || threadTs;
+        logger.info(`Updating bot message in channel ${channelId}, ts ${botTs}`);
+        
+        const updateResult = await this.slackClient.chat.update({
+          channel: channelId,
+          ts: botTs,
+          text: truncatedText,
+          blocks: blocks
+        });
+        
+        logger.info(`Slack update result: ${updateResult.ok}`);
+        
+        if (!updateResult.ok) {
+          logger.error(`Slack update failed with error: ${updateResult.error}`);
+        }
       }
 
     } catch (error: any) {
@@ -504,7 +531,7 @@ export class ThreadResponseConsumer {
   /**
    * Handle error messages
    */
-  private async handleError(data: ThreadResponsePayload): Promise<void> {
+  private async handleError(data: ThreadResponsePayload, isFirstResponse: boolean): Promise<void> {
     const { error, channelId, threadTs, userId } = data;
     
     if (!error) return;
@@ -538,17 +565,27 @@ export class ThreadResponseConsumer {
         }
       }
       
-      const updateOptions: any = {
-        channel: channelId,
-        ts: threadTs,
-        text: errorResult.text || errorContent,
-        mrkdwn: true,
-      };
-      
-      updateOptions.blocks = errorResult.blocks;
-      
-      const updateResult = await this.slackClient.chat.update(updateOptions);
-      logger.info(`Error message update result: ${updateResult.ok}`);
+      if (isFirstResponse) {
+        // Create new error message
+        const postResult = await this.slackClient.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: errorResult.text || errorContent,
+          mrkdwn: true,
+          blocks: errorResult.blocks
+        });
+        logger.info(`Error message created: ${postResult.ok}`);
+      } else {
+        // Update existing message with error
+        const botTs = data.botResponseTs || threadTs;
+        const updateResult = await this.slackClient.chat.update({
+          channel: channelId,
+          ts: botTs,
+          text: errorResult.text || errorContent,
+          blocks: errorResult.blocks
+        });
+        logger.info(`Error message update result: ${updateResult.ok}`);
+      }
 
     } catch (updateError: any) {
       logger.error(`Failed to send error message to Slack: ${updateError.message}`);

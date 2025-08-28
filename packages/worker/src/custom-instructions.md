@@ -136,4 +136,3 @@ kubectl apply -f deployment.yaml
 - If the process exposes a port, you MUST pass it to the start_process tool to expose the port via tunnel. You can't share localhost url to the user because the user doesn't have access to that environment.
 - Processes persist across agent sessions with auto-restart and logging
 - Use descriptive process IDs like "dev-server", "api-backend" (unique per session)
-- Always check status before starting, monitor logs when processes fail

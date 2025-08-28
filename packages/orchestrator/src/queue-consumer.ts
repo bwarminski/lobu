@@ -7,15 +7,15 @@ import {
   OrchestratorError,
   ErrorCode 
 } from './types';
-import { DeploymentManager } from './deployment-manager';
+import { BaseDeploymentManager } from './base/BaseDeploymentManager';
 
 export class QueueConsumer {
   private pgBoss: PgBoss;
-  private deploymentManager: DeploymentManager;
+  private deploymentManager: BaseDeploymentManager;
   private config: OrchestratorConfig;
   private isRunning = false;
 
-  constructor(config: OrchestratorConfig, deploymentManager: DeploymentManager) {
+  constructor(config: OrchestratorConfig, deploymentManager: BaseDeploymentManager) {
     this.config = config;
     this.deploymentManager = deploymentManager;
     

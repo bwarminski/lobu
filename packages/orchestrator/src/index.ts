@@ -9,13 +9,15 @@ import { config as dotenvConfig } from 'dotenv';
 import { join } from 'path';
 import { OrchestratorConfig, OrchestratorError, ErrorCode } from './types';
 import { DatabasePool } from './database-pool';
-import { DeploymentManager } from './deployment-manager';
+import { BaseDeploymentManager } from './base/BaseDeploymentManager';
+import { K8sDeploymentManager } from './k8s/K8sDeploymentManager';
+import { DockerDeploymentManager } from './docker/DockerDeploymentManager';
 import { QueueConsumer } from './queue-consumer';
 
 class PeerbotOrchestrator {
   private config: OrchestratorConfig;
   private dbPool: DatabasePool;
-  private deploymentManager: DeploymentManager;
+  private deploymentManager: BaseDeploymentManager;
   private queueConsumer: QueueConsumer;
   private isRunning = false;
   private cleanupInterval?: NodeJS.Timeout;
@@ -23,8 +25,24 @@ class PeerbotOrchestrator {
   constructor(config: OrchestratorConfig) {
     this.config = config;
     this.dbPool = new DatabasePool(config.database);
-    this.deploymentManager = new DeploymentManager(config, this.dbPool);
+    this.deploymentManager = this.createDeploymentManager(config);
     this.queueConsumer = new QueueConsumer(config, this.deploymentManager);
+  }
+
+  private createDeploymentManager(config: OrchestratorConfig): BaseDeploymentManager {
+    const deploymentMode = process.env.DEPLOYMENT_MODE || 'k8s';
+    
+    console.log(`🚀 Creating deployment manager for mode: ${deploymentMode}`);
+    
+    switch (deploymentMode.toLowerCase()) {
+      case 'docker':
+        return new DockerDeploymentManager(config, this.dbPool);
+      case 'k8s':
+      case 'kubernetes':
+        return new K8sDeploymentManager(config, this.dbPool);
+      default:
+        throw new Error(`Unsupported deployment mode: ${deploymentMode}. Use 'docker' or 'k8s'.`);
+    }
   }
 
   async start(): Promise<void> {

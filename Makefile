@@ -5,18 +5,19 @@
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make setup     - Interactive setup for Slack bot development"
-	@echo "  make dev       - Start Skaffold in dev mode with auto-rebuild"
-	@echo "  make test      - Run test bot"
-	@echo "  make clean     - Stop Skaffold and clean up resources"
+	@echo "  make setup       - Interactive setup for Slack bot development"
+	@echo "  make dev         - Start local development with Docker workers"
+	@echo "  make build-worker - Build worker Docker image"
+	@echo "  make test        - Run test bot"
+	@echo "  make clean       - Stop services and clean up resources"
 
 # Interactive setup for development
 setup:
 	@echo "🚀 Starting PeerBot development setup..."
 	@./bin/setup-slack.sh
 
-# Start development with Skaffold
-dev:
+# Start local development
+dev: build-worker
 	@if [ ! -f .env ]; then \
 		echo "❌ .env file not found!"; \
 		echo ""; \
@@ -25,23 +26,21 @@ dev:
 		echo ""; \
 		exit 1; \
 	fi
-	@if [ ! -f charts/peerbot/values-local.yaml ]; then \
-		echo "❌ values-local.yaml not found!"; \
-		echo ""; \
-		echo "Please run setup first:"; \
-		echo "  make setup"; \
-		echo ""; \
-		exit 1; \
-	fi
-	@echo "🚀 Starting Skaffold development mode..."
+	@echo "🚀 Starting local development mode..."
 	@echo "   This will:"
-	@echo "   - Sync .env values to Helm values"
-	@echo "   - Watch for file changes"
-	@echo "   - Automatically rebuild and redeploy"
-	@echo "   - Stream logs to console"
+	@echo "   - Build worker Docker image"
+	@echo "   - Start orchestrator and dispatcher with hot reload"
+	@echo "   - Use Docker containers for workers"
 	@echo ""
-	@./bin/sync-env-to-values.sh
-	@skaffold dev --port-forward $(if $(filter --debug,$(MAKECMDGOALS)),--verbosity=debug)
+	@export DEPLOYMENT_MODE=docker && \
+		export NODE_ENV=development && \
+		bun --watch packages/orchestrator/src/index.ts & \
+		bun --watch packages/dispatcher/src/index.ts
+
+# Build worker image for Docker mode
+build-worker:
+	@echo "🔨 Building worker Docker image..."
+	@docker build -f Dockerfile.worker -t peerbot-worker:latest .
 
 # Catch-all target to prevent errors when passing arguments
 %:
@@ -53,8 +52,7 @@ test:
 	@source .env && node test-bot.js --qa
 # Clean up
 clean:
-	@echo "🧹 Destroying..."
-	@skaffold delete --namespace=peerbot || true
-	@kubectl delete deployment -n peerbot --all || true
-	@kubectl delete pod -n peerbot --all || true
-	@echo "✅ Deployment destroyed"
+	@echo "🧹 Cleaning up..."
+	@docker stop $(shell docker ps -q --filter "label=app.kubernetes.io/component=worker") 2>/dev/null || true
+	@docker rm $(shell docker ps -aq --filter "label=app.kubernetes.io/component=worker") 2>/dev/null || true
+	@echo "✅ Docker containers cleaned up"

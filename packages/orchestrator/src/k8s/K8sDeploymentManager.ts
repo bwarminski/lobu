@@ -1,25 +1,21 @@
 import * as k8s from '@kubernetes/client-node';
+import { BaseDeploymentManager, DeploymentInfo } from '../base/BaseDeploymentManager';
+import { K8sSecretManager } from './K8sSecretManager';
 import { 
   OrchestratorConfig, 
   SimpleDeployment, 
   OrchestratorError,
   ErrorCode 
-} from './types';
-import { DatabasePool } from './database-pool';
-import { DatabaseManager } from './database-manager';
-import { SecretManager } from './secret-manager';
+} from '../types';
+import { DatabasePool } from '../database-pool';
 
-export class DeploymentManager {
+export class K8sDeploymentManager extends BaseDeploymentManager {
   private appsV1Api: k8s.AppsV1Api;
   private coreV1Api: k8s.CoreV1Api;
-  private config: OrchestratorConfig;
-  private dbPool: DatabasePool;
-  private databaseManager: DatabaseManager;
-  private secretManager: SecretManager;
 
   constructor(config: OrchestratorConfig, dbPool: DatabasePool) {
-    this.config = config;
-    this.dbPool = dbPool;
+    const secretManager = new K8sSecretManager(config);
+    super(config, dbPool, secretManager);
 
     const kc = new k8s.KubeConfig();
     try {
@@ -63,59 +59,60 @@ export class DeploymentManager {
     this.appsV1Api = kc.makeApiClient(k8s.AppsV1Api);
     this.coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
     
-    // Initialize managers
-    this.databaseManager = new DatabaseManager(dbPool);
-    this.secretManager = new SecretManager(this.coreV1Api, config);
+    // Pass the K8s API to the secret manager
+    (this.secretManager as K8sSecretManager).setCoreV1Api(this.coreV1Api);
   }
 
-
-
-
-
-  /**
-   * Create worker deployment for handling messages
-   */
-  async createWorkerDeployment(userId: string, threadId: string, teamId?: string, messageData?: any): Promise<void> {
-    const deploymentName = `peerbot-worker-${threadId}`;
-    
+  async listDeployments(): Promise<DeploymentInfo[]> {
     try {
-      // Always ensure user credentials exist first
-      const username = this.databaseManager.generatePostgresUsername(userId);
-      
-      console.log(`Ensuring PostgreSQL user and secret for ${username}...`);
-      
-      // Check if secret already exists and get existing password, or generate new one
-      await this.secretManager.getOrCreateUserCredentials(username, 
-        (username: string, password: string) => this.databaseManager.createPostgresUser(username, password));
+      const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
+        this.config.kubernetes.namespace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'app.kubernetes.io/component=worker'
+      );
 
-      // Check if deployment already exists
-      try {
-        await this.appsV1Api.readNamespacedDeployment(deploymentName, this.config.kubernetes.namespace);
-        console.log(`Deployment ${deploymentName} already exists, scaling to 1`);
-        await this.scaleDeployment(deploymentName, 1);
-        return;
-      } catch (error) {
-        // Deployment doesn't exist, create it
-      }
+      const now = Date.now();
+      const idleThresholdMinutes = this.config.worker.idleCleanupMinutes;
 
-      console.log(`Creating deployment ${deploymentName}...`);
-      await this.createSimpleWorkerDeployment(deploymentName, username, userId, messageData);
-      console.log(`✅ Successfully created deployment ${deploymentName}`);
-      
+      return (k8sDeployments.body.items || []).map((deployment: any) => {
+        const deploymentName = deployment.metadata?.name || '';
+        const deploymentId = deploymentName.replace('peerbot-worker-', '');
+        
+        // Get last activity from annotations or fallback to creation time
+        const lastActivityStr = deployment.metadata?.annotations?.['peerbot.io/last-activity'] ||
+                               deployment.metadata?.annotations?.['peerbot.io/created'] ||
+                               deployment.metadata?.creationTimestamp;
+        
+        const lastActivity = lastActivityStr ? new Date(lastActivityStr) : new Date();
+        const minutesIdle = (now - lastActivity.getTime()) / (1000 * 60);
+        const daysSinceActivity = minutesIdle / (60 * 24);
+        const replicas = deployment.spec?.replicas || 0;
+        
+        return {
+          deploymentName,
+          deploymentId,
+          lastActivity,
+          minutesIdle,
+          daysSinceActivity,
+          replicas,
+          isIdle: minutesIdle >= idleThresholdMinutes,
+          isVeryOld: daysSinceActivity >= 7
+        };
+      });
     } catch (error) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,
-        `Failed to create worker deployment: ${error instanceof Error ? error.message : String(error)}`,
-        { userId, threadId, error },
+        `Failed to list deployments: ${error instanceof Error ? error.message : String(error)}`,
+        { error },
         true
       );
     }
   }
 
-  /**
-   * Create a simple worker deployment
-   */
-  private async createSimpleWorkerDeployment(deploymentName: string, username: string, userId: string, messageData?: any): Promise<void> {
+  async createDeployment(deploymentName: string, username: string, userId: string, messageData?: any): Promise<void> {
     const deployment: SimpleDeployment = {
       apiVersion: 'apps/v1',
       kind: 'Deployment',
@@ -209,7 +206,6 @@ export class DeploymentManager {
                     }
                   }
                 },
-                // TODO: Add support for Anthropic API key env available only if the k8s secret has that value. 
                 {
                   name: 'CLAUDE_CODE_OAUTH_TOKEN',
                   valueFrom: {
@@ -281,11 +277,6 @@ export class DeploymentManager {
     await this.appsV1Api.createNamespacedDeployment(this.config.kubernetes.namespace, deployment);
   }
 
-
-
-  /**
-   * Scale deployment to specified replica count
-   */
   async scaleDeployment(deploymentName: string, replicas: number): Promise<void> {
     try {
       const deployment = await this.appsV1Api.readNamespacedDeployment(
@@ -312,120 +303,57 @@ export class DeploymentManager {
     }
   }
 
-  /**
-   * Reconcile deployments: unified method for cleanup and resource management
-   */
-  async reconcileDeployments(): Promise<void> {
+  async deleteDeployment(deploymentId: string): Promise<void> {
+    const deploymentName = `peerbot-worker-${deploymentId}`;
+    
+    // Delete the deployment
     try {
-      console.log('🔄 Starting deployment reconciliation...');
-      
-      // Get all worker deployments from Kubernetes
-      const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
-        this.config.kubernetes.namespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        'app.kubernetes.io/component=worker'
+      await this.appsV1Api.deleteNamespacedDeployment(
+        deploymentName,
+        this.config.kubernetes.namespace
       );
+      console.log(`✅ Deleted deployment: ${deploymentName}`);
+    } catch (error: any) {
+      if (error.statusCode === 404) {
+        console.log(`⚠️  Deployment ${deploymentName} not found (already deleted)`);
+      } else {
+        throw error;
+      }
+    }
 
-      const activeDeployments = k8sDeployments.body.items || [];
-      console.log(`📊 Found ${activeDeployments.length} worker deployments to reconcile`);
-      
-      if (activeDeployments.length === 0) {
-        console.log('✅ No deployments to reconcile');
-        return;
+    // Delete associated PVC if it exists
+    try {
+      const pvcName = `peerbot-workspace-${deploymentId}`;
+      await this.coreV1Api.deleteNamespacedPersistentVolumeClaim(
+        pvcName,
+        this.config.kubernetes.namespace
+      );
+      console.log(`✅ Deleted PVC: ${pvcName}`);
+    } catch (error: any) {
+      if (error.statusCode === 404) {
+        console.log(`⚠️  PVC for ${deploymentName} not found (already deleted)`);
+      } else {
+        console.log(`⚠️  Failed to delete PVC for ${deploymentName}:`, error.message);
       }
+    }
 
-      const now = Date.now();
-      const idleThresholdMinutes = this.config.worker.idleCleanupMinutes;
-      const maxDeployments = this.config.worker.maxDeployments || 20;
-      
-      // Analyze all deployments
-      const deploymentAnalysis = activeDeployments.map((deployment: any) => {
-        const deploymentName = deployment.metadata?.name || '';
-        const deploymentId = deploymentName.replace('peerbot-worker-', '');
-        
-        // Get last activity from annotations or fallback to creation time
-        const lastActivityStr = deployment.metadata?.annotations?.['peerbot.io/last-activity'] ||
-                               deployment.metadata?.annotations?.['peerbot.io/created'] ||
-                               deployment.metadata?.creationTimestamp;
-        
-        const lastActivity = lastActivityStr ? new Date(lastActivityStr) : new Date();
-        const minutesIdle = (now - lastActivity.getTime()) / (1000 * 60);
-        const daysSinceActivity = minutesIdle / (60 * 24);
-        const replicas = deployment.spec?.replicas || 0;
-        
-        return {
-          deploymentName,
-          deploymentId,
-          lastActivity,
-          minutesIdle,
-          daysSinceActivity,
-          replicas,
-          isIdle: minutesIdle >= idleThresholdMinutes,
-          isVeryOld: daysSinceActivity >= 7
-        };
-      }).sort((a, b) => a.lastActivity.getTime() - b.lastActivity.getTime()); // Oldest first
-      
-      let processedCount = 0;
-      
-      // Process each deployment based on its state
-      for (const analysis of deploymentAnalysis) {
-        const { deploymentName, deploymentId, minutesIdle, daysSinceActivity, replicas, isIdle, isVeryOld } = analysis;
-        
-        if (isVeryOld) {
-          // Delete very old deployments (>= 7 days)
-          console.log(`🗑️  Deleting very old deployment: ${deploymentName} (${daysSinceActivity.toFixed(1)} days old)`);
-          try {
-            await this.deleteWorkerDeployment(deploymentId);
-            processedCount++;
-            console.log(`✅ Deleted old deployment: ${deploymentName}`);
-          } catch (error) {
-            console.error(`❌ Failed to delete deployment ${deploymentName}:`, error);
-          }
-        } else if (isIdle && replicas > 0) {
-          // Scale down idle deployments
-          console.log(`⏸️  Scaling down idle deployment: ${deploymentName} (idle ${minutesIdle.toFixed(1)}min)`);
-          try {
-            await this.scaleDeployment(deploymentName, 0);
-            processedCount++;
-            console.log(`✅ Scaled down deployment: ${deploymentName}`);
-          } catch (error) {
-            console.error(`❌ Failed to scale down deployment ${deploymentName}:`, error);
-          }
-        }
+    // Delete associated secret if it exists
+    try {
+      const secretName = `peerbot-user-secret-${deploymentId.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`;
+      await this.coreV1Api.deleteNamespacedSecret(
+        secretName,
+        this.config.kubernetes.namespace
+      );
+      console.log(`✅ Deleted secret: ${secretName}`);
+    } catch (error: any) {
+      if (error.statusCode === 404) {
+        console.log(`⚠️  Secret for ${deploymentName} not found (already deleted)`);
+      } else {
+        console.log(`⚠️  Failed to delete secret for ${deploymentName}:`, error.message);
       }
-      
-      // Check if we exceed max deployments (after cleanup)
-      const remainingDeployments = deploymentAnalysis.filter(d => !d.isVeryOld);
-      if (remainingDeployments.length > maxDeployments) {
-        const excessCount = remainingDeployments.length - maxDeployments;
-        console.log(`⚠️  Too many deployments (${remainingDeployments.length} > ${maxDeployments}), cleaning up ${excessCount} oldest`);
-        
-        const deploymentsToDelete = remainingDeployments.slice(0, excessCount);
-        for (const { deploymentName, deploymentId } of deploymentsToDelete) {
-          console.log(`🧹 Removing excess deployment: ${deploymentName}`);
-          try {
-            await this.deleteWorkerDeployment(deploymentId);
-            processedCount++;
-            console.log(`✅ Removed excess deployment: ${deploymentName}`);
-          } catch (error) {
-            console.error(`❌ Failed to remove deployment ${deploymentName}:`, error);
-          }
-        }
-      }
-      
-      console.log(`🔄 Deployment reconciliation completed. Processed ${processedCount} deployments.`);
-      
-    } catch (error) {
-      console.error('Error during deployment reconciliation:', error instanceof Error ? error.message : String(error));
     }
   }
 
-  /**
-   * Update deployment activity annotation
-   */
   async updateDeploymentActivity(deploymentName: string): Promise<void> {
     try {
       const timestamp = new Date().toISOString();
@@ -449,73 +377,4 @@ export class DeploymentManager {
       // Don't throw - activity tracking should not block message processing
     }
   }
-
-
-
-  /**
-   * Delete a worker deployment and associated resources
-   */
-  async deleteWorkerDeployment(deploymentId: string): Promise<void> {
-    try {
-      const deploymentName = `peerbot-worker-${deploymentId}`;
-      
-      console.log(`🧹 Cleaning up idle worker deployment: ${deploymentName}`);
-      
-      // Delete the deployment
-      try {
-        await this.appsV1Api.deleteNamespacedDeployment(
-          deploymentName,
-          this.config.kubernetes.namespace
-        );
-        console.log(`✅ Deleted deployment: ${deploymentName}`);
-      } catch (error: any) {
-        if (error.statusCode === 404) {
-          console.log(`⚠️  Deployment ${deploymentName} not found (already deleted)`);
-        } else {
-          throw error;
-        }
-      }
-
-      // Delete associated PVC if it exists
-      try {
-        const pvcName = `peerbot-workspace-${deploymentId}`;
-        await this.coreV1Api.deleteNamespacedPersistentVolumeClaim(
-          pvcName,
-          this.config.kubernetes.namespace
-        );
-        console.log(`✅ Deleted PVC: ${pvcName}`);
-      } catch (error: any) {
-        if (error.statusCode === 404) {
-          console.log(`⚠️  PVC for ${deploymentName} not found (already deleted)`);
-        } else {
-          console.log(`⚠️  Failed to delete PVC for ${deploymentName}:`, error.message);
-        }
-      }
-
-      // Delete associated secret if it exists
-      try {
-        const secretName = `peerbot-user-secret-${deploymentId.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`;
-        await this.coreV1Api.deleteNamespacedSecret(
-          secretName,
-          this.config.kubernetes.namespace
-        );
-        console.log(`✅ Deleted secret: ${secretName}`);
-      } catch (error: any) {
-        if (error.statusCode === 404) {
-          console.log(`⚠️  Secret for ${deploymentName} not found (already deleted)`);
-        } else {
-          console.log(`⚠️  Failed to delete secret for ${deploymentName}:`, error.message);
-        }
-      }
-
-    } catch (error) {
-      throw new OrchestratorError(
-        ErrorCode.DEPLOYMENT_DELETE_FAILED,
-        `Failed to delete deployment for ${deploymentId}: ${error instanceof Error ? error.message : String(error)}`,
-        { deploymentId, error },
-        true
-      );
-    }
-  }
-
 }

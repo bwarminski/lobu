@@ -80,7 +80,6 @@ The MCP process manager server is available with these tools:
 - restart_process
 - get_process_status
 - get_process_logs
-- monitor_processes
 
 EOF
     echo "✅ Created CLAUDE.md"

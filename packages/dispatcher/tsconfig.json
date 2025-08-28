@@ -11,7 +11,10 @@
     "esModuleInterop": true,
     "verbatimModuleSyntax": false,
     "noEmit": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "downlevelIteration": true,
+    "target": "ES2017",
+    "skipLibCheck": true
   },
   "include": [
     "src/**/*"

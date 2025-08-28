@@ -1,12 +1,12 @@
 {
   "name": "@claude-code-slack/worker",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "description": "Ephemeral worker that runs Claude Code sessions in Kubernetes Jobs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc && cp src/custom-instructions.md dist/ && tsc mcp/process-manager-server.ts --outDir dist/mcp --module esnext --moduleResolution bundler --allowImportingTsExtensions false --downlevelIteration --skipLibCheck",
+    "build": "tsc && cp src/custom-instructions.md dist/ && tsc mcp/process-manager-server.ts --outDir dist/mcp --module esnext --moduleResolution bundler --allowImportingTsExtensions false --downlevelIteration --skipLibCheck && mv dist/mcp/process-manager-server.js dist/mcp/process-manager-server.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "bun test",
@@ -17,7 +17,6 @@
     "@modelcontextprotocol/sdk": "^1.0.5",
     "@octokit/rest": "^21.1.1",
     "@sentry/node": "^10.6.0",
-    "localtunnel": "^2.0.2",
     "node-fetch": "^3.3.2",
     "pg": "^8.11.3",
     "pg-boss": "^10.0.2",

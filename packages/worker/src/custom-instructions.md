@@ -113,9 +113,6 @@ kubectl apply -f deployment.yaml
 **Available projects:**
 {{makeTargetsSummary}}
 
-**Available CLIs:**
-- `localtunnel` - You MUST use it to make the relevant ports accessible to the user if it's a web app. After you created the tunnel, you MUST run `curl https://loca.lt/mytunnelpassword` and include the password in the message to the user.
-
 **Guidelines:**
 - Repository: {{repositoryUrl}}
 - Branch: claude/{{sessionKeyFormatted}}
@@ -135,7 +132,8 @@ kubectl apply -f deployment.yaml
 5. To create a new persona, create a new file in .claude/agents/agent-name.md and in there add the agent's traits based on the form values the user enters.
 
 **Background Process Management:**
-- For long-running processes (web servers, tunnels), use the MCP process manager tools
-- The MCP server provides proper process monitoring, auto-restart, and persistent logging
-- Available MCP tools: start_process, stop_process, restart_process, get_process_status, get_process_logs, monitor_processes
-
+- You MUST use MCP process manager tools (start_process, get_process_status, get_process_logs, stop_process) for long-running processes.
+- If the process exposes a port, you MUST pass it to the start_process tool to expose the port via tunnel. You can't share localhost url to the user because the user doesn't have access to that environment.
+- Processes persist across agent sessions with auto-restart and logging
+- Use descriptive process IDs like "dev-server", "api-backend" (unique per session)
+- Always check status before starting, monitor logs when processes fail

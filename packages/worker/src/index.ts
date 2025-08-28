@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { initSentry } from "./sentry";
+// Force rebuild to deploy MCP config fix - timestamp: 1756399400
 
 // Initialize Sentry monitoring
 initSentry();
@@ -95,11 +96,8 @@ async function appendTerminationMessage(signal: string): Promise<void> {
   }
 }
 
-// Only start main() if explicitly requested via environment variable
-// This prevents side effects when importing ClaudeWorker class
-if (process.env.RUN_WORKER_MAIN === "true" || process.env.WORKER_MODE === "queue") {
-  main();
-}
-
 export type { WorkerConfig } from "./types";
+
+main();
+
 

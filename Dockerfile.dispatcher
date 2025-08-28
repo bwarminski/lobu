@@ -9,21 +9,26 @@ WORKDIR /app
 
 # Copy all package files
 COPY package.json ./
+COPY tsconfig.json ./
 COPY packages/dispatcher/package.json ./packages/dispatcher/
-COPY packages/core-runner/package.json ./packages/core-runner/
+COPY packages/shared/package.json ./packages/shared/
 COPY packages/worker/package.json ./packages/worker/
 COPY packages/orchestrator/package.json ./packages/orchestrator/
 
 # Install dependencies
 RUN bun install
 
-# Copy source code for dispatcher and core-runner only
+# Copy source code for dispatcher and shared only
 COPY packages/dispatcher/ ./packages/dispatcher/
-COPY packages/core-runner/ ./packages/core-runner/
+COPY packages/shared/ ./packages/shared/
 
-# Build
+# Build shared first
+WORKDIR /app/packages/shared
+RUN bun run build
+
+# Build dispatcher
 WORKDIR /app/packages/dispatcher
-RUN bun run build.ts
+RUN bun run build
 
 # Runtime
 ENV NODE_ENV=production
@@ -32,4 +37,4 @@ EXPOSE 3000
 # Runtime user setup is handled by node:20-alpine
 
 # Use Node.js for runtime (better WebSocket compatibility)
-CMD ["node", "dist/src/index.js"]
+CMD ["node", "dist/index.js"]

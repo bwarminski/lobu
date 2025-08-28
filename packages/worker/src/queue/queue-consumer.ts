@@ -247,6 +247,8 @@ export class WorkerQueueConsumer {
     // Build Claude options with security restrictions from env vars (only if set)
     const claudeOptions = {
       ...(payload.claudeOptions || {}),
+      // Add MCP config if the file exists
+      mcpConfig: "/home/claude/.claude/settings.mcp.json",
       // Apply security restrictions from environment only if env vars exist
       ...(process.env.CLAUDE_ALLOWED_TOOLS ? { allowedTools: process.env.CLAUDE_ALLOWED_TOOLS } : 
           payload.claudeOptions?.allowedTools ? { allowedTools: payload.claudeOptions.allowedTools } : {}),

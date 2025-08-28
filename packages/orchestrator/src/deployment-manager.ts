@@ -67,11 +67,6 @@ export class DeploymentManager {
     this.databaseManager = new DatabaseManager(dbPool);
     this.secretManager = new SecretManager(this.coreV1Api, config);
   }
-
-
-
-
-
   /**
    * Create worker deployment for handling messages
    */
@@ -99,7 +94,7 @@ export class DeploymentManager {
       }
 
       console.log(`Creating deployment ${deploymentName}...`);
-      await this.createSimpleWorkerDeployment(deploymentName, username, userId, messageData);
+      await this.doCreateWorkerDeployment(deploymentName, username, userId, messageData);
       console.log(`✅ Successfully created deployment ${deploymentName}`);
       
     } catch (error) {
@@ -115,7 +110,7 @@ export class DeploymentManager {
   /**
    * Create a simple worker deployment
    */
-  private async createSimpleWorkerDeployment(deploymentName: string, username: string, userId: string, messageData?: any): Promise<void> {
+  private async doCreateWorkerDeployment(deploymentName: string, username: string, userId: string, messageData?: any): Promise<void> {
     const deployment: SimpleDeployment = {
       apiVersion: 'apps/v1',
       kind: 'Deployment',
@@ -173,10 +168,6 @@ export class DeploymentManager {
                 },
                 // Worker configuration
                 {
-                  name: 'WORKER_MODE',
-                  value: 'queue'
-                },
-                {
                   name: 'USER_ID',
                   value: userId
                 },
@@ -190,7 +181,7 @@ export class DeploymentManager {
                 },
                 {
                   name: 'CHANNEL_ID',
-                  value: messageData?.channelId || 'unknown-channel'
+                  value: messageData?.channelId || ''
                 },
                 {
                   name: 'REPOSITORY_URL',
@@ -198,7 +189,7 @@ export class DeploymentManager {
                 },
                 {
                   name: 'ORIGINAL_MESSAGE_TS',
-                  value: messageData?.platformMetadata?.originalMessageTs || messageData?.messageId || 'unknown'
+                  value: messageData?.platformMetadata?.originalMessageTs || messageData?.messageId || ''
                 },
                 {
                   name: 'GITHUB_TOKEN',

@@ -169,7 +169,3 @@ async function main() {
     process.exit(1);
   }
 }
-
-// Only start if this file is run directly
-// Note: import.meta.main is not supported in TypeScript with current config
-// The main() function is called from index.ts instead

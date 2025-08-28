@@ -134,8 +134,8 @@ if command -v claude >/dev/null 2>&1; then
         echo "  ✅ MCP server configuration deployed to /home/claude/.claude/settings.mcp.json"
         
         # Also ensure the MCP server is executable
-        if [ -f "/app/packages/worker/dist/mcp/process-manager-server.js" ]; then
-            chmod +x /app/packages/worker/dist/mcp/process-manager-server.js
+        if [ -f "/app/packages/worker/dist/mcp/process-manager-server.mjs" ]; then
+            chmod +x /app/packages/worker/dist/mcp/process-manager-server.mjs
             echo "  ✅ MCP server made executable"
         fi
     else

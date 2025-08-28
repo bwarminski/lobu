@@ -25,15 +25,26 @@ RUN addgroup --gid 1001 claude && \
     adduser --system --uid 1001 --ingroup claude --home /home/claude claude && \
     echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Install Claude Code CLI globally and make it accessible to all users
+# Install Claude Code CLI and make it accessible to all users
 RUN bun install -g @anthropic-ai/claude-code@1.0.59 && \
-    claude_path=$(find /root/.bun -name claude -type f 2>/dev/null | head -1) && \
-    if [ -z "$claude_path" ]; then claude_path=$(which claude 2>/dev/null || echo ""); fi && \
-    if [ -z "$claude_path" ]; then claude_path=$(find / -name claude -type f -executable 2>/dev/null | grep -v proc | head -1); fi && \
-    echo "Found claude at: $claude_path" && \
-    if [ -n "$claude_path" ]; then ln -sf "$claude_path" /usr/local/bin/claude; else echo "Warning: Claude binary not found, continuing without symlink"; fi && \
-    echo "Testing claude command..." && \
-    (/usr/local/bin/claude --version || which claude || echo "Claude installation completed but binary not accessible")
+    echo "=== CLAUDE INSTALLATION DEBUG ===" && \
+    echo "Installing Claude CLI to shared location..." && \
+    # Copy the entire package to a shared location
+    cp -r /root/.bun/install/global/node_modules/@anthropic-ai/claude-code /opt/claude-code && \
+    # Make it executable and accessible to all users
+    chmod -R 755 /opt/claude-code && \
+    # Remove any existing symlink
+    rm -f /usr/local/bin/claude && \
+    # Create symlink to the accessible location
+    ln -sf /opt/claude-code/cli.js /usr/local/bin/claude && \
+    # Verify it works as root
+    echo "Testing as root:" && \
+    /usr/local/bin/claude --version && \
+    # Verify permissions are correct for claude user
+    echo "Checking permissions for claude user:" && \
+    ls -la /usr/local/bin/claude && \
+    ls -la /opt/claude-code/cli.js && \
+    echo "✅ Claude CLI successfully installed at /opt/claude-code and symlinked"
 
 # Ensure the non-root user can also access bun and claude
 RUN echo 'export PATH="/home/bun/.bun/bin:$PATH"' >> /home/claude/.bashrc && \
@@ -85,7 +96,7 @@ RUN mkdir -p /home/claude/.claude/projects && \
     chmod -R 755 /home/claude/.claude && \
     chmod +x /app/scripts/*.sh && \
     echo 'export PATH="/home/claude/bin:$PATH"' >> /home/claude/.bashrc && \
-    chmod +x /app/packages/worker/dist/mcp/process-manager-server.js 2>/dev/null || true
+    chmod +x /app/packages/worker/dist/mcp/process-manager-server.mjs 2>/dev/null || true
 
 # Switch to non-root user
 USER claude

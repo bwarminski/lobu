@@ -122,7 +122,6 @@ The MCP (Model Context Protocol) server is automatically configured for Claude C
 - `restart_process` - Restart a process
 - `get_process_status` - Check process status
 - `get_process_logs` - Retrieve process logs
-- `monitor_processes` - Enable auto-restart monitoring
 
 ## Troubleshooting
 

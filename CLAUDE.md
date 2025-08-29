@@ -26,7 +26,9 @@ The bot updates automatically when running `make dev` - no manual steps needed!
 ## Development Configuration
 
 - Rate limiting is disabled in local development (dispatcher.disableRateLimit: true in values-local.yaml)
-- To manually rebuild worker image if needed: `docker build -f Dockerfile.worker -t claude-worker:latest .`
+- Dockerfile.worker supports both dev and prod modes via BUILD_MODE build arg
+- Production build (default): `docker build -f Dockerfile.worker -t claude-worker:latest .`
+- Development build: `docker build -f Dockerfile.worker --build-arg BUILD_MODE=dev -t claude-worker:dev .`
 
 ## k3s Setup
 

@@ -10,6 +10,7 @@ export interface WorkerConfig {
   userPrompt: string; // Base64 encoded
   slackResponseChannel: string;
   slackResponseTs: string;
+  botResponseTs?: string; // Bot's response message timestamp for updates
   claudeOptions: string; // JSON string
   sessionId?: string; // Claude session ID for new sessions
   resumeSessionId?: string; // Claude session ID to resume from

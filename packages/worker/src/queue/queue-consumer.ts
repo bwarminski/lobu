@@ -267,6 +267,7 @@ export class WorkerQueueConsumer {
       userPrompt: Buffer.from(payload.messageText).toString("base64"), // Base64 encode for consistency
       slackResponseChannel: platformMetadata.slackResponseChannel || payload.channelId,
       slackResponseTs: platformMetadata.slackResponseTs || payload.messageId,
+      botResponseTs: platformMetadata.botResponseTs, // Pass through bot response timestamp
       claudeOptions: JSON.stringify(claudeOptions),
       sessionId: sessionId, // Pass through sessionId for new sessions
       resumeSessionId: resumeSessionId, // Pass through resumeSessionId for session continuity

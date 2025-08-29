@@ -47,6 +47,7 @@ export class QueueIntegration {
     responseChannel?: string; 
     responseTs?: string;
     messageId?: string;
+    botResponseTs?: string;
     workspaceManager?: any;
   }) {
     this.pgBoss = new PgBoss(config.databaseUrl);
@@ -56,7 +57,7 @@ export class QueueIntegration {
     this.responseChannel = config.responseChannel || process.env.SLACK_RESPONSE_CHANNEL!;
     this.responseTs = config.responseTs || process.env.INITIAL_SLACK_RESPONSE_TS || process.env.SLACK_RESPONSE_TS!;
     this.messageId = config.messageId || process.env.INITIAL_SLACK_MESSAGE_ID || process.env.SLACK_MESSAGE_ID!;
-    this.botResponseTs = process.env.BOT_RESPONSE_TS; // Bot's response message timestamp if it exists
+    this.botResponseTs = config.botResponseTs || process.env.BOT_RESPONSE_TS; // Bot's response message timestamp from config or env
     
     // Get deployment name from environment for stop button
     this.deploymentName = process.env.DEPLOYMENT_NAME;

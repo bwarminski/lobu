@@ -242,6 +242,10 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                   name: 'ORIGINAL_MESSAGE_TS',
                   value: messageData?.platformMetadata?.originalMessageTs || messageData?.messageId || ''
                 },
+                ...(messageData?.platformMetadata?.botResponseTs ? [{
+                  name: 'BOT_RESPONSE_TS',
+                  value: messageData.platformMetadata.botResponseTs
+                }] : []),
                 {
                   name: 'GITHUB_TOKEN',
                   valueFrom: {

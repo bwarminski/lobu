@@ -54,20 +54,12 @@ export class QueuePersistentClaudeWorker {
   }
 
   private buildConnectionString(): string {
-    // Use DATABASE_URL from environment
+    // Use DATABASE_URL from environment (required)
     const connectionString = process.env.DATABASE_URL;
-    if (connectionString) {
-      return connectionString;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL environment variable is required');
     }
-    
-    // Fallback to building from individual components
-    const host = process.env.DATABASE_HOST || "localhost";
-    const port = process.env.DATABASE_PORT || "5432";
-    const database = process.env.DATABASE_NAME || "peerbot";
-    const username = encodeURIComponent(process.env.DATABASE_USER || "postgres");
-    const password = encodeURIComponent(process.env.DATABASE_PASSWORD || "");
-
-    return `postgres://${username}:${password}@${host}:${port}/${database}`;
+    return connectionString;
   }
 
 

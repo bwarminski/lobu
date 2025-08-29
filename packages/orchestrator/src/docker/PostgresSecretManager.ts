@@ -15,10 +15,22 @@ export class PostgresSecretManager extends BaseSecretManager {
    */
   async getOrCreateUserCredentials(username: string, createPostgresUser: (username: string, password: string) => Promise<void>): Promise<string> {
     try {
+      // First ensure the user exists in the users table
+      const platformUserId = username.toUpperCase(); // Convert back to original format
+      const userResult = await this.dbPool.query(
+        `INSERT INTO users (platform, platform_user_id, created_at, updated_at) 
+         VALUES ('slack', $1, NOW(), NOW())
+         ON CONFLICT (platform, platform_user_id) 
+         DO UPDATE SET updated_at = NOW()
+         RETURNING id`,
+        [platformUserId]
+      );
+      const userId = userResult.rows[0].id;
+
       // Try to read existing credentials from database
       const result = await this.dbPool.query(
-        `SELECT environment_variables->'DB_PASSWORD' as password FROM user_configs WHERE environment_variables ? 'DB_USERNAME' AND environment_variables->>'DB_USERNAME' = $1`,
-        [username]
+        `SELECT environment_variables->'DB_PASSWORD' as password FROM user_configs WHERE user_id = $1`,
+        [userId]
       );
       
       if (result.rows.length > 0 && result.rows[0].password) {
@@ -44,25 +56,36 @@ export class PostgresSecretManager extends BaseSecretManager {
    */
   async createUserSecret(username: string, password: string): Promise<void> {
     try {
-      const dbHost = this.config.database.host;
-      const dbPort = this.config.database.port;
-      const dbName = this.config.database.database;
+      // First get the user_id from the users table
+      const platformUserId = username.toUpperCase(); // Convert back to original format
+      const userResult = await this.dbPool.query(
+        `SELECT id FROM users WHERE platform = 'slack' AND platform_user_id = $1`,
+        [platformUserId]
+      );
       
-      const envVars = {
-        DATABASE_URL: `postgres://${username}:${password}@${dbHost}:${dbPort}/${dbName}`,
-        DB_USERNAME: username,
-        DB_PASSWORD: password
-      };
+      if (userResult.rows.length === 0) {
+        throw new Error(`User not found: ${platformUserId}`);
+      }
+      
+      const userId = userResult.rows[0].id;
+      
+      // Parse the DATABASE_URL to extract components and reconstruct with user credentials
+      const dbUrl = new URL(this.config.database.connectionString);
+      dbUrl.username = username;
+      dbUrl.password = password;
+      
+      // Convert to hstore format: key=>value pairs
+      const hstoreString = `DATABASE_URL=>"${dbUrl.toString()}",DB_USERNAME=>"${username}",DB_PASSWORD=>"${password}"`;
 
       // Insert or update user config with environment variables
       await this.dbPool.query(`
         INSERT INTO user_configs (user_id, environment_variables, created_at, updated_at) 
-        VALUES ($1, $2, NOW(), NOW())
+        VALUES ($1, $2::hstore, NOW(), NOW())
         ON CONFLICT (user_id) 
         DO UPDATE SET 
-          environment_variables = user_configs.environment_variables || $2,
+          environment_variables = user_configs.environment_variables || $2::hstore,
           updated_at = NOW()
-      `, [username, JSON.stringify(envVars)]);
+      `, [userId, hstoreString]);
 
       console.log(`✅ Stored credentials in database for user: ${username}`);
     } catch (error) {

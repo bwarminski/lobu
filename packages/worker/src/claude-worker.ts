@@ -37,6 +37,7 @@ export class ClaudeWorker {
       responseChannel: config.slackResponseChannel,
       responseTs: config.slackResponseTs,
       messageId: process.env.INITIAL_SLACK_MESSAGE_ID || config.slackResponseTs,
+      botResponseTs: config.botResponseTs, // Pass bot response timestamp from config
       workspaceManager: this.workspaceManager
     });
   }
@@ -139,11 +140,15 @@ export class ClaudeWorker {
       const userPrompt = Buffer.from(this.config.userPrompt, "base64").toString("utf-8");
       logger.info(`User prompt: ${userPrompt.substring(0, 100)}...`);
       
-      // Update initial message with simple status
-      await this.queueIntegration.updateProgress("💻 Setting up workspace...");
+      // Check if this is a resumed session to show appropriate message
+      const isResumedSession = !!this.config.resumeSessionId;
+      const workspaceMessage = isResumedSession ? "💻 Restoring workspace..." : "💻 Setting up workspace...";
+      
+      // Update initial message with appropriate status
+      await this.queueIntegration.updateProgress(workspaceMessage);
 
       // Setup workspace
-      logger.info("Setting up workspace...");
+      logger.info(isResumedSession ? "Restoring workspace..." : "Setting up workspace...");
       await Sentry.startSpan(
         {
           name: "worker.workspace_setup",

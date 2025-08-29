@@ -1,11 +1,6 @@
 export interface OrchestratorConfig {
   database: {
-    host: string;
-    port: number;
-    database: string;
-    username: string;
-    password: string;
-    ssl?: boolean;
+    connectionString: string;
   };
   queues: {
     connectionString: string;

@@ -1,5 +1,8 @@
 FROM oven/bun:1.2.9
 
+# Build argument to control dev/prod behavior
+ARG BUILD_MODE=prod
+
 WORKDIR /app
 
 # Install runtime dependencies including Node.js
@@ -60,21 +63,20 @@ COPY packages/orchestrator/package.json ./packages/orchestrator/
 # Install all dependencies including devDependencies for building
 RUN bun install
 
-# Copy all source code
+# Copy source code (needed for both dev and prod)
 COPY packages/ ./packages/
 COPY scripts/ ./scripts/
 
-# TypeScript is already installed as a devDependency
-
-# Build the shared and worker packages
-WORKDIR /app/packages/shared
-RUN bun run build || echo "Warning: shared build had errors"
-
-WORKDIR /app/packages/worker  
-RUN bun run build || echo "Warning: worker build had errors"
-
-# Verify the build output
-RUN ls -la /app/packages/worker/dist/ || echo "No dist directory found"
+# For production mode, build during image creation
+# For dev mode, we'll build at startup to allow for live code changes
+RUN if [ "$BUILD_MODE" = "prod" ]; then \
+        echo "Building for production..."; \
+        cd /app/packages/shared && bun run build; \
+        cd /app/packages/worker && bun run build; \
+        ls -la /app/packages/worker/dist/ || echo "No dist directory found"; \
+    else \
+        echo "Setting up for development mode..."; \
+    fi
 
 WORKDIR /app
 
@@ -93,9 +95,7 @@ RUN mkdir -p /home/claude/.claude/projects && \
     chown -R claude:claude /home/claude/.claude && \
     chown -R claude:claude /home/claude && \
     chmod -R 755 /home/claude/.claude && \
-    chmod +x /app/scripts/*.sh && \
-    echo 'export PATH="/home/claude/bin:$PATH"' >> /home/claude/.bashrc && \
-    chmod +x /app/packages/worker/dist/mcp/process-manager-server.mjs 2>/dev/null || true
+    echo 'export PATH="/home/claude/bin:$PATH"' >> /home/claude/.bashrc
 
 # Switch to non-root user
 USER claude
@@ -103,5 +103,31 @@ USER claude
 # Set working directory to worker
 WORKDIR /app/packages/worker
 
-# Setup MCP server and then run the worker
-ENTRYPOINT ["/bin/bash", "-c", "/app/packages/worker/scripts/setup-mcp-server.sh && exec bun run dist/index.js"]
+# Create an entrypoint script that handles both dev and prod modes
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Make scripts executable\n\
+chmod +x /app/scripts/*.sh 2>/dev/null || true\n\
+\n\
+# Setup MCP server\n\
+/app/packages/worker/scripts/setup-mcp-server.sh\n\
+\n\
+# Check if we need to build (dev mode or if dist does not exist)\n\
+if [ "$BUILD_MODE" = "dev" ] || [ ! -d "/app/packages/worker/dist" ]; then\n\
+    echo "Building packages..."\n\
+    cd /app/packages/shared && bun run build\n\
+    cd /app/packages/worker && bun run build\n\
+    chmod +x /app/packages/worker/dist/mcp/process-manager-server.mjs 2>/dev/null || true\n\
+fi\n\
+\n\
+# Run the worker\n\
+cd /app/packages/worker\n\
+exec bun run dist/index.js' > /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh && \
+    chown claude:claude /app/entrypoint.sh
+
+# Set the build mode as an environment variable
+ENV BUILD_MODE=${BUILD_MODE}
+
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -209,6 +209,7 @@ export class ThreadResponseConsumer {
   private isRunning = false;
   private repoManager: GitHubRepositoryManager;
   private userMappings: Map<string, string>; // slackUserId -> githubUsername
+  private sessionBotMessages: Map<string, string> = new Map(); // sessionKey -> botMessageTs
 
   constructor(
     connectionString: string,
@@ -305,8 +306,12 @@ export class ThreadResponseConsumer {
       
       logger.info(`Processing thread response job for message ${data.messageId}`);
 
-      // Determine if this is the first response from the worker
-      const isFirstResponse = !data.botResponseTs;
+      // Create a session key to track bot messages per thread
+      const sessionKey = `${data.userId}:${data.threadTs}`;
+      
+      // Check if we have a bot message for this session
+      const existingBotMessageTs = this.sessionBotMessages.get(sessionKey);
+      const isFirstResponse = !existingBotMessageTs && !data.botResponseTs;
       const reactionTimestamp = data.originalMessageTs || data.messageId;
       
       // Handle reaction transitions
@@ -326,16 +331,19 @@ export class ThreadResponseConsumer {
       
       // Handle message content
       if (data.content) {
-        const newBotResponseTs = await this.handleMessageUpdate(data, isFirstResponse);
+        // Pass the existing bot message timestamp if we have one
+        const botMessageTs = existingBotMessageTs || data.botResponseTs;
+        const newBotResponseTs = await this.handleMessageUpdate(data, isFirstResponse, botMessageTs);
         
         // Store the bot response timestamp for future updates
         if (isFirstResponse && newBotResponseTs) {
-          // TODO: Pass this back to dispatcher or store in persistent storage
-          // For now, we'll rely on it being passed in subsequent messages
-          logger.info(`Bot created first response with ts: ${newBotResponseTs}`);
+          logger.info(`Bot created first response with ts: ${newBotResponseTs}, storing for session ${sessionKey}`);
+          this.sessionBotMessages.set(sessionKey, newBotResponseTs);
         }
       } else if (data.error) {
-        await this.handleError(data, isFirstResponse);
+        // Pass the existing bot message timestamp for error updates
+        const botMessageTs = existingBotMessageTs || data.botResponseTs;
+        await this.handleError(data, isFirstResponse, botMessageTs);
       }
 
       // Log completion
@@ -407,7 +415,7 @@ export class ThreadResponseConsumer {
   /**
    * Handle message content updates
    */
-  private async handleMessageUpdate(data: ThreadResponsePayload, isFirstResponse: boolean): Promise<string | void> {
+  private async handleMessageUpdate(data: ThreadResponsePayload, isFirstResponse: boolean, botMessageTs?: string): Promise<string | void> {
     const { content, channelId, threadTs, userId } = data;
     
     if (!content) return;
@@ -461,8 +469,8 @@ export class ThreadResponseConsumer {
         
         return postResult.ts as string; // Return the new message timestamp
       } else {
-        // Update existing message
-        const botTs = data.botResponseTs || threadTs;
+        // Update existing message - use the passed botMessageTs or fallback
+        const botTs = botMessageTs || data.botResponseTs || threadTs;
         logger.info(`Updating bot message in channel ${channelId}, ts ${botTs}`);
         
         const updateResult = await this.slackClient.chat.update({
@@ -531,7 +539,7 @@ export class ThreadResponseConsumer {
   /**
    * Handle error messages
    */
-  private async handleError(data: ThreadResponsePayload, isFirstResponse: boolean): Promise<void> {
+  private async handleError(data: ThreadResponsePayload, isFirstResponse: boolean, botMessageTs?: string): Promise<void> {
     const { error, channelId, threadTs, userId } = data;
     
     if (!error) return;
@@ -576,8 +584,8 @@ export class ThreadResponseConsumer {
         });
         logger.info(`Error message created: ${postResult.ok}`);
       } else {
-        // Update existing message with error
-        const botTs = data.botResponseTs || threadTs;
+        // Update existing message with error - use the passed botMessageTs or fallback
+        const botTs = botMessageTs || data.botResponseTs || threadTs;
         const updateResult = await this.slackClient.chat.update({
           channel: channelId,
           ts: botTs,

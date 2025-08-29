@@ -8,12 +8,7 @@ export class DatabasePool {
   constructor(config: OrchestratorConfig['database']) {
     this.config = config;
     this.pool = new Pool({
-      host: config.host,
-      port: config.port,
-      database: config.database,
-      user: config.username,
-      password: config.password,
-      ssl: config.ssl,
+      connectionString: config.connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,

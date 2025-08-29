@@ -9,6 +9,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { join } from 'path';
 import { OrchestratorConfig, OrchestratorError, ErrorCode } from './types';
 import { DatabasePool } from './database-pool';
+import { MigrationRunner } from './migrations';
 import { BaseDeploymentManager } from './base/BaseDeploymentManager';
 import { K8sDeploymentManager } from './k8s/K8sDeploymentManager';
 import { DockerDeploymentManager } from './docker/DockerDeploymentManager';
@@ -30,6 +31,25 @@ class PeerbotOrchestrator {
   }
 
   private createDeploymentManager(config: OrchestratorConfig): BaseDeploymentManager {
+    // Check for explicit deployment mode
+    const deploymentMode = process.env.DEPLOYMENT_MODE;
+    
+    if (deploymentMode === 'docker') {
+      if (!this.isDockerAvailable()) {
+        throw new Error('DEPLOYMENT_MODE=docker but Docker is not available');
+      }
+      console.log('🚀 Using DockerDeploymentManager (DEPLOYMENT_MODE=docker)');
+      return new DockerDeploymentManager(config, this.dbPool);
+    }
+    
+    if (deploymentMode === 'kubernetes' || deploymentMode === 'k8s') {
+      if (!this.isKubernetesAvailable()) {
+        throw new Error('DEPLOYMENT_MODE=kubernetes but Kubernetes is not available');
+      }
+      console.log('🚀 Using K8sDeploymentManager (DEPLOYMENT_MODE=kubernetes)');
+      return new K8sDeploymentManager(config, this.dbPool);
+    }
+    
     // Auto-detect deployment mode based on environment
     if (this.isKubernetesAvailable()) {
       console.log('🚀 Kubernetes detected, using K8sDeploymentManager');
@@ -92,6 +112,10 @@ class PeerbotOrchestrator {
       // Test database connection
       await this.testDatabaseConnection();
       console.log('✅ Database connection verified');
+
+      // Run database migrations
+      const migrationRunner = new MigrationRunner(this.dbPool);
+      await migrationRunner.runMigrations();
 
       // Start queue consumer
       await this.queueConsumer.start();
@@ -356,12 +380,7 @@ async function main() {
     // Load configuration from environment
     const config: OrchestratorConfig = {
       database: {
-        host: process.env.DATABASE_HOST || 'localhost',
-        port: parseInt(process.env.DATABASE_PORT || '5432'),
-        database: process.env.DATABASE_NAME || 'peerbot',
-        username: process.env.DATABASE_USERNAME || 'postgres',
-        password: process.env.DATABASE_PASSWORD || '',
-        ssl: process.env.DATABASE_SSL === 'true'
+        connectionString: process.env.DATABASE_URL!
       },
       queues: {
         connectionString: process.env.DATABASE_URL!,
@@ -393,12 +412,8 @@ async function main() {
     };
 
     // Validate required configuration
-    if (!config.queues.connectionString) {
+    if (!config.database.connectionString) {
       throw new Error('DATABASE_URL is required');
-    }
-
-    if (!config.database.password) {
-      throw new Error('DATABASE_PASSWORD is required');
     }
 
     // Create and start orchestrator

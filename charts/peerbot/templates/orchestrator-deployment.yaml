@@ -59,24 +59,12 @@ spec:
         imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
         
         env:
-        # Database connection
-        - name: DATABASE_HOST
-          value: {{ include "peerbot.fullname" . }}-postgresql
-        - name: DATABASE_PORT
-          value: "5432"
-        - name: DATABASE_NAME
-          value: {{ .Values.postgresql.database }}
-        - name: DATABASE_USERNAME
-          value: {{ .Values.postgresql.username }}
-        - name: DATABASE_PASSWORD
+        # Database connection (single DATABASE_URL for everything)
+        - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: {{ include "peerbot.fullname" . }}-secrets
-              key: postgresql-password
-        
-        # pgboss connection
-        - name: DATABASE_URL
-          value: "postgres://{{ .Values.postgresql.username }}:peerbot123@{{ include "peerbot.fullname" . }}-postgresql:5432/{{ .Values.postgresql.database }}"
+              key: database-url
         
         # Sentry configuration
         - name: SENTRY_DSN

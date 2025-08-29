@@ -1,4 +1,4 @@
-import * as Docker from 'dockerode';
+import Docker from 'dockerode';
 import { BaseDeploymentManager, DeploymentInfo } from '../base/BaseDeploymentManager';
 import { PostgresSecretManager } from './PostgresSecretManager';
 import { OrchestratorConfig, OrchestratorError, ErrorCode } from '../types';
@@ -19,7 +19,8 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
     const secretManager = new PostgresSecretManager(config, dbPool);
     super(config, dbPool, secretManager);
     
-    this.docker = new Docker();
+    // Explicitly use the Unix socket for Docker connection
+    this.docker = new Docker({ socketPath: '/var/run/docker.sock' });
   }
 
   async listDeployments(): Promise<DeploymentInfo[]> {
@@ -70,16 +71,24 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
   async createDeployment(deploymentName: string, username: string, userId: string, messageData?: any): Promise<void> {
     try {
-      // Create workspace directory for this user
-      const workspaceDir = `./workspaces/${userId}`;
+      // Create workspace directory for this user (use absolute path)
+      const workspaceDir = `${process.cwd()}/workspaces/${userId}`;
       
       // Environment variables
-      const dbHost = this.config.database.host;
-      const dbPort = this.config.database.port;
-      const dbName = this.config.database.database;
+      // Parse the DATABASE_URL to extract components and reconstruct with user credentials
+      const dbUrl = new URL(this.config.database.connectionString);
+      dbUrl.username = username;
+      dbUrl.password = await this.getPasswordForUser(username);
+      
+      // On macOS/Windows, Docker containers need to use host.docker.internal instead of localhost
+      if (process.platform === 'darwin' || process.platform === 'win32') {
+        if (dbUrl.hostname === 'localhost' || dbUrl.hostname === '127.0.0.1') {
+          dbUrl.hostname = 'host.docker.internal';
+        }
+      }
       
       const envVars = [
-        `DATABASE_URL=postgres://${username}:${await this.getPasswordForUser(username)}@${dbHost}:${dbPort}/${dbName}`,
+        `DATABASE_URL=${dbUrl.toString()}`,
         'WORKER_MODE=queue',
         `USER_ID=${userId}`,
         `DEPLOYMENT_NAME=${deploymentName}`,
@@ -87,6 +96,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         `CHANNEL_ID=${messageData?.channelId || 'unknown-channel'}`,
         `REPOSITORY_URL=${messageData?.platformMetadata?.repositoryUrl || process.env.GITHUB_REPOSITORY || 'https://github.com/anthropics/claude-code-examples'}`,
         `ORIGINAL_MESSAGE_TS=${messageData?.platformMetadata?.originalMessageTs || messageData?.messageId || 'unknown'}`,
+        ...(messageData?.platformMetadata?.botResponseTs ? [`BOT_RESPONSE_TS=${messageData.platformMetadata.botResponseTs}`] : []),
         `GITHUB_TOKEN=${process.env.GITHUB_TOKEN || ''}`,
         `CLAUDE_CODE_OAUTH_TOKEN=${process.env.CLAUDE_CODE_OAUTH_TOKEN || ''}`,
         'LOG_LEVEL=info',
@@ -120,7 +130,11 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
           } : {})
         },
         HostConfig: {
-          Binds: [
+          Binds: process.env.NODE_ENV === 'development' ? [
+            `${workspaceDir}:/workspace`,
+            `${process.cwd()}/packages:/app/packages`,
+            `${process.cwd()}/scripts:/app/scripts`
+          ] : [
             `${workspaceDir}:/workspace`
           ],
           RestartPolicy: {

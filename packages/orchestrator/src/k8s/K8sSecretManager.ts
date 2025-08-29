@@ -68,12 +68,13 @@ export class K8sSecretManager extends BaseSecretManager {
         // Secret doesn't exist, create it
       }
 
-      const dbHost = this.config.database.host;
-      const dbPort = this.config.database.port;
-      const dbName = this.config.database.database;
+      // Parse the DATABASE_URL to extract components and reconstruct with user credentials
+      const dbUrl = new URL(this.config.database.connectionString);
+      dbUrl.username = username;
+      dbUrl.password = password;
       
       const secretData = {
-        'DATABASE_URL': Buffer.from(`postgres://${username}:${password}@${dbHost}:${dbPort}/${dbName}`).toString('base64'),
+        'DATABASE_URL': Buffer.from(dbUrl.toString()).toString('base64'),
         'DB_USERNAME': Buffer.from(username).toString('base64'),
         'DB_PASSWORD': Buffer.from(password).toString('base64')
       };

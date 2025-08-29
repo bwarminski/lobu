@@ -40,7 +40,13 @@ dev: build-worker
 # Build worker image for Docker mode
 build-worker:
 	@echo "🔨 Building worker Docker image..."
-	@docker build -f Dockerfile.worker -t peerbot-worker:latest .
+	@if [ "$$NODE_ENV" = "development" ]; then \
+		echo "📦 Building development image with volume mounts..."; \
+		docker build -f Dockerfile.worker.dev -t peerbot-worker:latest .; \
+	else \
+		echo "📦 Building production image..."; \
+		docker build -f Dockerfile.worker -t peerbot-worker:latest .; \
+	fi
 
 # Catch-all target to prevent errors when passing arguments
 %:

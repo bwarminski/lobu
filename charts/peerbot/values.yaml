@@ -79,7 +79,6 @@ postgresql:
     storageClass: ""
 
 slack:
-  triggerPhrase: "@peercloud"
   socketMode: true
   allowDirectMessages: true
   allowPrivateChannels: true

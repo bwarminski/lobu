@@ -30,7 +30,7 @@ echo "$RESULT2" | jq .
 echo ""
 
 # Test 3: Extract response field (even if reaction detection failed)
-echo "📝 Test 3: Response field analysis"
+echo "📝 Tesit shout 3: Response field analysis"
 echo "First message response field:"
 echo "$RESULT1" | jq .response
 echo ""

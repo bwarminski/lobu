@@ -94,11 +94,6 @@ if [ -n "$CLAUDE_TIMEOUT_MINUTES" ]; then
     update_yaml_value "CLAUDE_TIMEOUT_MINUTES" "$CLAUDE_TIMEOUT_MINUTES" ".claude.timeoutMinutes"
 fi
 
-# Sync slack configuration
-if [ -n "$SLACK_TRIGGER_PHRASE" ]; then
-    update_yaml_value "SLACK_TRIGGER_PHRASE" "$SLACK_TRIGGER_PHRASE" ".slack.triggerPhrase"
-fi
-
 # Replace the original values file
 mv "$TEMP_VALUES" "$VALUES_FILE"
 

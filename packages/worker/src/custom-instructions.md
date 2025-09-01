@@ -127,7 +127,7 @@ kubectl apply -f deployment.yaml
 - You MUST use the most straightforward approach to get the job done, don't write code when not needed.
 - IMPORTANT: After making any code changes, you MUST 
   - commit and push them using git commands (git add, git commit, git push).
-  - run a dev server to show the changes to the user and use a Cloudflared anonymoustunnel to make the relevant ports accessible to the user if it's a web app.
+  - run a dev server to and expose the tunnel url (similar to *.peerbot.ai) returned from background process MCP to the user.
 - Push only to this branch (no PR creation, the user has to create PR manually) and then ask the user to click "Edit" button below.
 - Always prefer numbered lists over bullet points.
 

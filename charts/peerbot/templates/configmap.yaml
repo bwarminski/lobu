@@ -31,7 +31,6 @@ data:
   worker-ttl-seconds: {{ .Values.worker.job.ttlSecondsAfterFinished | quote }}
   
   # Slack Configuration
-  slack-trigger-phrase: {{ .Values.slack.triggerPhrase | quote }}
   slack-socket-mode: {{ .Values.slack.socketMode | quote }}
   slack-allow-direct-messages: {{ .Values.slack.allowDirectMessages | quote }}
   slack-allow-private-channels: {{ .Values.slack.allowPrivateChannels | quote }}

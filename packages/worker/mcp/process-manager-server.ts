@@ -97,18 +97,24 @@ class ProcessManager {
       fs.createWriteStream(logPath, { flags: "a" })
     );
 
+    // Determine the working directory - use workspace if available
+    const workingDir = process.env.WORKSPACE_DIR || process.cwd();
+    
     logStream.write(`Process ${id} starting at ${info.startedAt}\n`);
     logStream.write(`Command: ${command}\n`);
+    logStream.write(`Working Directory: ${workingDir}\n`);
     logStream.write(`Description: ${description}\n`);
     logStream.write("---\n");
     
     // Log to worker console
     console.log(`[Process Manager] Starting process ${id}: ${description}`);
     console.log(`[Process Manager] Command: ${command}`);
+    console.log(`[Process Manager] Working Directory: ${workingDir}`);
 
     const child = spawn("bash", ["-c", command], {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
+      cwd: workingDir,
     });
 
     info.pid = child.pid;
@@ -475,46 +481,118 @@ server.tool(
     try {
       const info = await manager.startProcess(id, command, description, port);
       
-      // If port is specified, wait for tunnel URL with retry logic
+      // If port is specified, wait for tunnel URL and verify service health
       if (port) {
         let tunnelUrl: string | undefined;
-        let attempts = 0;
-        const maxAttempts = 3;
-        const waitTime = 20000; // 20 seconds per attempt
+        let serviceHealthy = false;
+        let healthCheckAttempts = 0;
+        const maxHealthChecks = 15; // 15 attempts, 2 seconds each = 30 seconds total
+        const healthCheckInterval = 2000; // 2 seconds between checks
         
-        while (!tunnelUrl && attempts < maxAttempts) {
-          attempts++;
-          console.error(`[MCP Process Manager] Waiting for tunnel URL (attempt ${attempts}/${maxAttempts})...`);
+        console.error(`[MCP Process Manager] Waiting for service on port ${port} to be ready...`);
+        
+        // Health check loop - verify the service is actually responding
+        while (!serviceHealthy && healthCheckAttempts < maxHealthChecks) {
+          healthCheckAttempts++;
           
-          // Wait 20 seconds for tunnel establishment
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          
+          // Check if we have a tunnel URL yet
           const updatedInfo = manager.getStatus(id) as ProcessInfo | null;
           tunnelUrl = updatedInfo?.tunnelUrl;
           
-          if (!tunnelUrl && attempts < maxAttempts) {
-            console.error(`[MCP Process Manager] Tunnel URL not ready after ${waitTime/1000}s, retrying...`);
+          // Try to make an HTTP request to the local service
+          try {
+            const response = await fetch(`http://localhost:${port}/`, {
+              method: 'GET',
+              signal: AbortSignal.timeout(1500), // 1.5 second timeout for each request
+            });
+            
+            // Any response (even error codes) means the service is running
+            if (response.status) {
+              serviceHealthy = true;
+              console.error(`[MCP Process Manager] Service on port ${port} is healthy (status: ${response.status})`);
+              break;
+            }
+          } catch (error: any) {
+            // Service not ready yet
+            if (healthCheckAttempts % 5 === 0) {
+              console.error(`[MCP Process Manager] Service not ready on port ${port} (attempt ${healthCheckAttempts}/${maxHealthChecks})`);
+            }
           }
+          
+          // Wait before next check
+          await new Promise(resolve => setTimeout(resolve, healthCheckInterval));
         }
         
-        if (tunnelUrl) {
+        // Final check for tunnel URL if service is healthy
+        if (serviceHealthy && !tunnelUrl) {
+          // Give tunnel a bit more time to establish
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          const finalInfo = manager.getStatus(id) as ProcessInfo | null;
+          tunnelUrl = finalInfo?.tunnelUrl;
+        }
+        
+        if (serviceHealthy && tunnelUrl) {
+          // Success - both service and tunnel are working
           return {
             content: [
               {
                 type: "text",
-                text: `Started process ${id} (PID: ${info.pid})\nTunnel URL: ${tunnelUrl}`,
+                text: `✅ Started process ${id} (PID: ${info.pid})\n🌐 Tunnel URL: ${tunnelUrl}\n📡 Service verified on port ${port}`,
+              },
+            ],
+          };
+        } else if (serviceHealthy && !tunnelUrl) {
+          // Service is running but tunnel failed - get tunnel logs
+          let tunnelLogs = "";
+          try {
+            const tunnelLogPath = path.join("/tmp/claude-logs", `${id}-tunnel.log`);
+            if (existsSync(tunnelLogPath)) {
+              tunnelLogs = await readFile(tunnelLogPath, "utf-8");
+              const lines = tunnelLogs.split("\n");
+              tunnelLogs = lines.slice(-20).join("\n");
+            }
+          } catch (e) {
+            // Tunnel log may not exist
+          }
+          
+          return {
+            content: [
+              {
+                type: "text",
+                text: `⚠️ Process ${id} started (PID: ${info.pid})\n✅ Service running on port ${port}\n❌ Failed to establish tunnel\n\n**Tunnel Logs:**\n\`\`\`\n${tunnelLogs || "No tunnel logs available"}\n\`\`\``,
               },
             ],
           };
         } else {
-          // All attempts failed
+          // Service failed to start - get both process and tunnel logs
+          const processLogs = await manager.getLogs(id, 50);
+          let tunnelLogs = "";
+          try {
+            const tunnelLogPath = path.join("/tmp/claude-logs", `${id}-tunnel.log`);
+            if (existsSync(tunnelLogPath)) {
+              tunnelLogs = await readFile(tunnelLogPath, "utf-8");
+              const lines = tunnelLogs.split("\n");
+              tunnelLogs = lines.slice(-30).join("\n");
+            }
+          } catch (e) {
+            // Tunnel log may not exist
+          }
+          
+          // Stop the failed process and tunnel
+          try {
+            await manager.stopProcess(id);
+          } catch (e) {
+            // Process may have already stopped
+          }
+          
           return {
             content: [
               {
                 type: "text",
-                text: `Started process ${id} (PID: ${info.pid})\nWarning: Failed to establish cloudflared tunnel after ${maxAttempts} attempts (${waitTime/1000}s each). Consider using ngrok as an alternative.`,
+                text: `❌ Service failed to respond on port ${port} after ${maxHealthChecks * healthCheckInterval / 1000} seconds\n\n**Process Logs:**\n\`\`\`\n${processLogs}\n\`\`\`${tunnelLogs ? `\n\n**Tunnel Logs:**\n\`\`\`\n${tunnelLogs}\n\`\`\`` : ""}`,
               },
             ],
+            isError: true,
           };
         }
       }

@@ -30,6 +30,18 @@ async function main() {
     }
     
     try {
+      // Set workspace directory for MCP process manager based on deployment name
+      const deploymentName = process.env.DEPLOYMENT_NAME || process.env.HOSTNAME;
+      if (deploymentName) {
+        // Extract thread ID from deployment name (e.g., peerbot-worker-1756766056.836119)
+        const threadMatch = deploymentName.match(/(\d+\.\d+)/);
+        if (threadMatch) {
+          const workspaceDir = `/workspace/${threadMatch[1]}`;
+          process.env.WORKSPACE_DIR = workspaceDir;
+          logger.info(`📁 Set WORKSPACE_DIR for process manager: ${workspaceDir}`);
+        }
+      }
+      
       // Start the integrated process manager HTTP server
       const processManager = await startProcessManager();
       logger.info(`🔧 Process manager started on port ${processManager.port}`);

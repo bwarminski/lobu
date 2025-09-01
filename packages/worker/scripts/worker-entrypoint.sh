@@ -159,9 +159,9 @@ chmod +x /app/scripts/*.sh 2>/dev/null || true
 # Setup MCP server
 /app/packages/worker/scripts/setup-mcp-server.sh || echo "⚠️  MCP server setup failed or not found"
 
-# Check if we need to build (dev mode or if dist does not exist)
-if [ "${BUILD_MODE:-prod}" = "dev" ] || [ ! -d "/app/packages/worker/dist" ]; then
-    echo "Building packages..."
+# Check if we need to build (dev mode only)
+if [ "${BUILD_MODE}" = "dev" ]; then
+    echo "Building packages in dev mode..."
     cd /app/packages/shared && bun run build
     cd /app/packages/worker && bun run build
     chmod +x /app/packages/worker/dist/mcp/process-manager-server.mjs 2>/dev/null || true

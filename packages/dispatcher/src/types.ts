@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import type { LogLevel } from "@slack/bolt";
-import type { ClaudeExecutionOptions } from "@claude-code-slack/shared";
+import type { ClaudeExecutionOptions } from "@peerbot/shared";
 
 export interface SlackConfig {
   token: string;

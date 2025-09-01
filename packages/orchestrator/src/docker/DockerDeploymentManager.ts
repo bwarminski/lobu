@@ -1,4 +1,5 @@
 import Docker from 'dockerode';
+import path from 'path';
 import { BaseDeploymentManager, DeploymentInfo } from '../base/BaseDeploymentManager';
 import { PostgresSecretManager } from './PostgresSecretManager';
 import { OrchestratorConfig, OrchestratorError, ErrorCode } from '../types';
@@ -120,8 +121,8 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         HostConfig: {
           Binds: process.env.NODE_ENV === 'development' ? [
             `${workspaceDir}:/workspace`,
-            `${process.cwd()}/packages:/app/packages`,
-            `${process.cwd()}/scripts:/app/scripts`
+            `${path.join(process.cwd(), '../../packages')}:/app/packages`,
+            `${path.join(process.cwd(), '../../scripts')}:/app/scripts`
           ] : [
             `${workspaceDir}:/workspace`
           ],

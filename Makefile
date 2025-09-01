@@ -1,6 +1,6 @@
 # Development Makefile for Peerbot
 
-.PHONY: help setup build compile dev test clean logs restart
+.PHONY: help setup build compile dev test clean logs restart build-worker
 
 # Default target
 help:
@@ -53,8 +53,9 @@ dev: build-worker
 		fi \
 	fi
 	@export NODE_ENV=development && \
-		bun --watch packages/orchestrator/src/index.ts & \
-		bun --watch packages/dispatcher/src/index.ts
+		cd packages/orchestrator && bun run dev & \
+		cd packages/dispatcher && bun run dev
+
 
 # Build worker image for Docker mode
 build-worker:

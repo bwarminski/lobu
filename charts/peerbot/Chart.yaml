@@ -11,12 +11,11 @@ keywords:
   - bot
   - kubernetes
   - conversations
-home: https://github.com/buremba/claude-code-slack
+home: https://github.com/buremba/peerbot
 sources:
-  - https://github.com/buremba/claude-code-slack
+  - https://github.com/buremba/peerbot
 maintainers:
-  - name: Claude Code Team
-    email: noreply@anthropic.com
+  - name: Burak Emre Kabakci
+    email: emrekabakci@gmail.com
 annotations:
   category: Communication
-  licenses: MIT

@@ -5,12 +5,13 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "bun --watch src/index.ts",
-    "start": "bun src/index.ts",
+    "dev": "cd ../shared && bun run build && cd ../orchestrator && bun --watch src/index.ts",
+    "start": "cd ../shared && bun run build && cd ../orchestrator && bun src/index.ts",
     "test": "bun test"
   },
   "dependencies": {
     "@kubernetes/client-node": "^0.21.0",
+    "@peerbot/shared": "workspace:*",
     "@sentry/node": "^10.6.0",
     "dockerode": "^4.0.7",
     "dotenv": "^17.2.1",

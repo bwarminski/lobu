@@ -20,23 +20,34 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Set working directory
 WORKDIR /app
 
-# Create shared package first
-WORKDIR /app/packages/shared
-COPY packages/shared/package.json ./
+# Create workspace package.json for orchestrator
+RUN echo '{ \
+  "name": "@claude-code-slack/orchestrator-build", \
+  "private": true, \
+  "workspaces": [ \
+    "packages/shared", \
+    "packages/orchestrator" \
+  ] \
+}' > package.json
+
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/orchestrator/package.json ./packages/orchestrator/
+
+# Install all dependencies (workspace will resolve shared)
 RUN bun install
-COPY packages/shared/ ./
+
+# Copy source code
+COPY packages/shared/ ./packages/shared/
+COPY packages/orchestrator/src ./packages/orchestrator/src
+COPY packages/orchestrator/tsconfig.json ./packages/orchestrator/
+COPY packages/orchestrator/db/ ./packages/orchestrator/db/
+
+# Build shared package first
+WORKDIR /app/packages/shared
 RUN bun run build
 
-# Now handle orchestrator
-WORKDIR /app
-COPY packages/orchestrator/package.json ./
-RUN bun install
-COPY packages/orchestrator/src ./src
-COPY packages/orchestrator/tsconfig.json ./
-# Copy database migrations
-COPY packages/orchestrator/db/ ./db/
-
-# Build TypeScript
+# Build orchestrator
+WORKDIR /app/packages/orchestrator
 RUN bun run build
 
 # Create non-root user
@@ -54,4 +65,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 
 # Start the orchestrator with bun
+WORKDIR /app/packages/orchestrator
 CMD ["bun", "dist/index.js"]

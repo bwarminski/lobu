@@ -11,6 +11,7 @@
 - NEVER create files unless they're absolutely necessary for achieving your goal. Instead try to run the code on the fly for testing reasons.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User. If you need to remember something, add it to CLAUDE.md as a a single sentence.
 - ALWAYS ignore `/dist/` directories when analyzing code - these contain compiled artifacts, not source
+- If you're referencing Slack threads or users in your response, add their direct links as well.
 
 ## Deployment Instructions
 

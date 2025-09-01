@@ -1,5 +1,5 @@
 {
-  "name": "@claude-code-slack/worker",
+  "name": "@peerbot/worker",
   "version": "1.0.2",
   "private": true,
   "description": "Ephemeral worker that runs Claude Code sessions in Kubernetes Jobs",
@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@peerbot/shared": "workspace:*",
     "@kubernetes/client-node": "^1.3.0",
     "@modelcontextprotocol/sdk": "^1.0.5",
     "@octokit/rest": "^21.1.1",

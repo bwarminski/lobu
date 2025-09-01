@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 
-import { initSentry } from "../packages/shared/dist";
+import { initSentry } from "@peerbot/shared";
 
 // Initialize Sentry monitoring
 initSentry();
 
 import { config as dotenvConfig } from 'dotenv';
 import { join } from 'path';
-import { spawn } from 'child_process';
 import { OrchestratorConfig, OrchestratorError, ErrorCode } from './types';
 import { DatabasePool } from './db-connection-pool';
 import { BaseDeploymentManager } from './base/BaseDeploymentManager';
@@ -109,6 +108,7 @@ class PeerbotOrchestrator {
       console.log('📦 Running database migrations...');
       
       // TODO: Emre: I don't want to worry about migrations until we release the first version.
+      const { spawn } = require('child_process');
       const dbmateProcess = spawn('dbmate', ['up'], {
         cwd: process.cwd(),
         env: {
@@ -121,17 +121,17 @@ class PeerbotOrchestrator {
       let stdout = '';
       let stderr = '';
 
-      dbmateProcess.stdout?.on('data', (data) => {
+      dbmateProcess.stdout?.on('data', (data: any) => {
         stdout += data.toString();
         console.log(`[dbmate up] ${data.toString().trim()}`);
       });
 
-      dbmateProcess.stderr?.on('data', (data) => {
+      dbmateProcess.stderr?.on('data', (data: any) => {
         stderr += data.toString();
         console.error(`[dbmate up] ${data.toString().trim()}`);
       });
 
-      dbmateProcess.on('close', (code) => {
+      dbmateProcess.on('close', (code: any) => {
         if (code === 0) {
           console.log('✅ Database created and migrations applied successfully');
           resolve();
@@ -143,7 +143,7 @@ class PeerbotOrchestrator {
         }
       });
 
-      dbmateProcess.on('error', (error) => {
+      dbmateProcess.on('error', (error: any) => {
         console.error('❌ Failed to start dbmate:', error);
         reject(error);
       });

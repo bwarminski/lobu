@@ -9,7 +9,7 @@ import type {
   ThreadSession
 } from "../types";
 import { QueueProducer, type WorkerDeploymentPayload, type ThreadMessagePayload } from "../queue/task-queue-producer";
-import { SessionUtils } from "@claude-code-slack/shared";
+import { SessionUtils } from "@peerbot/shared";
 import logger from "../logger";
 
 /**

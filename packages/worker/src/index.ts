@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { initSentry } from "@claude-code-slack/shared";
+import { initSentry } from "@peerbot/shared";
 // Force rebuild to deploy MCP config fix - timestamp: 1756399400
 
 // Initialize Sentry monitoring

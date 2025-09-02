@@ -1,5 +1,5 @@
 {
-  "name": "peerbot-cli",
+  "name": "@peerbot/cli",
   "version": "1.0.0",
   "bin": {
     "peerbot": "./bin/peerbot"

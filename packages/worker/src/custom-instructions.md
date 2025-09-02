@@ -129,13 +129,8 @@ kubectl apply -f deployment.yaml
   - Python 3.12 with uv (modern Python package manager)
   - System packages via apt-get (with sudo access)
   - Git for version control
-  - Docker CE with buildx and compose plugins (Docker-in-Docker capable)
-  - Cloudflared for tunneling
-- **Working Directories:**
-  - `/app` - Main application directory
-  - `/workspace` - Persistent workspace for user data
-  - `/home/claude` - Claude user home directory
-  - Current: `/app/packages/worker`
+  - Docker (for containerized environments)
+
 - You MUST use the most straightforward approach to get the job done, don't write code when not needed.
 - IMPORTANT: After making any code changes, you MUST 
   - commit and push them using git commands (git add, git commit, git push).

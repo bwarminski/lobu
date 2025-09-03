@@ -14,7 +14,9 @@
     "allowImportingTsExtensions": false,
     "downlevelIteration": true,
     "target": "ES2017",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]

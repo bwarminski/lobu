@@ -1,30 +1,46 @@
 import http from "http";
+import express from "express";
+import { AnthropicProxy } from "./proxy/anthropic-proxy";
 import logger from "./logger";
 
 let healthServer: http.Server | null = null;
+let proxyApp: express.Application | null = null;
 
-export function setupHealthEndpoints() {
+export function setupHealthEndpoints(anthropicProxy?: AnthropicProxy) {
   if (healthServer) return;
 
-  // Create a simple HTTP server for health checks
-  healthServer = http.createServer((req, res) => {
-    if (req.url === "/health" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }),
-      );
-    } else if (req.url === "/ready" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ready: true }));
-    } else {
-      res.writeHead(404);
-      res.end("Not Found");
-    }
+  // Create Express app for proxy and health endpoints
+  proxyApp = express();
+  
+  // Add body parsing middleware for JSON and raw data
+  proxyApp.use(express.json({ limit: '50mb' }));
+  proxyApp.use(express.raw({ type: 'application/json', limit: '50mb' }));
+  
+  // Health endpoints
+  proxyApp.get("/health", (_req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      anthropicProxy: !!anthropicProxy 
+    });
   });
+  
+  proxyApp.get("/ready", (_req, res) => {
+    res.json({ ready: true });
+  });
+  
+  // Add Anthropic proxy if provided
+  if (anthropicProxy) {
+    proxyApp.use("/api/anthropic", anthropicProxy.getRouter());
+    logger.info("✅ Anthropic proxy enabled at :8080/api/anthropic");
+  }
 
-  // Listen on a different port for health checks
+  // Create HTTP server with Express app
+  healthServer = http.createServer(proxyApp);
+
+  // Listen on port 8080 for health checks and proxy
   const healthPort = 8080;
   healthServer.listen(healthPort, () => {
-    logger.info(`Health check server listening on port ${healthPort}`);
+    logger.info(`Health check and proxy server listening on port ${healthPort}`);
   });
 }

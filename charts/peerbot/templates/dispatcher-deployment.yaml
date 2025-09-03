@@ -182,6 +182,21 @@ spec:
               value: "{{ .Values.dispatcher.config.nodeEnv }}"
             - name: LOG_LEVEL
               value: "{{ .Values.dispatcher.config.logLevel }}"
+            
+            # Anthropic proxy configuration
+            {{- if .Values.dispatcher.anthropicProxy.enabled }}
+            - name: ANTHROPIC_PROXY_ENABLED
+              value: "true"
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "peerbot.fullname" . }}-secrets
+                  key: claude-code-oauth-token
+            {{- if .Values.dispatcher.anthropicProxy.baseUrl }}
+            - name: ANTHROPIC_BASE_URL
+              value: "{{ .Values.dispatcher.anthropicProxy.baseUrl }}"
+            {{- end }}
+            {{- end }}
       
       {{- with .Values.nodeSelector }}
       nodeSelector:

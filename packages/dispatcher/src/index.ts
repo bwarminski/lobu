@@ -13,6 +13,7 @@ import { QueueProducer } from "./queue/task-queue-producer";
 import { ThreadResponseConsumer } from "./queue/slack-thread-processor";
 import { GitHubRepositoryManager } from "./github/repository-manager";
 import { setupHealthEndpoints } from "./simple-http";
+import { createAnthropicProxy, AnthropicProxy } from "./proxy/anthropic-proxy";
 import type { DispatcherConfig } from "./types";
 import logger from "./logger";
 
@@ -22,6 +23,7 @@ export class SlackDispatcher {
   private threadResponseConsumer?: ThreadResponseConsumer;
   private repoManager: GitHubRepositoryManager;
   private eventHandlers?: SlackEventHandlers;
+  private anthropicProxy?: AnthropicProxy;
   private config: DispatcherConfig;
 
   constructor(config: DispatcherConfig) {
@@ -103,8 +105,14 @@ export class SlackDispatcher {
    */
   async start(): Promise<void> {
     try {
-      // Setup health endpoints FIRST
-      setupHealthEndpoints();
+      // Initialize Anthropic proxy if enabled (for both Socket and HTTP mode)
+      if (this.config.anthropicProxy?.enabled) {
+        this.anthropicProxy = createAnthropicProxy(this.config.anthropicProxy);
+        logger.info("✅ Anthropic proxy initialized");
+      }
+
+      // Setup health endpoints FIRST - pass proxy for Socket mode
+      setupHealthEndpoints(this.anthropicProxy);
 
       // Start queue producer
       await this.queueProducer.start();
@@ -154,8 +162,15 @@ export class SlackDispatcher {
             service: "peerbot-dispatcher",
             status: "running",
             mode: "http",
+            anthropicProxy: this.config.anthropicProxy?.enabled || false,
           });
         });
+
+        // Mount Anthropic proxy if enabled (HTTP mode - also available on port 8080)
+        if (this.anthropicProxy) {
+          expressApp.use("/api/anthropic", this.anthropicProxy.getRouter());
+          logger.info("✅ Anthropic proxy enabled at /api/anthropic (HTTP mode)");
+        }
 
         logger.debug("Express routes after Slack app start:");
         expressApp._router.stack.forEach((middleware: any) => {
@@ -239,9 +254,6 @@ export class SlackDispatcher {
 
           await Promise.race([startPromise, timeoutPromise]);
           logger.info("✅ Socket Mode connection established!");
-
-          // Start dedicated health check server for Socket Mode
-          setupHealthEndpoints();
         } catch (socketError) {
           logger.error("❌ Failed to start Socket Mode:", socketError);
           throw socketError;
@@ -480,6 +492,13 @@ async function main() {
         retryDelay: parseInt(process.env.PGBOSS_RETRY_DELAY || "30"),
         expireInHours: parseInt(process.env.PGBOSS_EXPIRE_HOURS || "24"),
       },
+      // Anthropic proxy configuration (optional)
+      anthropicProxy: process.env.ANTHROPIC_PROXY_ENABLED === "true" ? {
+        enabled: true,
+        anthropicApiKey: process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+        postgresConnectionString: process.env.DATABASE_URL!,
+        anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL,
+      } : undefined,
     };
 
     logger.info("Final config debug:", {

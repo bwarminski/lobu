@@ -32,12 +32,12 @@ export class PostgresSecretManager extends BaseSecretManager {
 
       // Try to read existing credentials from database
       const result = await this.dbPool.query(
-        `SELECT environment_variables->'PEERBOT_DATABASE_PASSWORD' as password FROM user_configs WHERE user_id = $1`,
+        `SELECT value as password FROM user_environ WHERE user_id = $1 AND name = 'PEERBOT_DATABASE_PASSWORD'`,
         [userId],
       );
 
       if (result.rows.length > 0 && result.rows[0].password) {
-        const existingPassword = result.rows[0].password.replace(/"/g, ""); // Remove JSON quotes
+        const existingPassword = result.rows[0].password;
         console.log(`Found existing credentials for user ${username}`);
         return existingPassword;
       }
@@ -58,7 +58,7 @@ export class PostgresSecretManager extends BaseSecretManager {
   }
 
   /**
-   * Store user credentials in database HSTORE field
+   * Store user credentials in database as individual environment variables
    * This is a private method that should only be called from getOrCreateUserCredentials
    */
   async storeUserCredentials(
@@ -84,21 +84,28 @@ export class PostgresSecretManager extends BaseSecretManager {
       dbUrl.username = username;
       dbUrl.password = password;
 
-      // Convert to hstore format: key=>value pairs
-      const hstoreString = `PEERBOT_DATABASE_URL=>"${dbUrl.toString()}",PEERBOT_DATABASE_USERNAME=>"${username}",PEERBOT_DATABASE_PASSWORD=>"${password}"`;
+      // Store each credential as a separate row in user_environ
+      const credentials = [
+        { name: 'PEERBOT_DATABASE_URL', value: dbUrl.toString(), type: 'system' },
+        { name: 'PEERBOT_DATABASE_USERNAME', value: username, type: 'system' },
+        { name: 'PEERBOT_DATABASE_PASSWORD', value: password, type: 'system' }
+      ];
 
-      // Insert or update user config with environment variables
-      await this.dbPool.query(
-        `
-        INSERT INTO user_configs (user_id, environment_variables, created_at, updated_at) 
-        VALUES ($1, $2::hstore, NOW(), NOW())
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-          environment_variables = user_configs.environment_variables || $2::hstore,
-          updated_at = NOW()
-      `,
-        [userId, hstoreString],
-      );
+      // Insert or update each environment variable
+      for (const cred of credentials) {
+        await this.dbPool.query(
+          `
+          INSERT INTO user_environ (user_id, name, value, type, created_at, updated_at) 
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
+          ON CONFLICT (user_id, name) 
+          DO UPDATE SET 
+            value = EXCLUDED.value,
+            type = EXCLUDED.type,
+            updated_at = NOW()
+        `,
+          [userId, cred.name, cred.value, cred.type],
+        );
+      }
 
       console.log(
         `✅ Stored permanent credentials in database for user: ${username}`,

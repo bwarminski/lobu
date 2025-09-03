@@ -35,6 +35,13 @@ export interface QueueConfig {
   expireInHours?: number;
 }
 
+export interface AnthropicProxyConfig {
+  enabled: boolean;
+  anthropicApiKey: string;
+  postgresConnectionString: string;
+  anthropicBaseUrl?: string;
+}
+
 export interface DispatcherConfig {
   slack: SlackConfig;
   github: GitHubConfig;
@@ -42,6 +49,7 @@ export interface DispatcherConfig {
   sessionTimeoutMinutes: number;
   logLevel?: LogLevel;
   queues: QueueConfig;
+  anthropicProxy?: AnthropicProxyConfig;
 }
 
 export interface SlackContext {

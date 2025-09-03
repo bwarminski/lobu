@@ -31,6 +31,34 @@ export abstract class BaseDeploymentManager {
     this.secretManager = secretManager;
   }
 
+  /**
+   * Get all environment variables for a user from database
+   */
+  protected async getUserEnvironmentVariables(userId: string): Promise<Record<string, string>> {
+    try {
+      const platformUserId = userId.toUpperCase();
+      const result = await this.dbPool.query(
+        `SELECT name, value FROM user_environ 
+         WHERE user_id = (
+           SELECT id FROM users 
+           WHERE platform = 'slack' AND platform_user_id = $1
+         )
+         ORDER BY type DESC, name`, // System vars first, then user vars
+        [platformUserId],
+      );
+
+      const envVars: Record<string, string> = {};
+      for (const row of result.rows) {
+        envVars[row.name] = row.value;
+      }
+
+      return envVars;
+    } catch (error) {
+      console.log(`Error fetching environment variables for user ${userId}:`, error);
+      return {};
+    }
+  }
+
   // Abstract methods that must be implemented by concrete classes
   abstract listDeployments(): Promise<DeploymentInfo[]>;
   abstract createDeployment(
@@ -38,6 +66,7 @@ export abstract class BaseDeploymentManager {
     username: string,
     userId: string,
     messageData?: any,
+    userEnvVars?: Record<string, string>,
   ): Promise<void>;
   abstract scaleDeployment(
     deploymentName: string,
@@ -96,11 +125,15 @@ export abstract class BaseDeploymentManager {
         }
       }
 
+      // Fetch user environment variables once
+      const userEnvVars = await this.getUserEnvironmentVariables(userId);
+      
       await this.createDeployment(
         deploymentName,
         username,
         userId,
         messageData,
+        userEnvVars,
       );
     } catch (error) {
       throw new OrchestratorError(
@@ -121,6 +154,7 @@ export abstract class BaseDeploymentManager {
     deploymentName: string,
     messageData?: any,
     includeSecrets: boolean = true,
+    userEnvVars: Record<string, string> = {},
   ): { [key: string]: string } {
     const envVars: { [key: string]: string } = {
       WORKER_MODE: "queue",
@@ -155,7 +189,9 @@ export abstract class BaseDeploymentManager {
         envVars["GITHUB_TOKEN"] = process.env.GITHUB_TOKEN;
       }
 
-      if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Only include OAuth token if proxy is disabled
+      // When proxy is enabled, the token is handled by the proxy itself
+      if (process.env.CLAUDE_CODE_OAUTH_TOKEN && process.env.ANTHROPIC_PROXY_ENABLED !== "true") {
         envVars["CLAUDE_CODE_OAUTH_TOKEN"] =
           process.env.CLAUDE_CODE_OAUTH_TOKEN;
       }
@@ -178,6 +214,51 @@ export abstract class BaseDeploymentManager {
       Object.entries(this.config.worker.env).forEach(([key, value]) => {
         envVars[key] = String(value);
       });
+    }
+
+    // Configure Anthropic API proxy if enabled
+    if (process.env.ANTHROPIC_PROXY_ENABLED === "true") {
+      const dispatcherService = process.env.DISPATCHER_SERVICE_NAME || "peerbot-dispatcher";
+      const dispatcherPort = process.env.DISPATCHER_SERVICE_PORT || "3000";
+      const namespace = process.env.KUBERNETES_NAMESPACE || "peerbot";
+      
+      // Detect if we're running in Docker mode (DEPLOYMENT_MODE=docker) or Kubernetes mode
+      const isDockerMode = process.env.DEPLOYMENT_MODE === "docker";
+      let proxyUrl: string;
+      
+      if (isDockerMode) {
+        // For Docker mode, use localhost (host.docker.internal doesn't work reliably)
+        // The dispatcher runs on port 8080 in Docker mode for the proxy endpoint
+        proxyUrl = `http://host.docker.internal:8080/api/anthropic`;
+      } else {
+        // For Kubernetes mode, use internal service DNS
+        proxyUrl = `http://${dispatcherService}.${namespace}.svc.cluster.local:${dispatcherPort}/api/anthropic`;
+      }
+      
+      // Set the base URL to use dispatcher's proxy
+      envVars["ANTHROPIC_BASE_URL"] = proxyUrl;
+      
+      // Pass PostgreSQL credentials in x-api-key for proxy authentication
+      // The proxy will validate these, then use the OAuth token from its config
+      envVars["ANTHROPIC_API_KEY"] = `${username}:${process.env.POSTGRESQL_PASSWORD || 'peerbot123'}`;
+      
+      console.log(`🔧 Configured worker to use Anthropic proxy at ${envVars["ANTHROPIC_BASE_URL"]}`);
+    } else if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // If proxy is disabled, pass OAuth token to Claude Code in the expected env var
+      envVars["CLAUDE_CODE_OAUTH_TOKEN"] = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      console.log(`🔧 Using OAuth token directly with Claude Code (proxy disabled)`);
+    }
+
+    // Merge user environment variables (they take precedence over defaults)
+    Object.entries(userEnvVars).forEach(([key, value]) => {
+      // Skip database credentials as they're handled separately
+      if (!key.startsWith('PEERBOT_DATABASE_')) {
+        envVars[key] = value;
+      }
+    });
+
+    if (Object.keys(userEnvVars).length > 0) {
+      console.log(`📦 Loaded ${Object.keys(userEnvVars).length} user environment variables for ${userId}`);
     }
 
     return envVars;

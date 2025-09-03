@@ -171,9 +171,20 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     username: string,
     userId: string,
     messageData?: any,
+    userEnvVars: Record<string, string> = {},
   ): Promise<void> {
     // Ensure the thread has a persistent volume for data persistence across pod restarts
     await this.ensurePersistentVolume(deploymentName, userId);
+
+    // Get environment variables before creating the deployment spec
+    const envVars = this.generateEnvironmentVariables(
+      username,
+      userId,
+      deploymentName,
+      messageData,
+      false,
+      userEnvVars,
+    );
 
     const deployment: SimpleDeployment = {
       apiVersion: "apps/v1",
@@ -238,15 +249,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                     },
                   },
                   // Common environment variables from base class (excluding secrets)
-                  ...Object.entries(
-                    this.generateEnvironmentVariables(
-                      username,
-                      userId,
-                      deploymentName,
-                      messageData,
-                      false,
-                    ),
-                  ).map(([key, value]) => ({
+                  ...Object.entries(envVars).map(([key, value]) => ({
                     name: key,
                     value: value,
                   })),

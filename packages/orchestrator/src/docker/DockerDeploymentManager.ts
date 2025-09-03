@@ -81,6 +81,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
     username: string,
     userId: string,
     messageData?: any,
+    userEnvVars: Record<string, string> = {},
   ): Promise<void> {
     try {
       // Extract thread ID from deployment name for per-thread workspace isolation
@@ -108,12 +109,13 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         userId,
         deploymentName,
         messageData,
+        true,
+        userEnvVars,
       );
 
       const envVars = [
         `PEERBOT_DATABASE_URL=${dbUrl.toString()}`,
-        `PEERBOT_DATABASE_USERNAME=${username}`,
-        `PEERBOT_DATABASE_PASSWORD=${password}`,
+        // Database URL already contains username and password, no need to pass them separately
         // Convert common environment variables to Docker format
         ...Object.entries(commonEnvVars).map(
           ([key, value]) => `${key}=${value}`,

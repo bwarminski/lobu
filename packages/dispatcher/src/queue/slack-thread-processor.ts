@@ -160,7 +160,7 @@ class SlackRenderer extends marked.Renderer {
     return lines.map((line) => `_> ${line.trim()}_`).join("\n") + "\n\n";
   }
 
-  list(body: string, ordered: boolean, start?: number): string {
+  list(body: string, ordered: boolean, start: number | ""): string {
     return body + "\n";
   }
 

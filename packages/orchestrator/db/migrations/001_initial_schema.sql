@@ -1,24 +1,9 @@
 -- migrate:up
--- Consolidated PostgreSQL schema for queue system with RLS-based bot isolation
--- This migration sets up pgboss, bot isolation, RLS policies, and all required functions
+-- Simplified PostgreSQL schema for Peerbot with only required tables
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS hstore;
-
--- Create bot table for multi-bot credential support
-CREATE TABLE bots (
-    id SERIAL PRIMARY KEY,
-    bot_id VARCHAR(100) NOT NULL UNIQUE, -- Platform bot ID (e.g., Slack bot ID)
-    platform VARCHAR(50) NOT NULL, -- slack, discord, teams, etc.
-    platform_id VARCHAR(100) NOT NULL, -- workspace id for slack
-    name VARCHAR(100) NOT NULL,
-    token_hash VARCHAR(255), -- Hashed bot token for verification
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    is_active BOOLEAN DEFAULT TRUE,
-    UNIQUE(platform, bot_id)
-);
 
 -- Create users table
 CREATE TABLE users (
@@ -30,69 +15,23 @@ CREATE TABLE users (
     UNIQUE(platform, platform_user_id)
 );
 
--- Create user_configs table for environment variables
-CREATE TABLE user_configs (
+-- Create user_environ table for environment variables
+CREATE TABLE user_environ (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    environment_variables HSTORE,
+    name VARCHAR(255) NOT NULL,
+    value TEXT NOT NULL,
+    type VARCHAR(10) NOT NULL DEFAULT 'user' CHECK (type IN ('user', 'system')),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(user_id)
-);
-
--- Create conversation threads with bot isolation
-CREATE TABLE conversation_threads (
-    id SERIAL PRIMARY KEY,
-    bot_id INTEGER REFERENCES bots(id) ON DELETE CASCADE,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    platform VARCHAR(50) NOT NULL,
-    channel_id VARCHAR(100) NOT NULL,
-    thread_id VARCHAR(100) NOT NULL,
-    agent_session_id VARCHAR(255),
-    created_at TIMESTAMP DEFAULT NOW(),
-    last_activity TIMESTAMP DEFAULT NOW(),
-    is_active BOOLEAN DEFAULT TRUE,
-    UNIQUE(bot_id, platform, channel_id, thread_id)
-);
-
--- Create queue job metadata table for tracking jobs by bot
-CREATE TABLE queue_jobs (
-    id SERIAL PRIMARY KEY,
-    bot_id INTEGER REFERENCES bots(id) ON DELETE CASCADE,
-    job_id UUID NOT NULL, -- pgboss job ID
-    queue_name VARCHAR(100) NOT NULL,
-    job_type VARCHAR(50) NOT NULL, -- 'direct_message', 'thread_message'
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    thread_id INTEGER REFERENCES conversation_threads(id) ON DELETE SET NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP,
-    failed_at TIMESTAMP,
-    retry_count INTEGER DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'pending' -- pending, active, completed, failed
-);
-
--- Create message payload table for storing job data
-CREATE TABLE job_payloads (
-    id SERIAL PRIMARY KEY,
-    queue_job_id INTEGER REFERENCES queue_jobs(id) ON DELETE CASCADE,
-    payload JSONB NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    UNIQUE(user_id, name)
 );
 
 -- Enable Row Level Security on all tables
-ALTER TABLE bots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversation_threads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE queue_jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE job_payloads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_environ ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies for user-based isolation
--- Each user can see all bots but only their own conversation history
-CREATE POLICY user_isolation ON bots
-FOR ALL USING (true)
-WITH CHECK (true); -- Users can see all bots
-
 CREATE POLICY user_data_isolation ON users
 FOR ALL USING (
     platform_user_id = current_setting('app.current_user_id', true)
@@ -101,7 +40,7 @@ WITH CHECK (
     platform_user_id = current_setting('app.current_user_id', true)
 );
 
-CREATE POLICY user_config_isolation ON user_configs
+CREATE POLICY user_environ_isolation ON user_environ
 FOR ALL USING (
     user_id IN (
         SELECT id FROM users
@@ -115,68 +54,23 @@ WITH CHECK (
     )
 );
 
-CREATE POLICY thread_user_isolation ON conversation_threads
-FOR ALL USING (
-    user_id IN (
-        SELECT id FROM users
-        WHERE platform_user_id = current_setting('app.current_user_id', true)
-    )
-)
-WITH CHECK (
-    user_id IN (
-        SELECT id FROM users
-        WHERE platform_user_id = current_setting('app.current_user_id', true)
-    )
-);
-
--- RLS policy for queue jobs (user isolation)
-CREATE POLICY queue_jobs_user_isolation ON queue_jobs
-FOR ALL USING (
-    user_id IN (
-        SELECT id FROM users
-        WHERE platform_user_id = current_setting('app.current_user_id', true)
-    )
-)
-WITH CHECK (
-    user_id IN (
-        SELECT id FROM users
-        WHERE platform_user_id = current_setting('app.current_user_id', true)
-    )
-);
-
-CREATE POLICY job_payloads_user_isolation ON job_payloads
-FOR ALL USING (
-    queue_job_id IN (
-        SELECT id FROM queue_jobs
-        WHERE user_id IN (
-            SELECT id FROM users
-            WHERE platform_user_id = current_setting('app.current_user_id', true)
-        )
-    )
-)
-WITH CHECK (
-    queue_job_id IN (
-        SELECT id FROM queue_jobs
-        WHERE user_id IN (
-            SELECT id FROM users
-            WHERE platform_user_id = current_setting('app.current_user_id', true)
-        )
-    )
-);
-
--- Note: pgboss RLS will be set up after pgboss initializes its schema
--- The setup_pgboss_rls() function will be called automatically when pgboss starts
+-- Create indexes for performance
+CREATE INDEX idx_users_platform_user ON users(platform, platform_user_id);
+CREATE INDEX idx_user_environ_user_id ON user_environ(user_id);
+CREATE INDEX idx_user_environ_name ON user_environ(name);
+CREATE INDEX idx_user_environ_type ON user_environ(type);
+CREATE INDEX idx_user_environ_user_name ON user_environ(user_id, name);
 
 -- Create function to set user context for RLS
-CREATE OR REPLACE FUNCTION set_user_context(user_identifier VARCHAR(100))
+CREATE FUNCTION set_user_context(user_identifier VARCHAR(100))
 RETURNS VOID AS $$
 BEGIN
     PERFORM set_config('app.current_user_id', user_identifier, true);
 END;
 $$ LANGUAGE plpgsql;
 
--- Create the main RLS-aware user creation function
-CREATE OR REPLACE FUNCTION create_isolated_pgboss_user(
+-- Create the main RLS-aware user creation function for pgboss isolation
+CREATE FUNCTION create_isolated_pgboss_user(
     user_identifier VARCHAR(100),
     user_password VARCHAR(255) DEFAULT NULL
 ) RETURNS VARCHAR(100) AS $$
@@ -228,168 +122,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create function to enqueue jobs
-CREATE OR REPLACE FUNCTION enqueue_job(
-    bot_identifier VARCHAR(100),
-    p_queue_name VARCHAR(100),
-    p_job_type VARCHAR(50),
-    p_user_id INTEGER,
-    p_thread_id INTEGER,
-    p_payload JSONB
-) RETURNS UUID AS $$
-DECLARE
-    v_bot_id INTEGER;
-    v_job_id UUID;
-    v_queue_job_id INTEGER;
+-- Create helper function to get all environment variables for a user
+CREATE FUNCTION get_user_environ(p_user_id INTEGER)
+RETURNS TABLE(name VARCHAR(255), value TEXT, type VARCHAR(10)) AS $$
 BEGIN
-    -- Get bot ID
-    SELECT id INTO v_bot_id FROM bots WHERE bot_id = bot_identifier;
-    
-    IF v_bot_id IS NULL THEN
-        RAISE EXCEPTION 'Bot not found: %', bot_identifier;
-    END IF;
-    
-    -- Generate job ID
-    v_job_id := gen_random_uuid();
-    
-    -- Insert queue job record
-    INSERT INTO queue_jobs (bot_id, job_id, queue_name, job_type, user_id, thread_id)
-    VALUES (v_bot_id, v_job_id, p_queue_name, p_job_type, p_user_id, p_thread_id)
-    RETURNING id INTO v_queue_job_id;
-    
-    -- Insert payload
-    INSERT INTO job_payloads (queue_job_id, payload)
-    VALUES (v_queue_job_id, p_payload);
-    
-    RETURN v_job_id;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create function to update job status
-CREATE OR REPLACE FUNCTION update_job_status(
-    p_job_id UUID,
-    p_status VARCHAR(20),
-    p_retry_count INTEGER DEFAULT NULL
-) RETURNS VOID AS $$
-BEGIN
-    UPDATE queue_jobs 
-    SET 
-        status = p_status,
-        retry_count = COALESCE(p_retry_count, retry_count),
-        completed_at = CASE WHEN p_status = 'completed' THEN NOW() ELSE completed_at END,
-        failed_at = CASE WHEN p_status = 'failed' THEN NOW() ELSE failed_at END
-    WHERE job_id = p_job_id;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger function for pgboss job user context normalization
-CREATE OR REPLACE FUNCTION ensure_job_user_context()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only modify jobs that have user data
-    IF NEW.data ? 'userId' THEN
-        DECLARE
-            current_job_user_id TEXT;
-        BEGIN
-            current_job_user_id := NEW.data->>'userId';
-            
-            -- If we have a user ID mismatch (case-insensitive), normalize to match current user
-            IF UPPER(current_job_user_id) != UPPER(current_user) THEN
-                -- Use the current user for consistency
-                NEW.data = jsonb_set(NEW.data, '{userId}', to_jsonb(current_user));
-                RAISE NOTICE 'Updated job userId from % to % for user %', current_job_user_id, current_user, current_user;
-            END IF;
-        END;
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create helper function to test user isolation
-CREATE OR REPLACE FUNCTION test_user_isolation(test_user VARCHAR(100))
-RETURNS TABLE(
-    job_id BIGINT,
-    job_name TEXT, 
-    user_id TEXT,
-    can_access BOOLEAN
-) AS $$
-BEGIN
-    -- Set user context for testing
-    EXECUTE format('SET LOCAL role TO %I', test_user);
-    
     RETURN QUERY
-    SELECT 
-        j.id,
-        j.name,
-        j.data->>'userId' as user_id,
-        true as can_access
-    FROM pgboss.job j
-    ORDER BY j.created_on DESC
-    LIMIT 10;
-    
-    -- Reset role
-    RESET role;
+    SELECT ue.name, ue.value, ue.type
+    FROM user_environ ue
+    WHERE ue.user_id = p_user_id
+    ORDER BY ue.type DESC, ue.name; -- System vars first, then user vars
 END;
 $$ LANGUAGE plpgsql;
 
--- pgboss RLS will be configured when pgboss creates its tables
--- Note: This will happen when the first pgboss operation occurs
-
--- Create indexes for performance
-CREATE INDEX idx_bots_platform_bot_id ON bots(platform, bot_id);
-CREATE INDEX idx_users_platform_user ON users(platform, platform_user_id);
-CREATE INDEX idx_user_configs_user_id ON user_configs(user_id);
-CREATE INDEX idx_conversation_threads_bot_channel_thread ON conversation_threads(bot_id, platform, channel_id, thread_id);
-CREATE INDEX idx_conversation_threads_active ON conversation_threads(bot_id, is_active, last_activity);
-CREATE INDEX idx_conversation_threads_agent_session ON conversation_threads(agent_session_id) WHERE agent_session_id IS NOT NULL;
-CREATE INDEX idx_queue_jobs_bot_status ON queue_jobs(bot_id, status);
-CREATE INDEX idx_queue_jobs_queue_name_status ON queue_jobs(queue_name, status);
-CREATE INDEX idx_queue_jobs_user_thread ON queue_jobs(user_id, thread_id);
-CREATE INDEX idx_queue_jobs_created_at ON queue_jobs(created_at);
-CREATE INDEX idx_job_payloads_queue_job_id ON job_payloads(queue_job_id);
-
--- Create view for active jobs with payload
-CREATE VIEW active_jobs_with_payload AS
-SELECT 
-    qj.job_id,
-    qj.queue_name,
-    qj.job_type,
-    qj.status,
-    qj.created_at,
-    qj.retry_count,
-    b.bot_id,
-    b.platform,
-    u.platform_user_id,
-    ct.channel_id,
-    ct.thread_id,
-    ct.agent_session_id,
-    jp.payload
-FROM queue_jobs qj
-JOIN bots b ON qj.bot_id = b.id
-JOIN users u ON qj.user_id = u.id
-LEFT JOIN conversation_threads ct ON qj.thread_id = ct.id
-JOIN job_payloads jp ON qj.id = jp.queue_job_id
-WHERE qj.status IN ('pending', 'active');
-
--- Insert default bot entry (for migration from existing system)
-INSERT INTO bots (bot_id, platform, platform_id, name, created_at) 
-VALUES ('default-slack-bot', 'slack', 'unknown', 'Default Slack Bot', NOW())
-ON CONFLICT (platform, bot_id) DO NOTHING;
+-- Create helper function to set environment variable for a user
+CREATE FUNCTION set_user_environ(
+    p_user_id INTEGER,
+    p_name VARCHAR(255),
+    p_value TEXT,
+    p_type VARCHAR(10) DEFAULT 'user'
+)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO user_environ (user_id, name, value, type, updated_at)
+    VALUES (p_user_id, p_name, p_value, p_type, NOW())
+    ON CONFLICT (user_id, name)
+    DO UPDATE SET 
+        value = EXCLUDED.value,
+        type = EXCLUDED.type,
+        updated_at = NOW();
+END;
+$$ LANGUAGE plpgsql;
 
 -- migrate:down
--- Drop all tables and extensions created in the up migration
-DROP VIEW IF EXISTS active_jobs_with_payload;
-DROP TABLE IF EXISTS job_payloads CASCADE;
-DROP TABLE IF EXISTS queue_jobs CASCADE;
-DROP TABLE IF EXISTS conversation_threads CASCADE;
-DROP TABLE IF EXISTS user_configs CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS bots CASCADE;
-DROP FUNCTION IF EXISTS test_user_isolation(VARCHAR(100));
-DROP FUNCTION IF EXISTS ensure_job_user_context();
-DROP FUNCTION IF EXISTS update_job_status(UUID, VARCHAR(20), INTEGER);
-DROP FUNCTION IF EXISTS enqueue_job(VARCHAR(100), VARCHAR(100), VARCHAR(50), INTEGER, INTEGER, JSONB);
-DROP FUNCTION IF EXISTS create_isolated_pgboss_user(VARCHAR(100), VARCHAR(255));
-DROP FUNCTION IF EXISTS set_user_context(VARCHAR(100));
-DROP EXTENSION IF EXISTS pgcrypto;
+-- Not needed for fresh start approach

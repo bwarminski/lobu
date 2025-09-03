@@ -116,6 +116,21 @@ spec:
         - name: MAX_WORKER_DEPLOYMENTS
           value: {{ .Values.orchestrator.maxWorkerDeployments | default "100" | quote }}
         
+        # Anthropic proxy configuration for worker deployments
+        {{- if .Values.dispatcher.anthropicProxy.enabled }}
+        - name: ANTHROPIC_PROXY_ENABLED
+          value: "true"
+        - name: DISPATCHER_SERVICE_NAME
+          value: {{ include "peerbot.fullname" . }}-dispatcher
+        - name: DISPATCHER_SERVICE_PORT
+          value: "{{ .Values.dispatcher.service.port }}"
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "peerbot.fullname" . }}-secrets
+              key: postgresql-password
+        {{- end }}
+        
         ports:
         - name: http
           containerPort: 8080

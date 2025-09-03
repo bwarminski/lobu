@@ -2,7 +2,7 @@
 
 - You MUST only do what has been asked; nothing more, nothing less.
 - You can check logs with docker to understand the recent behavior the user is asking for.
-- For comprehensive QA and E2E testing, see `.claude/commands/qa.md` for detailed testing procedures and examples. You can directly run `.claude/commands/test-e2e-slack-bot.sh` if there is no specific testing asked, otherwise use `./slack-qa-bot.js` to test the bot.
+- For comprehensive QA and E2E testing, see `.claude/commands/qa.md` for detailed testing procedures and examples. You can directly run `.claude/commands/test-e2e-slack-bot.sh "Your prompt"` if there is no specific testing asked, otherwise use `./slack-qa-bot.js` to test the bot.
 - Anytime you make changes in the code, you MUST:
 
 1. Have the bot running via `make dev` running in the background for development that uses hot reload. If there is `peerbot.log` file in the project root, you can skip this step.

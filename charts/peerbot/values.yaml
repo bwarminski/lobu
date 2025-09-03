@@ -143,6 +143,23 @@ dispatcher:
   config:
     nodeEnv: "development"
     logLevel: "DEBUG"
+  # Anthropic API proxy configuration
+  anthropicProxy:
+    enabled: true # Set to true to enable the proxy
+    baseUrl: "" # Optional: Override Anthropic base URL
+    # Internal ingress for proxy (cluster-internal only)
+    internalIngress:
+      enabled: false # Enable if you want external ingress access
+      className: ""
+      annotations: {}
+        # kubernetes.io/ingress.class: internal
+        # nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - host: peerbot-internal.local
+          paths:
+            - path: /api/anthropic
+              pathType: Prefix
+      tls: []
 
 image:
   pullPolicy: Always

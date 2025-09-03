@@ -4,7 +4,7 @@
  * Test utilities for dispatcher package
  */
 
-import { jest } from "bun:test";
+import { expect, jest } from "bun:test";
 import type { WorkerJobRequest } from "../types";
 
 /**
@@ -25,9 +25,8 @@ export function createMockWorkerJobRequest(
     slackResponseTs: "1234567890.123456",
     claudeOptions: {
       model: "claude-3-sonnet",
-      temperature: 0.7,
     },
-    recoveryMode: false,
+
     ...overrides,
   };
 }
@@ -301,7 +300,7 @@ export const asyncTestUtils = {
 
     const fulfilled = results
       .filter(
-        (result): result is PromiseFulfilledResult<T> =>
+        (result): result is PromiseFulfilledResult<Awaited<T>> =>
           result.status === "fulfilled"
       )
       .map((result) => result.value);
@@ -318,7 +317,7 @@ export const asyncTestUtils = {
     }
 
     if (expectedResults) {
-      expect(fulfilled).toEqual(expectedResults);
+      expect(fulfilled).toEqual(expectedResults as Awaited<T>[]);
     }
 
     return fulfilled;

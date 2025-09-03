@@ -22,11 +22,11 @@ interface MockSlackApp {
 }
 
 describe("Slack Event Handlers", () => {
-  let _mockSlackApp: MockSlackApp;
-  let _mockJobManager: any;
+  let mockSlackApp: MockSlackApp;
+  let mockJobManager: any;
 
   beforeEach(() => {
-    _mockSlackApp = {
+    mockSlackApp = {
       event: jest.fn(),
       message: jest.fn(),
       command: jest.fn(),
@@ -34,7 +34,7 @@ describe("Slack Event Handlers", () => {
       start: jest.fn(),
     };
 
-    _mockJobManager = {
+    mockJobManager = {
       createWorkerJob: jest.fn(),
       getActiveJobCount: jest.fn().mockReturnValue(0),
       listActiveJobs: jest.fn().mockResolvedValue([]),
@@ -134,7 +134,7 @@ describe("Slack Event Handlers", () => {
 
   describe("Slash Commands", () => {
     it("should handle /claude command", async () => {
-      const _mockCommand = {
+      const mockCommand = {
         command: "/claude",
         text: "help me with this issue",
         user_id: "U123456",
@@ -155,7 +155,7 @@ describe("Slack Event Handlers", () => {
     });
 
     it("should handle /claude status command", async () => {
-      const _mockCommand = {
+      const mockCommand = {
         command: "/claude",
         text: "status",
         user_id: "U123456",
@@ -175,7 +175,7 @@ describe("Slack Event Handlers", () => {
     });
 
     it("should handle /claude help command", async () => {
-      const _mockCommand = {
+      const mockCommand = {
         command: "/claude",
         text: "help",
         user_id: "U123456",
@@ -260,7 +260,7 @@ describe("Slack Event Handlers", () => {
       try {
         await mockSay("Test message");
       } catch (error) {
-        expect(error.message).toBe("Slack API error");
+        expect((error as Error).message).toBe("Slack API error");
       }
 
       expect(mockSay).toHaveBeenCalled();
@@ -278,7 +278,7 @@ describe("Slack Event Handlers", () => {
       try {
         await mockJobManager.createWorkerJob({});
       } catch (error) {
-        if (error.message.includes("Rate limit exceeded")) {
+        if ((error as Error).message.includes("Rate limit exceeded")) {
           await mockRespond(
             "You've reached the rate limit. Please wait before starting another task."
           );
@@ -352,7 +352,7 @@ describe("Slack Event Handlers", () => {
 
   describe("User Context Handling", () => {
     it("should extract user information correctly", () => {
-      const mockSlackUser = {
+      const mockSlackUser: any = {
         id: "U123456",
         name: "john.doe",
         real_name: "John Doe",
@@ -375,7 +375,7 @@ describe("Slack Event Handlers", () => {
     });
 
     it("should handle missing user information gracefully", () => {
-      const mockSlackUser = {
+      const mockSlackUser: any = {
         id: "U123456",
         name: "john.doe",
         // Missing real_name and profile
@@ -419,7 +419,9 @@ describe("Slack Event Handlers", () => {
       };
 
       expect(successMessage.text).toContain("✅");
-      expect(successMessage.blocks[1].elements[0].text).toContain(jobName);
+      expect(
+        (successMessage as any).blocks?.[1]?.elements?.[0]?.text
+      ).toContain(jobName);
     });
 
     it("should format error responses correctly", () => {
@@ -437,7 +439,9 @@ describe("Slack Event Handlers", () => {
       };
 
       expect(errorMessage.text).toContain("❌");
-      expect(errorMessage.blocks[0].text.text).toContain("try again");
+      expect((errorMessage as any).blocks?.[0]?.text?.text).toContain(
+        "try again"
+      );
     });
   });
 });

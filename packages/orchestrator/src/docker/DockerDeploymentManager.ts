@@ -12,13 +12,13 @@ import {
 } from "../types";
 import { PostgresSecretManager } from "./PostgresSecretManager";
 
-interface ContainerInfo {
-  id: string;
-  name: string;
-  state: string;
-  created: Date;
-  labels: { [key: string]: string };
-}
+// interface ContainerInfo {
+//   id: string;
+//   name: string;
+//   state: string;
+//   created: Date;
+//   labels: { [key: string]: string };
+// }
 
 export class DockerDeploymentManager extends BaseDeploymentManager {
   private docker: Docker;

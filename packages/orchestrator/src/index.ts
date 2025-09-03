@@ -258,8 +258,8 @@ class PeerbotOrchestrator {
         // Scale deployment endpoint: POST /scale/{deploymentName}/{replicas}
         const pathParts = url.pathname.split("/");
         if (pathParts.length === 4 && pathParts[1] === "scale") {
-          const deploymentName = pathParts[2];
-          const replicas = parseInt(pathParts[3], 10);
+          const deploymentName = pathParts[2] || "";
+          const replicas = parseInt(pathParts[3] || "0", 10);
 
           if (Number.isNaN(replicas) || replicas < 0) {
             res.statusCode = 400;

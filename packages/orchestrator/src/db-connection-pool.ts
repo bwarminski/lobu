@@ -3,6 +3,7 @@ import { type OrchestratorConfig, OrchestratorError } from "./types";
 
 export class DatabasePool {
   private pool: Pool;
+  private config: OrchestratorConfig["database"];
 
   constructor(config: OrchestratorConfig["database"]) {
     this.config = config;

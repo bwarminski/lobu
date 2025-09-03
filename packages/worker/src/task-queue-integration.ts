@@ -40,6 +40,7 @@ export class QueueIntegration {
   private deploymentName?: string;
   private workspaceManager?: any; // WorkspaceManager dependency
   private claudeSessionId?: string; // Claude session ID
+  private stopButtonVisible = false;
 
   constructor(config: {
     databaseUrl: string;

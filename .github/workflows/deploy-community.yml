@@ -63,7 +63,7 @@ jobs:
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
-          terraform init -migrate-state
+          terraform init -upgrade
         
       - name: Terraform Plan
         working-directory: charts/peerbot/provider/hetzner

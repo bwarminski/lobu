@@ -62,7 +62,9 @@ jobs:
         working-directory: charts/peerbot/provider/hetzner
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: terraform init
+          TF_IN_AUTOMATION: true
+        run: |
+          terraform init -input=false
         
       - name: Terraform Plan
         working-directory: charts/peerbot/provider/hetzner
@@ -138,7 +140,7 @@ jobs:
           }
           EOF
           
-          terraform init
+          terraform init -input=false
           terraform output -raw kubeconfig > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
           

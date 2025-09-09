@@ -44,12 +44,12 @@ jobs:
           cat > backend.tf << 'EOF'
           terraform {
             backend "s3" {
-              bucket = "${{ secrets.TF_STATE_BUCKET }}"
+              bucket = "${{ secrets.R2_BUCKET_NAME }}"
               key    = "hetzner/terraform.tfstate"
-              region = "${{ secrets.TF_STATE_REGION }}"
-              access_key = "${{ secrets.TF_STATE_ACCESS_KEY }}"
-              secret_key = "${{ secrets.TF_STATE_SECRET_KEY }}"
-              endpoint = "${{ secrets.TF_STATE_ENDPOINT }}"
+              region = "auto"
+              access_key = "${{ secrets.R2_ACCESS_KEY_ID }}"
+              secret_key = "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+              endpoint = "${{ secrets.R2_ENDPOINT }}"
               skip_credentials_validation = true
               skip_metadata_api_check = true
               skip_region_validation = true
@@ -128,12 +128,12 @@ jobs:
           cat > backend.tf << 'EOF'
           terraform {
             backend "s3" {
-              bucket = "${{ secrets.TF_STATE_BUCKET }}"
+              bucket = "${{ secrets.R2_BUCKET_NAME }}"
               key    = "hetzner/terraform.tfstate"
-              region = "${{ secrets.TF_STATE_REGION }}"
-              access_key = "${{ secrets.TF_STATE_ACCESS_KEY }}"
-              secret_key = "${{ secrets.TF_STATE_SECRET_KEY }}"
-              endpoint = "${{ secrets.TF_STATE_ENDPOINT }}"
+              region = "auto"
+              access_key = "${{ secrets.R2_ACCESS_KEY_ID }}"
+              secret_key = "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+              endpoint = "${{ secrets.R2_ENDPOINT }}"
               skip_credentials_validation = true
               skip_metadata_api_check = true
               skip_region_validation = true

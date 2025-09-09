@@ -33,6 +33,10 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.event.client_payload.branch || 'main' }}
         
+      - name: Generate SSH Key
+        run: |
+          ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "github-actions@peerbot"
+          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:

@@ -22,3 +22,7 @@ packages/**/*.d.ts
 packages/**/*.d.ts.map
 
 workspaces/*
+
+# SSH keys for Terraform
+charts/peerbot/provider/hetzner/ssh_key
+charts/peerbot/provider/hetzner/ssh_key.pub

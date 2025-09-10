@@ -69,6 +69,17 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           chmod 644 ~/.ssh/id_ed25519.pub
           
+          # Verify SSH key format and validity
+          echo "Verifying SSH key..."
+          if ! ssh-keygen -l -f ~/.ssh/id_ed25519.pub > /dev/null 2>&1; then
+            echo "::error::Invalid SSH public key format"
+            exit 1
+          fi
+          
+          # Show key fingerprint for debugging
+          echo "SSH key fingerprint:"
+          ssh-keygen -l -f ~/.ssh/id_ed25519.pub
+          
           # Start SSH agent and add key
           eval "$(ssh-agent -s)"
           ssh-add ~/.ssh/id_ed25519
@@ -80,6 +91,9 @@ jobs:
             UserKnownHostsFile /dev/null
             User root
             IdentityFile ~/.ssh/id_ed25519
+            ConnectTimeout 30
+            ServerAliveInterval 60
+            ServerAliveCountMax 3
           EOL
           chmod 600 ~/.ssh/config
           
@@ -179,15 +193,28 @@ jobs:
         id: terraform-apply
         timeout-minutes: 15  # Increased timeout for provisioners
         run: |
+          # Verify SSH keys exist in working directory
+          echo "Checking SSH keys in working directory..."
+          if [ ! -f ./ssh_key ]; then
+            echo "::error::ssh_key not found in working directory"
+            ls -la
+            exit 1
+          fi
+          
+          echo "SSH key files present:"
+          ls -la ssh_key*
+          echo "SSH public key fingerprint:"
+          ssh-keygen -l -f ./ssh_key.pub
+          
           # Start SSH agent and add key for provisioners
           eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_ed25519
           ssh-add ./ssh_key
           
           # Export SSH auth sock for Terraform
           export SSH_AUTH_SOCK=$SSH_AUTH_SOCK
           
           # Show SSH agent keys for debugging
+          echo "SSH keys loaded in agent:"
           ssh-add -l
           
           # Apply Terraform - expect provisioners to fail from GitHub Actions
@@ -207,13 +234,13 @@ jobs:
             fi
           }
         
-      - name: Wait for servers and bootstrap K3s
+      - name: Wait for servers and test SSH connectivity
         if: steps.terraform-apply.outputs.apply_failed == 'true'
         working-directory: charts/peerbot/provider/hetzner
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
-          echo "::notice::Terraform provisioners failed (expected). Proceeding with alternative bootstrap..."
+          echo "::notice::Testing SSH connectivity to newly created servers..."
           
           # Install hcloud CLI
           curl -sSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
@@ -232,12 +259,34 @@ jobs:
           fi
           
           echo "Found $(echo "$SERVERS" | jq '. | length') servers"
-          
-          # For now, we'll skip K3s bootstrap since SSH from GitHub Actions is blocked
-          # The infrastructure is created, which is the main goal
-          echo "::warning::K3s bootstrap skipped. Manual setup required."
-          echo "Infrastructure has been created successfully:"
           hcloud server list
+          
+          # Test SSH connectivity to first server
+          FIRST_SERVER_IP=$(echo "$SERVERS" | jq -r '.[0].public_net.ipv4.ip')
+          echo "Testing SSH to first server at $FIRST_SERVER_IP..."
+          
+          # Wait for server to be ready (cloud-init might still be running)
+          sleep 30
+          
+          # Try to connect with verbose output for debugging
+          if ssh -vvv -o ConnectTimeout=10 \
+               -o StrictHostKeyChecking=no \
+               -o UserKnownHostsFile=/dev/null \
+               -o PasswordAuthentication=no \
+               -o PreferredAuthentications=publickey \
+               -i ./ssh_key \
+               root@$FIRST_SERVER_IP "echo 'SSH connection successful!'" 2>&1; then
+            echo "✅ SSH connection successful!"
+            echo "K3s can be installed manually or via a self-hosted runner"
+          else
+            echo "::warning::SSH connection failed. This might be due to:"
+            echo "  1. Server is still initializing (cloud-init running)"
+            echo "  2. Network restrictions from GitHub Actions"
+            echo "  3. SSH key mismatch"
+            echo ""
+            echo "Infrastructure has been created successfully:"
+            hcloud server list
+          fi
           
           # Create a dummy kubeconfig to allow workflow to continue
           mkdir -p ~/.kube

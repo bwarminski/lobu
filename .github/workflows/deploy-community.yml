@@ -177,6 +177,7 @@ jobs:
           TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
         continue-on-error: true
         id: terraform-apply
+        timeout-minutes: 10  # Prevent hanging forever on SSH issues
         run: |
           # Start SSH agent and add key for provisioners
           eval "$(ssh-agent -s)"
@@ -189,8 +190,8 @@ jobs:
           # Show SSH agent keys for debugging
           ssh-add -l
           
-          # Apply Terraform - continue even if provisioners fail
-          terraform apply -auto-approve tfplan || {
+          # Apply Terraform with timeout - continue even if provisioners fail
+          timeout 540 terraform apply -auto-approve tfplan || {
             echo "Terraform apply failed, likely due to provisioners"
             echo "apply_failed=true" >> $GITHUB_OUTPUT
             # Still try to get what was created

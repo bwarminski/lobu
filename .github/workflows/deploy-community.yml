@@ -219,7 +219,7 @@ jobs:
           
           # Apply Terraform - expect provisioners to fail from GitHub Actions
           # The infrastructure will be created but K3s installation may fail
-          terraform apply -auto-approve -parallelism=2 || {
+          terraform apply -auto-approve || {
             echo "::warning::Terraform provisioners failed (expected in GitHub Actions)"
             echo "apply_failed=true" >> $GITHUB_OUTPUT
             # Check what was actually created

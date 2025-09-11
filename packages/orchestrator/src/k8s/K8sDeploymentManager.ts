@@ -150,7 +150,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
             accessModes: ["ReadWriteOnce"],
             resources: {
               requests: {
-                storage: "10Gi",
+                storage: "1Gi",
               },
             },
           },

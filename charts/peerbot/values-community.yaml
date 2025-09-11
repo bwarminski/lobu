@@ -172,6 +172,9 @@ resourceQuota:
   limits:
     cpu: "16"
     memory: "32Gi"
+  counts:
+    pods: "50"
+    persistentvolumeclaims: "10"
 
 # Worker-specific quota
 workerQuota:

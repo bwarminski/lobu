@@ -55,6 +55,8 @@ spec:
           echo "PostgreSQL is ready!"
       containers:
       - name: orchestrator
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
         image: "{{ .Values.orchestrator.image.repository }}:{{ .Values.orchestrator.image.tag }}"
         imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
         

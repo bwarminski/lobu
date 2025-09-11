@@ -1,0 +1,39 @@
+name: Check Worker 906 Logs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: community
+    
+    steps:
+    - name: Setup kubeconfig
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+        chmod 600 /tmp/kubeconfig
+        echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
+        
+    - name: Check Worker Logs
+      run: |
+        echo "=== Worker Pod for message 906 ==="
+        kubectl get pods -n peerbot | grep 906 || echo "No pod found for message 906"
+        
+        echo -e "\n=== Worker Deployment for message 906 ==="
+        kubectl get deployments -n peerbot | grep 906 || echo "No deployment found for message 906"
+        
+        echo -e "\n=== Worker Pod Logs ==="
+        POD=$(kubectl get pods -n peerbot -o name | grep 906 | head -1)
+        if [ ! -z "$POD" ]; then
+          echo "Found pod: $POD"
+          kubectl logs -n peerbot $POD --tail=100 || echo "Could not get logs"
+        else
+          echo "No worker pod found for message 906"
+        fi
+        
+        echo -e "\n=== Check Worker Pod Events ==="
+        POD_NAME=$(kubectl get pods -n peerbot -o name | grep 906 | head -1 | cut -d'/' -f2)
+        if [ ! -z "$POD_NAME" ]; then
+          kubectl describe pod $POD_NAME -n peerbot | grep -A 20 "Events:"
+        fi

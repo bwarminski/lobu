@@ -62,7 +62,7 @@ set_secret() {
 echo "📦 Setting up repository-level secrets (non-sensitive)..."
 
 # Docker Hub credentials (needed for docker-publish workflow)
-set_secret "DOCKER_USERNAME" "${DOCKER_USERNAME:-peerbot}"
+set_secret "DOCKER_USERNAME" "${DOCKER_USERNAME:-buremba}"
 set_secret "DOCKER_PASSWORD" "$DOCKER_PASSWORD"
 
 echo ""

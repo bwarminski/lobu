@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_NAMESPACE: ${{ secrets.DOCKER_USERNAME || 'peerbot' }}
+  DOCKER_NAMESPACE: ${{ secrets.DOCKER_USERNAME || 'buremba' }}
 
 jobs:
   build-and-push:
@@ -65,9 +65,13 @@ jobs:
           file: ./Dockerfile.dispatcher
           push: true
           tags: ${{ steps.meta-dispatcher.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-dispatcher:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-dispatcher:buildcache,mode=max
+          platforms: linux/amd64
 
       - name: Extract metadata for Orchestrator
         id: meta-orchestrator
@@ -86,9 +90,13 @@ jobs:
           file: ./Dockerfile.orchestrator
           push: true
           tags: ${{ steps.meta-orchestrator.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-orchestrator:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-orchestrator:buildcache,mode=max
+          platforms: linux/amd64
 
       - name: Extract metadata for Worker
         id: meta-worker
@@ -107,9 +115,13 @@ jobs:
           file: ./Dockerfile.worker
           push: true
           tags: ${{ steps.meta-worker.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-worker:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-worker:buildcache,mode=max
+          platforms: linux/amd64
 
       - name: Trigger deployment
         if: success() && github.ref == 'refs/heads/main'

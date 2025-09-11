@@ -82,6 +82,3 @@ secrets:
   slackBotToken: ""
   slackAppToken: ""
   slackSigningSecret: ""
-  slackClientId: ""
-  slackClientSecret: ""
-  slackStateSecret: ""

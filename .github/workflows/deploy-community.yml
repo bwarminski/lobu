@@ -412,9 +412,6 @@ jobs:
             --set secrets.slackBotToken="${{ secrets.SLACK_BOT_TOKEN }}" \
             --set secrets.slackAppToken="${{ secrets.SLACK_APP_TOKEN }}" \
             --set secrets.slackSigningSecret="${{ secrets.SLACK_SIGNING_SECRET }}" \
-            --set secrets.slackStateSecret="${{ secrets.SLACK_STATE_SECRET }}" \
-            --set secrets.slackClientId="${{ secrets.SLACK_CLIENT_ID }}" \
-            --set secrets.slackClientSecret="${{ secrets.SLACK_CLIENT_SECRET }}" \
             --wait \
             --timeout 10m
             

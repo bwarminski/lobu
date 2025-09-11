@@ -27,9 +27,6 @@ The workflow pulls secrets from GitHub Secrets and injects them into Helm:
 - `SLACK_BOT_TOKEN` - Slack bot user OAuth token (xoxb-...)
 - `SLACK_APP_TOKEN` - Slack app-level token (xapp-...)
 - `SLACK_SIGNING_SECRET` - For verifying Slack requests
-- `SLACK_CLIENT_ID` - Slack OAuth client ID
-- `SLACK_CLIENT_SECRET` - Slack OAuth client secret
-- `SLACK_STATE_SECRET` - Random string for OAuth state
 
 ## Quick Setup
 

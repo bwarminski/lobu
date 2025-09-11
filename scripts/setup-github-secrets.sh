@@ -140,29 +140,6 @@ if [ "$CONFIGURE_SLACK" = "y" ]; then
         gh secret set SLACK_SIGNING_SECRET --body "$SLACK_SIGNING_SECRET" --repo "$REPO"
         echo "✅ Set SLACK_SIGNING_SECRET"
     fi
-    
-    echo "Slack Client ID:"
-    read SLACK_CLIENT_ID
-    if [ -n "$SLACK_CLIENT_ID" ]; then
-        gh secret set SLACK_CLIENT_ID --body "$SLACK_CLIENT_ID" --repo "$REPO"
-        echo "✅ Set SLACK_CLIENT_ID"
-    fi
-    
-    echo "Slack Client Secret:"
-    read -s SLACK_CLIENT_SECRET
-    echo ""
-    if [ -n "$SLACK_CLIENT_SECRET" ]; then
-        gh secret set SLACK_CLIENT_SECRET --body "$SLACK_CLIENT_SECRET" --repo "$REPO"
-        echo "✅ Set SLACK_CLIENT_SECRET"
-    fi
-    
-    echo "Slack State Secret (random string for OAuth):"
-    read -s SLACK_STATE_SECRET
-    echo ""
-    if [ -n "$SLACK_STATE_SECRET" ]; then
-        gh secret set SLACK_STATE_SECRET --body "$SLACK_STATE_SECRET" --repo "$REPO"
-        echo "✅ Set SLACK_STATE_SECRET"
-    fi
 fi
 
 echo ""

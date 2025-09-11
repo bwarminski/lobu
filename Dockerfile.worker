@@ -50,10 +50,10 @@ RUN addgroup --gid 1001 claude && \
     echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
     usermod -aG docker claude
 
-# Install Claude Code CLI globally using bun
-RUN bun install -g @anthropic-ai/claude-code && \
-    echo "Bun global packages:" && \
-    bun pm ls -g && \
+# Install Claude Code CLI globally using npm since bun global install doesn't work the same way
+RUN npm install -g @anthropic-ai/claude-code && \
+    echo "NPM global packages:" && \
+    npm list -g --depth=0 && \
     echo "Looking for claude binary..." && \
     which claude && \
     echo "Testing claude command..." && \

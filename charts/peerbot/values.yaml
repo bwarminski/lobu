@@ -98,7 +98,7 @@ claude:
 worker:
   enabled: false
   image:
-    repository: peerbot-worker
+    repository: ghcr.io/your-org/peerbot/claude-worker
     pullPolicy: Always
     tag: latest
   resources:
@@ -130,7 +130,7 @@ worker:
 dispatcher:
   enabled: true
   image:
-    repository: peerbot-dispatcher
+    repository: ghcr.io/your-org/peerbot/claude-dispatcher
     pullPolicy: Always
     tag: latest
   resources:
@@ -195,7 +195,7 @@ workerQuota:
 orchestrator:
   enabled: true
   image:
-    repository: peerbot-orchestrator
+    repository: ghcr.io/your-org/peerbot/claude-orchestrator
     tag: latest
     pullPolicy: Always
   resources:

@@ -1,12 +1,9 @@
 #!/bin/bash
 
-# Generic script to setup GitHub secrets for Kubernetes deployments
-# Provider-agnostic - works with any Kubernetes infrastructure
+# Setup GitHub Secrets for OVH Kubernetes Deployment
+# This script configures GitHub repository secrets needed for deployment
 
 set -e
-
-echo "🚀 Setting up GitHub secrets for Kubernetes deployment"
-echo "======================================================"
 
 # Check if gh CLI is installed
 if ! command -v gh &> /dev/null; then
@@ -17,144 +14,120 @@ fi
 
 # Check if authenticated
 if ! gh auth status &> /dev/null; then
-    echo "❌ Please authenticate with GitHub first:"
+    echo "❌ Not authenticated with GitHub. Please run:"
     echo "   gh auth login"
     exit 1
 fi
 
-# Get current repository
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner || echo "")
+# Load environment variables
+if [ -f .env ]; then
+    source .env
+else
+    echo "❌ .env file not found. Please run 'make setup' first."
+    exit 1
+fi
+
+# Get repository name
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 if [ -z "$REPO" ]; then
     echo "❌ Could not determine repository. Make sure you're in a git repository."
     exit 1
 fi
 
-echo "📦 Repository: $REPO"
+echo "🔧 Setting up GitHub secrets for repository: $REPO"
 echo ""
 
-# Infrastructure Provider Selection
-echo "☁️  Select your infrastructure provider:"
-echo "1) Hetzner Cloud"
-echo "2) AWS"
-echo "3) Google Cloud"
-echo "4) Azure"
-echo "5) DigitalOcean"
-echo "6) Other/Custom"
-read -p "Enter choice [1-6]: " PROVIDER_CHOICE
+# Function to set secret
+set_secret() {
+    local name=$1
+    local value=$2
+    local environment=$3
+    
+    if [ -z "$value" ]; then
+        echo "⚠️  Skipping $name (empty value)"
+        return
+    fi
+    
+    if [ -n "$environment" ]; then
+        echo "   Setting $name in environment: $environment"
+        echo "$value" | gh secret set "$name" --env "$environment" -R "$REPO" 2>/dev/null || {
+            echo "   ⚠️  Failed to set $name - environment might not exist"
+        }
+    else
+        echo "   Setting $name"
+        echo "$value" | gh secret set "$name" -R "$REPO"
+    fi
+}
 
-case $PROVIDER_CHOICE in
-    1)
-        echo ""
-        echo "🔑 Hetzner Cloud Configuration"
-        echo "=============================="
-        echo "Enter your Hetzner Cloud API token:"
-        read -s HCLOUD_TOKEN
-        echo ""
-        gh secret set HCLOUD_TOKEN --body "$HCLOUD_TOKEN" --repo "$REPO"
-        echo "✅ Set HCLOUD_TOKEN"
-        ;;
-    2|3|4|5|6)
-        echo ""
-        echo "ℹ️  For other providers, configure infrastructure secrets manually"
-        echo "   or add provider-specific configuration to this script"
-        ;;
-    *)
-        echo "Invalid choice"
-        exit 1
-        ;;
-esac
+echo "📦 Setting up repository secrets..."
 
-# Terraform State Backend (Optional - manual)
-echo ""
-echo "📦 Terraform State Backend (Optional)"
-echo "====================================="
-echo "Do you need to configure Terraform state backend? (y/n)"
-read -n 1 CONFIGURE_BACKEND
-echo ""
-
-if [ "$CONFIGURE_BACKEND" = "y" ]; then
-    echo "ℹ️  Configure your preferred backend (e.g., Terraform Cloud, S3) manually in GitHub Secrets."
+# Kubeconfig (base64 encoded)
+if [ -f /tmp/kubeconfig-base64.txt ]; then
+    KUBE_CONFIG=$(cat /tmp/kubeconfig-base64.txt)
+    set_secret "KUBE_CONFIG" "$KUBE_CONFIG"
+else
+    echo "⚠️  Kubeconfig not found. Encoding from Downloads..."
+    if [ -f ~/Downloads/kubeconfig.yml ]; then
+        KUBE_CONFIG=$(cat ~/Downloads/kubeconfig.yml | base64 | tr -d '\n')
+        set_secret "KUBE_CONFIG" "$KUBE_CONFIG"
+    else
+        echo "❌ No kubeconfig found. Please add it manually."
+    fi
 fi
 
-# Application Secrets
-echo ""
-echo "🔐 Application Secrets"
-echo "====================="
-echo "Configure application-specific secrets (press Enter to skip any):"
-echo ""
+# Slack credentials
+set_secret "SLACK_BOT_TOKEN" "$SLACK_BOT_TOKEN"
+set_secret "SLACK_APP_TOKEN" "$SLACK_APP_TOKEN"
+set_secret "SLACK_SIGNING_SECRET" "$SLACK_SIGNING_SECRET"
 
-# GitHub OAuth
-echo "GitHub OAuth Client ID:"
-read GITHUB_CLIENT_ID
+# GitHub token (different from GITHUB_TOKEN which is automatic)
+set_secret "GH_TOKEN_PEERBOT" "$GITHUB_TOKEN"
+
+# Claude Code OAuth token
+set_secret "CLAUDE_CODE_OAUTH_TOKEN" "$CLAUDE_CODE_OAUTH_TOKEN"
+
+# PostgreSQL password
+set_secret "POSTGRESQL_PASSWORD" "${POSTGRESQL_PASSWORD:-peerbot123}"
+
+# Optional: GitHub OAuth (if configured)
 if [ -n "$GITHUB_CLIENT_ID" ]; then
-    gh secret set GITHUB_CLIENT_ID --body "$GITHUB_CLIENT_ID" --repo "$REPO"
-    echo "✅ Set GITHUB_CLIENT_ID"
+    set_secret "GH_CLIENT_ID" "$GITHUB_CLIENT_ID"
 fi
 
-echo "GitHub OAuth Client Secret:"
-read -s GITHUB_CLIENT_SECRET
-echo ""
 if [ -n "$GITHUB_CLIENT_SECRET" ]; then
-    gh secret set GITHUB_CLIENT_SECRET --body "$GITHUB_CLIENT_SECRET" --repo "$REPO"
-    echo "✅ Set GITHUB_CLIENT_SECRET"
+    set_secret "GH_CLIENT_SECRET" "$GITHUB_CLIENT_SECRET"
 fi
 
-# Encryption Key
-echo "Encryption Key (for encrypting sensitive data):"
-read -s ENCRYPTION_KEY
-echo ""
+# Optional: Encryption key
 if [ -n "$ENCRYPTION_KEY" ]; then
-    gh secret set ENCRYPTION_KEY --body "$ENCRYPTION_KEY" --repo "$REPO"
-    echo "✅ Set ENCRYPTION_KEY"
-fi
-
-# Slack Configuration
-echo ""
-echo "📱 Slack Configuration (optional)"
-echo "================================="
-echo "Configure Slack integration? (y/n)"
-read -n 1 CONFIGURE_SLACK
-echo ""
-
-if [ "$CONFIGURE_SLACK" = "y" ]; then
-    echo "Slack Bot Token (xoxb-...):"
-    read -s SLACK_BOT_TOKEN
-    echo ""
-    if [ -n "$SLACK_BOT_TOKEN" ]; then
-        gh secret set SLACK_BOT_TOKEN --body "$SLACK_BOT_TOKEN" --repo "$REPO"
-        echo "✅ Set SLACK_BOT_TOKEN"
-    fi
-    
-    echo "Slack App Token (xapp-...):"
-    read -s SLACK_APP_TOKEN
-    echo ""
-    if [ -n "$SLACK_APP_TOKEN" ]; then
-        gh secret set SLACK_APP_TOKEN --body "$SLACK_APP_TOKEN" --repo "$REPO"
-        echo "✅ Set SLACK_APP_TOKEN"
-    fi
-    
-    echo "Slack Signing Secret:"
-    read -s SLACK_SIGNING_SECRET
-    echo ""
-    if [ -n "$SLACK_SIGNING_SECRET" ]; then
-        gh secret set SLACK_SIGNING_SECRET --body "$SLACK_SIGNING_SECRET" --repo "$REPO"
-        echo "✅ Set SLACK_SIGNING_SECRET"
-    fi
+    set_secret "ENCRYPTION_KEY" "$ENCRYPTION_KEY"
 fi
 
 echo ""
-echo "✨ Secret configuration complete!"
+echo "📦 Setting up environment-specific secrets (community)..."
+
+# Try to set secrets for 'community' environment
+# This will fail if the environment doesn't exist, which is fine
+set_secret "KUBE_CONFIG" "$KUBE_CONFIG" "community"
+set_secret "SLACK_BOT_TOKEN" "$SLACK_BOT_TOKEN" "community"
+set_secret "SLACK_APP_TOKEN" "$SLACK_APP_TOKEN" "community"
+set_secret "SLACK_SIGNING_SECRET" "$SLACK_SIGNING_SECRET" "community"
+
 echo ""
-echo "📋 Next Steps:"
-echo "=============="
+echo "✅ GitHub secrets configuration complete!"
 echo ""
-echo "1. Deploy using GitHub Actions:"
+echo "📝 Next steps:"
+echo "1. Verify secrets are set correctly:"
+echo "   gh secret list -R $REPO"
+echo ""
+echo "2. If you have environments configured, set them up:"
+echo "   gh secret list --env community -R $REPO"
+echo ""
+echo "3. Trigger deployment workflow:"
 echo "   gh workflow run deploy-community.yml"
 echo ""
-echo "2. Or trigger via repository dispatch:"
-echo "   gh api repos/$REPO/dispatches \\"
-echo "     --raw-field event_type=deploy-community \\"
-echo "     --raw-field client_payload='{\"branch\":\"main\"}'"
+echo "4. Or push to main branch to trigger automatic deployment"
 echo ""
-echo "3. Monitor deployment:"
-echo "   gh run watch"
+
+# Clean up temporary file
+rm -f /tmp/kubeconfig-base64.txt

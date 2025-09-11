@@ -36,14 +36,14 @@ spec:
         - name: PGPORT
           value: "5432"
         - name: PGUSER
-          value: {{ .Values.postgresql.auth.username | default "peerbot" }}
+          value: {{ .Values.postgresql.username | default "postgres" }}
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
               name: {{ include "peerbot.fullname" . }}-secrets
               key: postgresql-password
         - name: PGDATABASE
-          value: {{ .Values.postgresql.auth.database | default "peerbot" }}
+          value: {{ .Values.postgresql.database | default "peerbot" }}
         command:
         - sh
         - -c

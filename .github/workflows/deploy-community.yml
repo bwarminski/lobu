@@ -1,4 +1,4 @@
-name: Deploy to Community Kubernetes
+name: Deploy to Kubernetes
 
 on:
   workflow_dispatch:
@@ -14,260 +14,14 @@ on:
 env:
   NAMESPACE: peerbot
   DEPLOYMENT_NAME: peerbot
-  IMAGE_DISPATCHER: claude-dispatcher
-  IMAGE_WORKER: claude-worker
-  IMAGE_ORCHESTRATOR: claude-orchestrator
+  IMAGE_DISPATCHER: peerbot/claude-dispatcher
+  IMAGE_WORKER: peerbot/claude-worker
+  IMAGE_ORCHESTRATOR: peerbot/claude-orchestrator
 
 jobs:
-  terraform:
-    name: Terraform Infrastructure
-    # Use GitHub-hosted runner since NAT router is disabled
-    runs-on: ubuntu-latest
-    environment: community
-    
-    permissions:
-      contents: read
-      id-token: write
-      
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || github.event.client_payload.branch || 'main' }}
-        
-      - name: Check Hetzner API Status
-        id: check-api
-        continue-on-error: true
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          # Check if Hetzner API is available
-          echo "Checking Hetzner Cloud API status..."
-          
-          # Try a simple API call with curl
-          API_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $HCLOUD_TOKEN" \
-            https://api.hetzner.cloud/v1/datacenters)
-          
-          if [ "$API_RESPONSE" = "200" ]; then
-            echo "✅ Hetzner API is available"
-            echo "api_available=true" >> $GITHUB_OUTPUT
-          elif [ "$API_RESPONSE" = "503" ]; then
-            echo "⚠️ Hetzner API is unavailable (503)"
-            echo "api_available=false" >> $GITHUB_OUTPUT
-            echo "::warning::Hetzner Cloud API is currently unavailable. Infrastructure deployment will be skipped."
-          else
-            echo "⚠️ Hetzner API returned status: $API_RESPONSE"
-            echo "api_available=maybe" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: Detect runner IP and set firewall TF vars
-        if: steps.check-api.outputs.api_available != 'false'
-        run: |
-          set -euo pipefail
-          echo "Detecting runner public IP..."
-          RUNNER_IP=$(curl -fsSL https://ipinfo.io/ip || curl -fsSL https://ipv4.icanhazip.com || true)
-          if [ -z "${RUNNER_IP}" ]; then
-            echo "::warning::Could not detect runner IP; using 0.0.0.0/0 temporarily"
-            RUNNER_IP="0.0.0.0"
-          fi
-          echo "Runner IP: ${RUNNER_IP}"
-          echo "TF_VAR_firewall_ssh_source=[\"${RUNNER_IP}/32\"]" >> $GITHUB_ENV
-          echo "TF_VAR_firewall_kube_api_source=[\"${RUNNER_IP}/32\"]" >> $GITHUB_ENV
-          echo "Configured firewall sources to ${RUNNER_IP}/32" >> $GITHUB_STEP_SUMMARY
-
-      - name: Setup SSH Key
-        if: steps.check-api.outputs.api_available != 'false'
-        run: |
-          # Use persistent SSH key from GitHub secrets
-          mkdir -p ~/.ssh
-          echo "${{ secrets.HETZNER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          echo "${{ secrets.HETZNER_SSH_PUBLIC_KEY }}" > ~/.ssh/id_ed25519.pub
-          chmod 600 ~/.ssh/id_ed25519
-          chmod 644 ~/.ssh/id_ed25519.pub
-          
-          # Verify SSH key format and validity
-          echo "Verifying SSH key..."
-          if ! ssh-keygen -l -f ~/.ssh/id_ed25519.pub > /dev/null 2>&1; then
-            echo "::error::Invalid SSH public key format"
-            exit 1
-          fi
-          
-          # Show key fingerprint for debugging
-          echo "SSH key fingerprint:"
-          ssh-keygen -l -f ~/.ssh/id_ed25519.pub
-          
-      - name: Setup Terraform
-        if: steps.check-api.outputs.api_available != 'false'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.8.5
-          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-          terraform_wrapper: false
-          
-      - name: Configure Terraform Backend
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        run: |
-          cat > backend.tf << 'EOF'
-          terraform {
-            cloud {
-              organization = "peerbot-community-prod"
-              
-              workspaces {
-                name = "peerbot-hetzner"
-              }
-            }
-          }
-          EOF
-          
-      - name: Skip Infrastructure Due to API Outage
-        if: steps.check-api.outputs.api_available == 'false'
-        run: |
-          echo "::notice title=Deployment Skipped::Hetzner Cloud API is currently unavailable (503 errors). Infrastructure deployment has been skipped but can be retried when the API recovers."
-          echo "## ⚠️ Infrastructure Deployment Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Hetzner Cloud API is experiencing an outage. The deployment will continue with application builds only." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "You can retry this workflow once the API is available." >> $GITHUB_STEP_SUMMARY
-          
-      - name: Terraform Init
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          TF_CLI_CONFIG_FILE: /tmp/terraform.rc
-        run: |
-          # Create Terraform CLI config with credentials
-          cat > /tmp/terraform.rc << EOF
-          credentials "app.terraform.io" {
-            token = "${{ secrets.TF_API_TOKEN }}"
-          }
-          EOF
-          
-          # Copy SSH keys to working directory for Terraform
-          cp ~/.ssh/id_ed25519 ./ssh_key
-          cp ~/.ssh/id_ed25519.pub ./ssh_key.pub
-          chmod 600 ./ssh_key
-          chmod 644 ./ssh_key.pub
-          
-          # Remove any existing state files to avoid migration prompts
-          rm -rf .terraform terraform.tfstate* .terraform.lock.hcl
-          
-          # Initialize with fresh state from Terraform Cloud
-          terraform init -upgrade
-        
-      - name: Terraform Plan
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_firewall_ssh_source: ${{ env.TF_VAR_firewall_ssh_source }}
-          TF_VAR_firewall_kube_api_source: ${{ env.TF_VAR_firewall_kube_api_source }}
-        run: |
-          # Retry logic for API failures
-          MAX_RETRIES=3
-          RETRY_DELAY=30
-          
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i of $MAX_RETRIES..."
-            if terraform plan; then
-              echo "Terraform plan succeeded"
-              exit 0
-            else
-              if [ $i -lt $MAX_RETRIES ]; then
-                echo "Terraform plan failed, retrying in ${RETRY_DELAY}s..."
-                sleep $RETRY_DELAY
-              else
-                echo "Terraform plan failed after $MAX_RETRIES attempts"
-                exit 1
-              fi
-            fi
-          done
-        
-      - name: Terraform Apply
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_firewall_ssh_source: ${{ env.TF_VAR_firewall_ssh_source }}
-          TF_VAR_firewall_kube_api_source: ${{ env.TF_VAR_firewall_kube_api_source }}
-        timeout-minutes: 20  # Increased timeout for NAT router and provisioners
-        run: |
-          # Verify SSH keys exist in working directory
-          echo "Checking SSH keys in working directory..."
-          if [ ! -f ./ssh_key ]; then
-            echo "::error::ssh_key not found in working directory"
-            ls -la
-            exit 1
-          fi
-          
-          echo "SSH key files present:"
-          ls -la ssh_key*
-          echo "SSH public key fingerprint:"
-          ssh-keygen -l -f ./ssh_key.pub
-          
-          # Apply Terraform - NAT router should make provisioners work reliably
-          terraform apply -auto-approve
-        
-      - name: Verify cluster is ready
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          echo "::notice::Verifying cluster deployment..."
-          
-          # Get kubeconfig from Terraform output
-          terraform output -raw kubeconfig > /tmp/kubeconfig
-          export KUBECONFIG=/tmp/kubeconfig
-          
-          # Install kubectl for verification
-          curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          
-          # Wait for cluster to be ready
-          echo "Waiting for cluster nodes to be ready..."
-          for i in {1..30}; do
-            if kubectl get nodes 2>/dev/null | grep -q Ready; then
-              echo "✅ Cluster is ready!"
-              kubectl get nodes
-              break
-            fi
-            echo "Waiting for nodes to be ready... ($i/30)"
-            sleep 10
-          done
-          
-          # Verify all expected nodes are present
-          echo "Cluster status:"
-          kubectl get nodes -o wide || echo "::warning::Could not get node status"
-          kubectl get pods -A || echo "::warning::Could not get pod status"
-          
-      - name: Get Kubeconfig
-        if: steps.check-api.outputs.api_available != 'false'
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          # Try to get kubeconfig from Terraform first
-          terraform output -raw kubeconfig > /tmp/kubeconfig 2>/dev/null || {
-            echo "Terraform kubeconfig not available, using manual bootstrap config"
-            cp ~/.kube/config /tmp/kubeconfig || {
-              echo "No kubeconfig available, deployment failed"
-              exit 1
-            }
-          }
-          echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
-
   build-and-deploy:
-    name: Build and Deploy Applications
-    # Run app build + helm deploy from the same Hetzner runner for stable kube API access
-    runs-on: [self-hosted, linux, x64, hetzner]
-    needs: terraform
+    name: Build and Deploy
+    runs-on: ubuntu-latest
     environment: community
     
     permissions:
@@ -284,55 +38,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         
-      - name: Compute lowercase owner for GHCR
-        run: |
-          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-        
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Setup Terraform for Kubeconfig
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.8.5
-          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-          terraform_wrapper: false
-          
-      - name: Get Kubeconfig from Terraform
-        working-directory: charts/peerbot/provider/hetzner
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          # Configure backend
-          cat > backend.tf << 'EOF'
-          terraform {
-            cloud {
-              organization = "peerbot-community-prod"
-              
-              workspaces {
-                name = "peerbot-hetzner"
-              }
-            }
-          }
-          EOF
-          
-          # Create Terraform CLI config with credentials
-          cat > /tmp/terraform.rc << EOF
-          credentials "app.terraform.io" {
-            token = "${{ secrets.TF_API_TOKEN }}"
-          }
-          EOF
-          export TF_CLI_CONFIG_FILE=/tmp/terraform.rc
-          
-          # Initialize and get output
-          terraform init -upgrade
-          terraform output -raw kubeconfig > /tmp/kubeconfig
-          echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
           
       - name: Build and Push Dispatcher
         uses: docker/build-push-action@v5
@@ -341,8 +52,8 @@ jobs:
           file: Dockerfile.dispatcher
           push: true
           tags: |
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_DISPATCHER }}:${{ github.sha }}
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_DISPATCHER }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_DISPATCHER }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_DISPATCHER }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
@@ -353,8 +64,8 @@ jobs:
           file: Dockerfile.worker
           push: true
           tags: |
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_WORKER }}:${{ github.sha }}
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_WORKER }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_WORKER }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_WORKER }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
@@ -365,8 +76,8 @@ jobs:
           file: Dockerfile.orchestrator
           push: true
           tags: |
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_ORCHESTRATOR }}:${{ github.sha }}
-            ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_ORCHESTRATOR }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_ORCHESTRATOR }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_ORCHESTRATOR }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
@@ -380,38 +91,32 @@ jobs:
         with:
           version: 'v1.29.0'
           
-      - name: Setup Storage Class
+      - name: Setup Kubeconfig
         run: |
-          # Check if local-path storage class exists, if not install it
-          if ! kubectl get storageclass local-path >/dev/null 2>&1; then
-            echo "Installing local-path storage provisioner..."
-            kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
-            kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-          else
-            echo "Local-path storage class already exists"
-          fi
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
           
       - name: Deploy with Helm
         run: |
-          # Update image repository to use GitHub Container Registry
           helm upgrade --install $DEPLOYMENT_NAME charts/peerbot \
             --namespace $NAMESPACE \
             --create-namespace \
             --values charts/peerbot/values-community.yaml \
-            --set dispatcher.image.repository=ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_DISPATCHER }} \
+            --set dispatcher.image.repository=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_DISPATCHER }} \
             --set dispatcher.image.tag=${{ github.sha }} \
-            --set worker.image.repository=ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_WORKER }} \
+            --set worker.image.repository=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_WORKER }} \
             --set worker.image.tag=${{ github.sha }} \
-            --set orchestrator.image.repository=ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_ORCHESTRATOR }} \
+            --set orchestrator.image.repository=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_ORCHESTRATOR }} \
             --set orchestrator.image.tag=${{ github.sha }} \
-            --set postgresql.persistence.storageClass=local-path \
-            --set redis.enabled=false \
             --set config.githubClientId="${{ secrets.GH_CLIENT_ID }}" \
             --set secrets.githubClientSecret="${{ secrets.GH_CLIENT_SECRET }}" \
             --set secrets.encryptionKey="${{ secrets.ENCRYPTION_KEY }}" \
             --set secrets.slackBotToken="${{ secrets.SLACK_BOT_TOKEN }}" \
             --set secrets.slackAppToken="${{ secrets.SLACK_APP_TOKEN }}" \
             --set secrets.slackSigningSecret="${{ secrets.SLACK_SIGNING_SECRET }}" \
+            --set secrets.githubToken="${{ secrets.GH_TOKEN_PEERBOT }}" \
+            --set secrets.claudeCodeOAuthToken="${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" \
+            --set secrets.postgresqlPassword="${{ secrets.POSTGRESQL_PASSWORD }}" \
             --wait \
             --timeout 10m
             

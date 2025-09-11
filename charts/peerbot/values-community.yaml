@@ -1,84 +1,187 @@
-# Community deployment values for Hetzner K3s
-slack:
-  socketMode: true
-  port: 3000  # Port for ingress to reference (dispatcher service port)
+# Community deployment values for OVH Kubernetes cluster
 
-# Ingress configuration for community deployment (for tunnel access)
-ingress:
+# Global configuration
+global:
+  imagePullSecrets: []
+
+# Kubernetes namespace
+kubernetes:
+  namespace: peerbot
+
+# RBAC configuration
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Security settings for production
+podSecurityStandards:
+  enabled: false  # OVH may not support this
+
+securityContext:
   enabled: true
-  className: "traefik"  # K3s uses Traefik by default
-  annotations:
-    # Traefik annotations
-    traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    # Optional: Let's Encrypt
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  hosts:
-    - host: community.peerbot.ai  # Change to your domain
-      paths:
-        - path: /slack
-          pathType: Prefix
-  tls:
-    - secretName: peerbot-community-tls
-      hosts:
-        - community.peerbot.ai  # Change to your domain
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  readOnlyRootFilesystem: false
 
-# Resource limits for community deployment
-dispatcher:
-  replicaCount: 1
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false  # Start without it
 
-worker:
-  replicaCount: 1
-  resources:
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-    requests:
-      cpu: 200m
-      memory: 256Mi
-
-orchestrator:
-  replicaCount: 1
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
-
-# Database - using PostgreSQL on K3s
-postgresql:
-  enabled: true
-  auth:
-    database: peerbot
-    username: peerbot
-    # Password will be auto-generated if not set
-  persistence:
-    enabled: true
-    size: 10Gi
-    storageClass: "local-path"  # Use local-path provisioner for K3s
-
-# Redis for caching/queuing - DISABLED (not needed for socket mode)
-redis:
+# Horizontal Pod Autoscaler
+autoscaling:
   enabled: false
 
-# OAuth and encryption configuration
-# These should be set via --set flags or environment-specific secrets
-config:
-  githubClientId: ""
-  ingressUrl: "https://community.peerbot.ai"  # Change to your domain
+# Network Policy
+networkPolicy:
+  enabled: false
 
-secrets:
-  githubClientSecret: ""
-  encryptionKey: ""
-  slackBotToken: ""
-  slackAppToken: ""
-  slackSigningSecret: ""
+# Ingress configuration for public access
+ingress:
+  enabled: false  # Configure later if needed
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: peerbot.community.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: peerbot-tls
+      hosts:
+        - peerbot.community.example.com
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  database: peerbot
+  username: postgres
+  sslMode: "disable"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  storage:
+    size: "10Gi"
+    storageClass: ""  # Use default
+
+# Slack configuration
+slack:
+  socketMode: true
+  allowDirectMessages: true
+  allowPrivateChannels: true
+
+# Claude configuration
+claude:
+  model: "claude-sonnet-4-20250514"
+  timeoutMinutes: "5"
+
+# Worker configuration
+worker:
+  enabled: false  # Dynamic workers only
+  image:
+    repository: ghcr.io/buremba/peerbot/claude-worker
+    pullPolicy: Always
+    tag: latest
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  persistence:
+    enabled: true
+    size: "5Gi"
+    storageClass: ""
+  job:
+    timeoutSeconds: 300
+    backoffLimit: 0
+    ttlSecondsAfterFinished: 300
+  env:
+    USE_CLAUDE_RESUME: "true"
+    CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL: "1"
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    BASH_DEFAULT_TIMEOUT_MS: "60000"
+    BASH_MAX_TIMEOUT_MS: "300000"
+    CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1"
+    DISABLE_AUTOUPDATER: "1"
+    K8S_SKIP_TLS_VERIFY: "true"
+
+# Dispatcher configuration
+dispatcher:
+  enabled: true
+  image:
+    repository: ghcr.io/buremba/peerbot/claude-dispatcher
+    pullPolicy: Always
+    tag: latest
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  config:
+    nodeEnv: "production"
+    logLevel: "INFO"
+  anthropicProxy:
+    enabled: true
+    baseUrl: ""
+
+# Orchestrator configuration
+orchestrator:
+  enabled: true
+  image:
+    repository: ghcr.io/buremba/peerbot/claude-orchestrator
+    tag: latest
+    pullPolicy: Always
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  maxWorkerDeployments: 10
+  idleCleanupMinutes: 60
+
+# pgboss configuration
+pgboss:
+  retryLimit: 3
+  retryDelay: 60
+  expireInHours: 1
+
+# Resource quota - Production limits
+resourceQuota:
+  enabled: true
+  requests:
+    cpu: "8"
+    memory: "16Gi"
+  limits:
+    cpu: "16"
+    memory: "32Gi"
+
+# Worker-specific quota
+workerQuota:
+  enabled: true
+  requests:
+    cpu: "4"
+    memory: "8Gi"
+  limits:
+    cpu: "8"
+    memory: "16Gi"
+  counts:
+    pods: "10"
+    jobs: "10"

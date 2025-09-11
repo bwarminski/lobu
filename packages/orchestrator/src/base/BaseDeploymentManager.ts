@@ -250,8 +250,11 @@ export abstract class BaseDeploymentManager {
       // Set the base URL to use dispatcher's proxy
       envVars.ANTHROPIC_BASE_URL = proxyUrl;
 
-      // The worker will extract PostgreSQL credentials from DATABASE_URL at runtime
-      // and set ANTHROPIC_API_KEY appropriately for proxy authentication
+      // For proxy authentication, we need to set ANTHROPIC_API_KEY
+      // The password is already in the secret, but we can't access it here
+      // The worker entrypoint script should extract it from DATABASE_URL
+      // For now, we'll use a dummy value and rely on the entrypoint script
+      envVars.ANTHROPIC_API_KEY = `${username}:dummy`;
 
       console.log(
         `🔧 Configured worker to use Anthropic proxy at ${envVars.ANTHROPIC_BASE_URL}`

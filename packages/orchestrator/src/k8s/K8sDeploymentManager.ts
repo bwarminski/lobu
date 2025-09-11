@@ -269,6 +269,20 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                 image: `${this.config.worker.image.repository}:${this.config.worker.image.tag}`,
                 imagePullPolicy:
                   this.config.worker.image.pullPolicy || "Always",
+                command: ["/bin/bash", "-c"],
+                args: [
+                  `# Extract PostgreSQL credentials from DATABASE_URL for Anthropic proxy
+                   if [[ -n "\${PEERBOT_DATABASE_URL}" && -n "\${ANTHROPIC_BASE_URL}" ]]; then
+                     echo "🔐 Configuring Anthropic proxy authentication..."
+                     PG_USERNAME=\$(echo "\$PEERBOT_DATABASE_URL" | sed -n 's/.*:\\/\\/\\([^:]*\\):.*/\\1/p')
+                     PG_PASSWORD=\$(echo "\$PEERBOT_DATABASE_URL" | sed -n 's/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/p')
+                     if [[ -n "\$PG_USERNAME" && -n "\$PG_PASSWORD" ]]; then
+                       export ANTHROPIC_API_KEY="\${PG_USERNAME}:\${PG_PASSWORD}"
+                       echo "✅ Configured proxy authentication for user: \$PG_USERNAME"
+                     fi
+                   fi
+                   exec /app/entrypoint.sh`
+                ],
                 securityContext: {
                   runAsUser: 1001,
                   runAsGroup: 1001,

@@ -764,6 +764,7 @@ export class SlackEventHandlers {
       const enhancedPrompt = `${prompt || "Create a pull request"}
 
 IMPORTANT: Execute the following immediately:
+1. Review the code and make sure it is ready to be committed. Cleanup andconfirm with the user if there is any secrets in unstashed files.
 1. Run 'gh pr create' command NOW with a descriptive title and body
 2. Return the actual PR URL in your response
 3. Do NOT show forms or buttons for creating the PR - create it directly

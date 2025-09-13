@@ -47,6 +47,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-docker}
       DOCKER_HOST: unix:///var/run/docker.sock
+      CLAUDE_ALLOWED_TOOLS: ${CLAUDE_ALLOWED_TOOLS}
     volumes:
       # Mount Docker socket
       - /var/run/docker.sock:/var/run/docker.sock

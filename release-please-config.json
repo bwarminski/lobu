@@ -10,6 +10,7 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "versioning-strategy": "default",
+      "bootstrap-sha": "91fca122f9e0bc82c94fb7f3c14c0903e899c0f5",
       "extra-files": [
         {
           "type": "json",

@@ -80,6 +80,25 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
           
+      - name: Clean up old Helm releases
+        run: |
+          # List all Helm releases in the namespace
+          echo "Current Helm releases:"
+          helm list -n $NAMESPACE || true
+          
+          # Keep only the last 3 releases
+          RELEASES=$(helm list -n $NAMESPACE -q | head -n -3)
+          if [ -n "$RELEASES" ]; then
+            echo "Cleaning up old releases: $RELEASES"
+            for release in $RELEASES; do
+              helm uninstall $release -n $NAMESPACE || echo "Failed to uninstall $release"
+            done
+          fi
+          
+          # Also clean up orphaned secrets if needed
+          echo "Cleaning up orphaned Helm secrets..."
+          kubectl get secrets -n $NAMESPACE -o name | grep "sh.helm.release" | head -n -5 | xargs -r kubectl delete -n $NAMESPACE || true
+          
       - name: Deploy with Helm
         run: |
           # Deploy using Docker Hub images

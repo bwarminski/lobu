@@ -41,13 +41,17 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         process.env.KUBERNETES_SERVICE_HOST?.includes("localhost")
       ) {
         const cluster = kc.getCurrentCluster();
-        if (cluster && typeof cluster === 'object' && cluster.skipTLSVerify !== true) {
+        if (
+          cluster &&
+          typeof cluster === "object" &&
+          cluster.skipTLSVerify !== true
+        ) {
           // Safely set skipTLSVerify property with type checking
-          Object.defineProperty(cluster, 'skipTLSVerify', {
+          Object.defineProperty(cluster, "skipTLSVerify", {
             value: true,
             writable: true,
             enumerable: true,
-            configurable: true
+            configurable: true,
           });
         }
       }
@@ -179,8 +183,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     messageData?: any,
     userEnvVars: Record<string, string> = {}
   ): Promise<void> {
-    // Skip per-thread PVC creation - use shared PVC instead
-    // await this.ensurePersistentVolume(deploymentName, userId);
+    // Create per-thread PVC for workspace persistence
+    await this.ensurePersistentVolume(deploymentName, userId);
 
     // Get environment variables before creating the deployment spec
     const envVars = this.generateEnvironmentVariables(

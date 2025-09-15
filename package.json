@@ -1,6 +1,6 @@
 {
   "name": "@peerbot/cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "bin": {
     "peerbot": "./bin/peerbot"
   },
@@ -11,6 +11,7 @@
     "packages/worker"
   ],
   "scripts": {
+    "build": "cd packages/shared && bun run build && cd ../dispatcher && bun run build && cd ../orchestrator && bun run build && cd ../worker && bun run build && cd ../..",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",

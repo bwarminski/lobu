@@ -1,0 +1,58 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: node
+          
+      # The logic below handles NPM publishing after a release is created
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+        
+      - uses: actions/setup-node@v4
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+          
+      - uses: oven-sh/setup-bun@v2
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          bun-version: 1.2.12
+          
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.release_created }}
+        run: bun install
+        
+      - name: Build packages
+        if: ${{ steps.release.outputs.release_created }}
+        run: bun run build
+        
+      - name: Publish to NPM
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          
+      # Trigger Docker build and K8s deployment after release
+      - name: Trigger Docker Build
+        if: ${{ steps.release.outputs.release_created }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: release-published
+          client-payload: '{"version": "${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}"}'

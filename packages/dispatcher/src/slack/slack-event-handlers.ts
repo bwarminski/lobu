@@ -768,19 +768,23 @@ export class SlackEventHandlers {
     }
 
     // Cleanup user mappings (less aggressive)
-    for (const [userId, username] of this.userMappings.entries()) {
-      // Keep user mappings longer, only clean if not used recently
-      // We don't have access to last used time, so we'll be more conservative
-      // Only clean if we haven't done a full cleanup in a while
-      if (now - this.lastCleanupTime > this.USER_MAPPING_TTL * 24) { // Clean user mappings every 24 hours
-        // For now, keep all user mappings as they're lightweight
-        // In the future, could add last-accessed tracking
+    // We don't have access to last used time, so we'll be more conservative
+    // Only clean if we haven't done a full cleanup in a while
+    if (now - this.lastCleanupTime > this.USER_MAPPING_TTL * 24) {
+      // Clean user mappings every 24 hours
+      // For now, keep all user mappings as they're lightweight
+      // In the future, could add last-accessed tracking
+      // Note: Keeping the loop structure for future implementation
+      for (const [_userId, _username] of this.userMappings.entries()) {
+        // Will implement cleanup logic when last-accessed tracking is added
       }
     }
 
     // Update cleanup time and log if we cleaned anything
     if (cleanedItems > 0) {
-      logger.info(`Memory cleanup completed: removed ${cleanedItems} expired items`);
+      logger.info(
+        `Memory cleanup completed: removed ${cleanedItems} expired items`
+      );
     }
     this.lastCleanupTime = now;
   }
@@ -1560,14 +1564,14 @@ Branch: ${branch}`;
 
   private decryptValue(payload: string): string {
     const crypto = require("node:crypto");
-    
+
     if (!process.env.ENCRYPTION_KEY) {
-      throw new Error("ENCRYPTION_KEY environment variable is required for decryption");
+      throw new Error(
+        "ENCRYPTION_KEY environment variable is required for decryption"
+      );
     }
-    
-    const key: string = process.env.ENCRYPTION_KEY
-      .padEnd(32)
-      .slice(0, 32);
+
+    const key: string = process.env.ENCRYPTION_KEY.padEnd(32).slice(0, 32);
     const parts = payload.split(":");
     if (parts.length !== 3) throw new Error("Invalid encrypted payload");
     const iv = Buffer.from(parts[0]!, "hex");
@@ -1691,10 +1695,10 @@ Branch: ${branch}`;
    * Cleanup all sessions and perform final memory cleanup
    */
   async cleanup(): Promise<void> {
-    logger.info('Performing final cleanup of SlackEventHandlers');
+    logger.info("Performing final cleanup of SlackEventHandlers");
     this.activeSessions.clear();
     this.userMappings.clear();
     this.repositoryCache.clear();
-    logger.info('All Maps cleared during cleanup');
+    logger.info("All Maps cleared during cleanup");
   }
 }

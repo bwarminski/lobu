@@ -31,6 +31,7 @@ services:
       INGRESS_URL: ${INGRESS_URL:-http://localhost:8080}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-docker}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       # Mount source code for hot reload
       - ./packages:/app/packages:cached

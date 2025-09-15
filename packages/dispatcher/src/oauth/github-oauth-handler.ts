@@ -17,14 +17,14 @@ export class GitHubOAuthHandler {
     homeTabCallback?: (userId: string) => Promise<void>
   ) {
     this.dbPool = getDbPool(databaseUrl);
-    
+
     if (!process.env.ENCRYPTION_KEY) {
-      throw new Error("ENCRYPTION_KEY environment variable is required for secure operation");
+      throw new Error(
+        "ENCRYPTION_KEY environment variable is required for secure operation"
+      );
     }
-    
-    this.encryptionKey = process.env.ENCRYPTION_KEY
-      .padEnd(32)
-      .slice(0, 32);
+
+    this.encryptionKey = process.env.ENCRYPTION_KEY.padEnd(32).slice(0, 32);
     this.homeTabCallback = homeTabCallback;
   }
 

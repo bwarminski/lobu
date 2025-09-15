@@ -1,9 +1,7 @@
 name: Publish to npm
 
+# Disabled - now handled by release-please.yml
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:

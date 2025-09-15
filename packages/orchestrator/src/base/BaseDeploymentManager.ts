@@ -174,6 +174,7 @@ export abstract class BaseDeploymentManager {
 
     const envVars: { [key: string]: string } = {
       USER_ID: userId,
+      USERNAME: username,
       DEPLOYMENT_NAME: deploymentName,
       CHANNEL_ID: messageData?.channelId || "",
       REPOSITORY_URL:

@@ -8,6 +8,10 @@ on:
       - 'packages/**'
       - 'Dockerfile.*'
       - '.github/workflows/docker-publish.yml'
+  release:
+    types: [published]
+  repository_dispatch:
+    types: [release-published]
   workflow_dispatch:
 
 env:

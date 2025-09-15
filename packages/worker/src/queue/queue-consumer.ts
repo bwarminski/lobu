@@ -43,7 +43,7 @@ export class WorkerQueueConsumer {
   private targetThreadId?: string;
   private messageQueue: QueuedMessage[] = [];
   private hasStartedSession = false; // Track if we've started a Claude session in this worker
-  
+
   // Adaptive batching
   // Max window timer (caps total wait time)
   private collectionTimer: NodeJS.Timeout | null = null;
@@ -250,14 +250,19 @@ export class WorkerQueueConsumer {
       this.startCollectionWindow(this.initialCollectionWindow, queuedMessage);
     } else if (this.isProcessing) {
       // Currently processing, queue for later
-      logger.info(`Queueing message for processing after current batch completes`);
+      logger.info(
+        `Queueing message for processing after current batch completes`
+      );
       this.messageQueue.push(queuedMessage);
     } else if (timeSinceLastActivity > this.idleThreshold) {
-      // Phase 2a: Been idle, start new collection window  
+      // Phase 2a: Been idle, start new collection window
       logger.info(
         `Starting ${this.subsequentCollectionWindow}ms collection window after ${timeSinceLastActivity}ms idle`
       );
-      this.startCollectionWindow(this.subsequentCollectionWindow, queuedMessage);
+      this.startCollectionWindow(
+        this.subsequentCollectionWindow,
+        queuedMessage
+      );
     } else {
       // Phase 2b: Recent activity and not processing, process immediately
       logger.info(
@@ -274,7 +279,10 @@ export class WorkerQueueConsumer {
   /**
    * Start a collection window for batching messages
    */
-  private startCollectionWindow(duration: number, firstMessage: QueuedMessage): void {
+  private startCollectionWindow(
+    duration: number,
+    firstMessage: QueuedMessage
+  ): void {
     this.collectingMessages = [firstMessage];
 
     // Helper to finalize collection safely once
@@ -316,7 +324,10 @@ export class WorkerQueueConsumer {
       if (this.collectionQuietTimer) {
         clearTimeout(this.collectionQuietTimer);
       }
-      this.collectionQuietTimer = setTimeout(finalizeCollection, this.quietPeriodMs);
+      this.collectionQuietTimer = setTimeout(
+        finalizeCollection,
+        this.quietPeriodMs
+      );
     };
 
     // Initial quiet timer
@@ -453,7 +464,9 @@ export class WorkerQueueConsumer {
     if (messages.length === 1) {
       const singleMessage = messages[0];
       if (singleMessage) {
-        await this.processSingleMessage(singleMessage, [singleMessage.payload.messageId]);
+        await this.processSingleMessage(singleMessage, [
+          singleMessage.payload.messageId,
+        ]);
       }
       return;
     }
@@ -482,14 +495,19 @@ export class WorkerQueueConsumer {
       },
     };
 
-    const processedIds = messages.map((m) => m.payload.messageId).filter(Boolean);
+    const processedIds = messages
+      .map((m) => m.payload.messageId)
+      .filter(Boolean);
     await this.processSingleMessage(batchedMessage, processedIds);
   }
 
   /**
    * Process a single message
    */
-  private async processSingleMessage(message: QueuedMessage, processedIds?: string[]): Promise<void> {
+  private async processSingleMessage(
+    message: QueuedMessage,
+    processedIds?: string[]
+  ): Promise<void> {
     try {
       // Set environment variables
       if (!process.env.USER_ID) {
@@ -507,7 +525,7 @@ export class WorkerQueueConsumer {
       // - Subsequent messages: Continue the existing session
       if (!this.hasStartedSession) {
         // First message in this worker - create a new Claude session
-        const crypto = require('crypto');
+        const crypto = require("crypto");
         workerConfig.sessionId = crypto.randomUUID();
         logger.info(
           `Creating new Claude session ${workerConfig.sessionId} for first message in thread ${message.payload.threadId}`
@@ -527,10 +545,12 @@ export class WorkerQueueConsumer {
       if (processedIds && processedIds.length > 0) {
         this.currentWorker.queueIntegration.setProcessedMessages(processedIds);
       } else if (message?.payload?.messageId) {
-        this.currentWorker.queueIntegration.setProcessedMessages([message.payload.messageId]);
+        this.currentWorker.queueIntegration.setProcessedMessages([
+          message.payload.messageId,
+        ]);
       }
       await this.currentWorker.execute();
-      
+
       logger.info(
         `✅ Successfully processed message ${message.payload.messageId} in thread ${message.payload.threadId}`
       );

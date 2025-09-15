@@ -93,7 +93,7 @@ export abstract class BaseDeploymentManager {
     messageData?: any
   ): Promise<void> {
     // Create a more readable deployment name using user ID and last 6 chars of thread ID
-    const shortThreadId = threadId.replace('.', '-').slice(-10); // Last 10 chars, replace dot with dash
+    const shortThreadId = threadId.replace(".", "-").slice(-10); // Last 10 chars, replace dot with dash
     const shortUserId = userId.toLowerCase().slice(0, 8); // First 8 chars of user ID
     const deploymentName = `peerbot-worker-${shortUserId}-${shortThreadId}`;
 
@@ -171,7 +171,7 @@ export abstract class BaseDeploymentManager {
     const dbUrl = new URL(this.config.database.connectionString);
     const dbHost = dbUrl.hostname;
     const dbPort = dbUrl.port || "5432"; // Default PostgreSQL port
-    
+
     const envVars: { [key: string]: string } = {
       USER_ID: userId,
       DEPLOYMENT_NAME: deploymentName,
@@ -240,7 +240,7 @@ export abstract class BaseDeploymentManager {
       // Using the container name works because they're on the same Docker network
       proxyUrl = `http://peerbot-dispatcher-1:8080/api/anthropic`;
     } else {
-      // For Kubernetes mode, use internal service DNS  
+      // For Kubernetes mode, use internal service DNS
       // The dispatcher runs on port 8080 for the proxy endpoint
       proxyUrl = `http://${dispatcherService}.${namespace}.svc.cluster.local:${dispatcherPort}/api/anthropic`;
     }

@@ -115,10 +115,11 @@ export class QueueConsumer {
     try {
       // For consistent worker naming, always use the targetThreadId if available, otherwise use threadId
       // This ensures the first message and subsequent messages in a thread use the same worker
-      const effectiveThreadId = data.routingMetadata?.targetThreadId || data.threadId;
-      
+      const effectiveThreadId =
+        data.routingMetadata?.targetThreadId || data.threadId;
+
       // Create a more readable deployment name using user ID and last 10 chars of thread ID
-      const shortThreadId = effectiveThreadId.replace('.', '-').slice(-10); // Last 10 chars, replace dot with dash
+      const shortThreadId = effectiveThreadId.replace(".", "-").slice(-10); // Last 10 chars, replace dot with dash
       const shortUserId = data.userId.toLowerCase().slice(0, 8); // First 8 chars of user ID
       const deploymentName = `peerbot-worker-${shortUserId}-${shortThreadId}`;
 
@@ -144,7 +145,8 @@ export class QueueConsumer {
       (async () => {
         try {
           // Check if this is truly a new thread by looking for existing deployment
-          const existingDeployments = await this.deploymentManager.listDeployments();
+          const existingDeployments =
+            await this.deploymentManager.listDeployments();
           const isNewThread = !existingDeployments.some(
             (d) => d.deploymentName === deploymentName
           );

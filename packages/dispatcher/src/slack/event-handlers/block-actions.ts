@@ -42,7 +42,7 @@ export async function handleExecutableCodeBlock(
     // Get the actual thread_ts from the message (messageTs is where button was clicked)
     // If message has thread_ts, use it; otherwise this IS the thread root
     const actualThreadTs = (body as any).message?.thread_ts || messageTs;
-    
+
     const inputMessage = await client.chat.postMessage({
       channel: channelId,
       thread_ts: actualThreadTs,
@@ -122,7 +122,7 @@ export async function handleBlockkitForm(
     // Get the actual thread_ts from the message (messageTs is where button was clicked)
     // If message has thread_ts, use it; otherwise this IS the thread root
     const actualThreadTs = (body as any).message?.thread_ts || messageTs;
-    
+
     // Create modal with the blockkit form
     await client.views.open({
       trigger_id: body.trigger_id,

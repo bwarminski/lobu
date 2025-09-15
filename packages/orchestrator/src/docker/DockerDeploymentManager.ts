@@ -91,14 +91,14 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
     try {
       // Extract thread ID from deployment name for per-thread workspace isolation
       const threadId = deploymentName.replace("peerbot-worker-", "");
-      
+
       // For Docker mode, we need to use host paths for volume mounts
       // The orchestrator is running inside Docker but needs to mount host directories
       const isRunningInDocker = process.env.DEPLOYMENT_MODE === "docker";
-      const projectRoot = isRunningInDocker 
-        ? (process.env.HOST_PROJECT_PATH || "/app") // Use env var or fallback
+      const projectRoot = isRunningInDocker
+        ? process.env.HOST_PROJECT_PATH || "/app" // Use env var or fallback
         : path.join(process.cwd(), "..", "..");
-      
+
       const workspaceDir = `${projectRoot}/workspaces/${threadId}`;
 
       // Environment variables
@@ -116,8 +116,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
       // On macOS/Windows, Docker containers need to use host.docker.internal instead of localhost
       if (process.platform === "darwin" || process.platform === "win32") {
-        if (commonEnvVars.PEERBOT_DATABASE_HOST === "localhost" || 
-            commonEnvVars.PEERBOT_DATABASE_HOST === "127.0.0.1") {
+        if (
+          commonEnvVars.PEERBOT_DATABASE_HOST === "localhost" ||
+          commonEnvVars.PEERBOT_DATABASE_HOST === "127.0.0.1"
+        ) {
           commonEnvVars.PEERBOT_DATABASE_HOST = "host.docker.internal";
         }
       }
@@ -134,7 +136,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
       // Get the Docker Compose project name from environment or use default
       const composeProjectName = process.env.COMPOSE_PROJECT_NAME || "peerbot";
-      
+
       const createOptions: Docker.ContainerCreateOptions = {
         name: deploymentName,
         Image: `${this.config.worker.image.repository}:${this.config.worker.image.tag}`,
@@ -226,8 +228,8 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
   async deleteDeployment(deploymentId: string): Promise<void> {
     // deploymentId should already be the full deployment name
-    const deploymentName = deploymentId.startsWith('peerbot-worker-') 
-      ? deploymentId 
+    const deploymentName = deploymentId.startsWith("peerbot-worker-")
+      ? deploymentId
       : `peerbot-worker-${deploymentId}`;
 
     try {
@@ -275,7 +277,6 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       // Don't throw - activity tracking should not block message processing
     }
   }
-
 
   private async getPasswordForUser(username: string): Promise<string> {
     // Get password from the secret manager

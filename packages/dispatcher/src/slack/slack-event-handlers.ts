@@ -9,7 +9,12 @@ import type {
   ThreadMessagePayload,
   WorkerDeploymentPayload,
 } from "../queue/task-queue-producer";
-import type { DispatcherConfig, SlackContext, ThreadSession, UserRepository } from "../types";
+import type {
+  DispatcherConfig,
+  SlackContext,
+  ThreadSession,
+  UserRepository,
+} from "../types";
 import {
   setupFileHandlers,
   setupMessageHandlers,
@@ -34,6 +39,9 @@ export class SlackEventHandlers {
     { repository: any; timestamp: number }
   >(); // username -> {repository, timestamp}
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
+  private readonly SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours session TTL
+  private readonly USER_MAPPING_TTL = 60 * 60 * 1000; // 1 hour user mapping TTL
+  private lastCleanupTime = Date.now();
 
   constructor(
     private app: App,
@@ -140,7 +148,9 @@ export class SlackEventHandlers {
     // Handle direct messages
     this.app.message(async ({ message, client, say }) => {
       logger.info("=== MESSAGE HANDLER TRIGGERED (QUEUE) ===");
-      logger.debug(`Message type: ${(message as any).type}, subtype: ${(message as any).subtype}, channel: ${(message as any).channel}`);
+      logger.debug(
+        `Message type: ${(message as any).type}, subtype: ${(message as any).subtype}, channel: ${(message as any).channel}`
+      );
 
       // Skip our own bot's messages
       const botUserId = this.config.slack.botUserId;
@@ -221,17 +231,16 @@ export class SlackEventHandlers {
 
       try {
         const userId = body.user.id;
-        
+
         // Handle repository modal submission
-        if (view.callback_id === 'repository_modal') {
+        if (view.callback_id === "repository_modal") {
           await this.handleRepositoryModalSubmission(userId, view, client);
           return;
         }
-        
+
         const metadata = view.private_metadata
           ? JSON.parse(view.private_metadata)
           : {};
-
 
         // Handle blockkit form modal submissions
         if (view.callback_id === "blockkit_form_modal") {
@@ -301,29 +310,32 @@ export class SlackEventHandlers {
     });
 
     // Handle options requests for external selects
-    this.app.options('repository_dropdown', async ({ body, options, ack }) => {
+    this.app.options("repository_dropdown", async ({ body, options, ack }) => {
       try {
-        const query = (options as any)?.value || '';
+        const query = (options as any)?.value || "";
         const userId = (body as any)?.user?.id;
-        
+
         // Get user's GitHub token
         const githubUser = await this.getUserGitHubInfo(userId);
-        
+
         if (!githubUser.token) {
           await ack({
-            options: []
+            options: [],
           });
           return;
         }
-        
+
         // Fetch user's repositories
-        const repos = await this.repoManager.getUserRepositories(githubUser.token);
-        
+        const repos = await this.repoManager.getUserRepositories(
+          githubUser.token
+        );
+
         // Filter repositories based on query
         const filteredRepos = repos
-          .filter((repo: any) => 
-            repo.full_name.toLowerCase().includes(query.toLowerCase()) ||
-            repo.name.toLowerCase().includes(query.toLowerCase())
+          .filter(
+            (repo: any) =>
+              repo.full_name.toLowerCase().includes(query.toLowerCase()) ||
+              repo.name.toLowerCase().includes(query.toLowerCase())
           )
           .slice(0, 100)
           .map((repo: any) => ({
@@ -333,10 +345,10 @@ export class SlackEventHandlers {
             },
             value: repo.clone_url,
           }));
-        
+
         await ack({ options: filteredRepos });
       } catch (error) {
-        logger.error('Error providing repository options:', error);
+        logger.error("Error providing repository options:", error);
         await ack({ options: [] });
       }
     });
@@ -481,7 +493,7 @@ export class SlackEventHandlers {
       this.activeSessions.set(sessionKey, threadSession);
 
       // Add immediate acknowledgment reaction based on DM vs channel rules
-      const isDM = context.channelId?.startsWith('D');
+      const isDM = context.channelId?.startsWith("D");
       const isRootMessage = !context.threadTs; // Only root in channels
       if (isDM || isRootMessage) {
         try {
@@ -726,14 +738,51 @@ export class SlackEventHandlers {
 
   private startCachePrewarming(): void {
     setInterval(() => {
-      const now = Date.now();
-      for (const [username, cached] of this.repositoryCache.entries()) {
-        if (now - cached.timestamp > this.CACHE_TTL) {
-          this.repositoryCache.delete(username);
-          logger.info(`Evicted stale repository cache for ${username}`);
-        }
+      this.cleanupExpiredData();
+    }, 60000); // Run cleanup every minute
+  }
+
+  /**
+   * Cleanup expired data from all Maps to prevent memory leaks
+   */
+  private cleanupExpiredData(): void {
+    const now = Date.now();
+    let cleanedItems = 0;
+
+    // Cleanup repository cache
+    for (const [username, cached] of this.repositoryCache.entries()) {
+      if (now - cached.timestamp > this.CACHE_TTL) {
+        this.repositoryCache.delete(username);
+        cleanedItems++;
+        logger.info(`Evicted stale repository cache for ${username}`);
       }
-    }, 60000);
+    }
+
+    // Cleanup expired sessions
+    for (const [sessionKey, session] of this.activeSessions.entries()) {
+      if (now - session.lastActivity > this.SESSION_TTL) {
+        this.activeSessions.delete(sessionKey);
+        cleanedItems++;
+        logger.info(`Evicted expired session: ${sessionKey}`);
+      }
+    }
+
+    // Cleanup user mappings (less aggressive)
+    for (const [userId, username] of this.userMappings.entries()) {
+      // Keep user mappings longer, only clean if not used recently
+      // We don't have access to last used time, so we'll be more conservative
+      // Only clean if we haven't done a full cleanup in a while
+      if (now - this.lastCleanupTime > this.USER_MAPPING_TTL * 24) { // Clean user mappings every 24 hours
+        // For now, keep all user mappings as they're lightweight
+        // In the future, could add last-accessed tracking
+      }
+    }
+
+    // Update cleanup time and log if we cleaned anything
+    if (cleanedItems > 0) {
+      logger.info(`Memory cleanup completed: removed ${cleanedItems} expired items`);
+    }
+    this.lastCleanupTime = now;
   }
 
   private async handleGitHubPullRequestAction(
@@ -745,7 +794,7 @@ export class SlackEventHandlers {
     client: any
   ): Promise<void> {
     logger.info(`Handling GitHub PR action: ${actionId}`);
-    
+
     try {
       // Extract the PR details from the button's value
       const action = (body as any).actions?.[0];
@@ -755,11 +804,11 @@ export class SlackEventHandlers {
 
       const prData = JSON.parse(action.value);
       const { prompt, repo, branch } = prData;
-      
+
       // Get the actual thread_ts from the message (messageTs is where button was clicked)
       // If message has thread_ts, use it; otherwise this IS the thread root
       const actualThreadTs = (body as any).message?.thread_ts || messageTs;
-      
+
       // Create a more explicit instruction for PR creation
       const enhancedPrompt = `${prompt || "Create a pull request"}
 
@@ -771,7 +820,7 @@ IMPORTANT: Execute the following immediately:
 
 Repository: ${repo}
 Branch: ${branch}`;
-      
+
       // Create a context for the user request
       const context: SlackContext = {
         channelId,
@@ -782,10 +831,10 @@ Branch: ${branch}`;
         threadTs: actualThreadTs,
         text: enhancedPrompt,
       };
-      
+
       // Post the PR request as a user message to show intent
       const formattedInput = `Creating pull request for branch: ${branch}`;
-      
+
       const inputMessage = await client.chat.postMessage({
         channel: channelId,
         thread_ts: actualThreadTs,
@@ -809,16 +858,15 @@ Branch: ${branch}`;
           },
         ],
       });
-      
+
       // Update the context with the new message timestamp
       context.messageTs = inputMessage.ts as string;
-      
+
       // Handle the PR creation request
       await this.handleUserRequest(context, formattedInput, client);
-      
     } catch (error) {
       logger.error(`Failed to handle GitHub PR action ${actionId}:`, error);
-      
+
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
@@ -925,37 +973,40 @@ Branch: ${branch}`;
 
     try {
       const username = await this.getOrCreateUserMapping(userId, client);
-      
+
       // Check if user has GitHub token
       const githubUser = await this.getUserGitHubInfo(userId);
       const isGitHubConnected = !!githubUser.token;
-      
+
       let repository;
-      
+
       // Initialize readme section as null
       let readmeSection: string | null = null;
-      
+
       // Try to get or create repository
       try {
         // First, try to get existing repository from cache (pass Slack user ID for database lookup)
         repository = await this.repoManager.getUserRepository(username, userId);
-        
+
         // If no cached repository and we have a token, create one
         if (!repository && (this.config.github.token || isGitHubConnected)) {
           repository = await this.repoManager.ensureUserRepository(username);
         }
-        
+
         // Fetch README.md content if we have a repository
         if (repository) {
           const readmeContent = await this.fetchRepositoryReadme(
             repository.repositoryUrl
           );
           if (readmeContent) {
-            readmeSection = `*📖 README :*\n\`\`\`\n${readmeContent.slice(0, 500)}${readmeContent.length > 500 ? '...' : ''}\n\`\`\``;
+            readmeSection = `*📖 README :*\n\`\`\`\n${readmeContent.slice(0, 500)}${readmeContent.length > 500 ? "..." : ""}\n\`\`\``;
           }
         }
       } catch (error) {
-        logger.warn(`Could not get/ensure repository for user ${username}:`, error);
+        logger.warn(
+          `Could not get/ensure repository for user ${username}:`,
+          error
+        );
         // Continue without repository - user can login with GitHub
       }
 
@@ -975,7 +1026,7 @@ Branch: ${branch}`;
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*GitHub Connected:* ✅ @${githubUser.username || 'Connected'}`,
+            text: `*GitHub Connected:* ✅ @${githubUser.username || "Connected"}`,
           },
           accessory: {
             type: "button",
@@ -1011,7 +1062,9 @@ Branch: ${branch}`;
           type: "section",
           text: {
             type: "mrkdwn",
-            text: repository ? `*Current Repository:* <${repository.repositoryUrl}|${repository.repositoryName}>` : "*Repository Settings:*",
+            text: repository
+              ? `*Current Repository:* <${repository.repositoryUrl}|${repository.repositoryName}>`
+              : "*Repository Settings:*",
           },
           accessory: {
             type: "button",
@@ -1026,9 +1079,12 @@ Branch: ${branch}`;
         // Show login button if GitHub OAuth is configured
         if (this.config.github.clientId) {
           // Use INGRESS_URL if provided, otherwise use default dispatcher URL
-          const oauthBaseUrl = this.config.github.ingressUrl || 
-            (process.env.NODE_ENV === 'development' ? 'http://localhost:8080' : 'http://dispatcher:8080');
-          
+          const oauthBaseUrl =
+            this.config.github.ingressUrl ||
+            (process.env.NODE_ENV === "development"
+              ? "http://localhost:8080"
+              : "http://dispatcher:8080");
+
           blocks.push({
             type: "section",
             text: {
@@ -1048,7 +1104,7 @@ Branch: ${branch}`;
           });
         }
       }
-      
+
       // Add "How I Work" instructions
       blocks.push(
         {
@@ -1074,12 +1130,10 @@ Branch: ${branch}`;
         }
       );
 
-      blocks.push(
-        {
-          type: "divider",
-        }
-      );
-      
+      blocks.push({
+        type: "divider",
+      });
+
       // Add README section if we have one
       if (readmeSection) {
         blocks.push(
@@ -1095,12 +1149,11 @@ Branch: ${branch}`;
           }
         );
       }
-      
+
       const homeView = {
         type: "home",
         blocks: blocks,
       };
-      
 
       await client.views.publish({ user_id: userId, view: homeView });
     } catch (error) {
@@ -1134,9 +1187,9 @@ Branch: ${branch}`;
   private async handleGitHubLogin(userId: string, client: any): Promise<void> {
     try {
       // Generate OAuth URL with user ID
-      const baseUrl = process.env.INGRESS_URL || 'http://localhost:8080';
+      const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
       const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
-      
+
       // Send ephemeral message with link
       const im = await client.conversations.open({ users: userId });
       const channelId = im.channel.id;
@@ -1147,33 +1200,39 @@ Branch: ${branch}`;
             type: "section",
             text: {
               type: "mrkdwn",
-              text: "Click the link below to connect your GitHub account:"
-            }
+              text: "Click the link below to connect your GitHub account:",
+            },
           },
           {
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `<${authUrl}|🔗 Connect with GitHub>`
-            }
+              text: `<${authUrl}|🔗 Connect with GitHub>`,
+            },
           },
           {
             type: "context",
             elements: [
               {
                 type: "mrkdwn",
-                text: "This will open in your browser. You'll be redirected to GitHub to authorize access."
-              }
-            ]
-          }
+                text: "This will open in your browser. You'll be redirected to GitHub to authorize access.",
+              },
+            ],
+          },
         ],
-        text: `Connect with GitHub: ${authUrl}`
+        text: `Connect with GitHub: ${authUrl}`,
       });
     } catch (error) {
-      logger.error(`Failed to initiate GitHub login for user ${userId}:`, error);
+      logger.error(
+        `Failed to initiate GitHub login for user ${userId}:`,
+        error
+      );
       try {
         const im = await client.conversations.open({ users: userId });
-        await client.chat.postMessage({ channel: im.channel.id, text: "❌ Failed to start GitHub login. Please try again." });
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "❌ Failed to start GitHub login. Please try again.",
+        });
       } catch {}
     }
   }
@@ -1184,8 +1243,10 @@ Branch: ${branch}`;
   private async handleGitHubLogout(userId: string, client: any): Promise<void> {
     try {
       // Remove GitHub token from database
-      const { getDbPool } = await import('../db');
-      const dbPool = getDbPool(process.env.DATABASE_URL || this.config.queues.connectionString);
+      const { getDbPool } = await import("../db");
+      const dbPool = getDbPool(
+        process.env.DATABASE_URL || this.config.queues.connectionString
+      );
 
       await dbPool.query(
         `DELETE FROM user_environ 
@@ -1200,13 +1261,19 @@ Branch: ${branch}`;
       // Send confirmation
       try {
         const im = await client.conversations.open({ users: userId });
-        await client.chat.postMessage({ channel: im.channel.id, text: "✅ Successfully disconnected from GitHub" });
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "✅ Successfully disconnected from GitHub",
+        });
       } catch {}
     } catch (error) {
       logger.error(`Failed to logout user ${userId}:`, error);
       try {
         const im = await client.conversations.open({ users: userId });
-        await client.chat.postMessage({ channel: im.channel.id, text: "❌ Failed to disconnect from GitHub. Please try again." });
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "❌ Failed to disconnect from GitHub. Please try again.",
+        });
       } catch {}
     }
   }
@@ -1214,22 +1281,33 @@ Branch: ${branch}`;
   /**
    * Handle repository modal submission
    */
-  private async handleRepositoryModalSubmission(userId: string, view: any, client: any): Promise<void> {
+  private async handleRepositoryModalSubmission(
+    userId: string,
+    view: any,
+    client: any
+  ): Promise<void> {
     try {
       const values = view.state.values;
-      
+
       // Get the repository URL from input or dropdown
       let selectedRepo = values.repository_input?.repository_url?.value;
-      
+
       // If no manual input, check the dropdown selection
-      if (!selectedRepo && values.repository_select?.repository_dropdown?.selected_option) {
-        selectedRepo = values.repository_select.repository_dropdown.selected_option.value;
+      if (
+        !selectedRepo &&
+        values.repository_select?.repository_dropdown?.selected_option
+      ) {
+        selectedRepo =
+          values.repository_select.repository_dropdown.selected_option.value;
       }
-      
+
       if (!selectedRepo) {
         // Send error message if neither field was filled
         const im = await client.conversations.open({ users: userId });
-        await client.chat.postMessage({ channel: im.channel.id, text: "❌ Please enter a repository URL or select from the dropdown" });
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "❌ Please enter a repository URL or select from the dropdown",
+        });
         return;
       }
 
@@ -1237,17 +1315,20 @@ Branch: ${branch}`;
 
       // Clean up the repository URL
       selectedRepo = selectedRepo.trim();
-      if (!selectedRepo.startsWith('http')) {
+      if (!selectedRepo.startsWith("http")) {
         selectedRepo = `https://github.com/${selectedRepo}`;
       }
 
       // Update the repository cache with the selected repository
-      const repoName = selectedRepo.split('/').pop()?.replace('.git', '') || 'unknown';
+      const repoName =
+        selectedRepo.split("/").pop()?.replace(".git", "") || "unknown";
       const repository: UserRepository = {
         username,
         repositoryName: repoName,
-        repositoryUrl: selectedRepo.replace('.git', ''),
-        cloneUrl: selectedRepo.endsWith('.git') ? selectedRepo : `${selectedRepo}.git`,
+        repositoryUrl: selectedRepo.replace(".git", ""),
+        cloneUrl: selectedRepo.endsWith(".git")
+          ? selectedRepo
+          : `${selectedRepo}.git`,
         createdAt: Date.now(),
         lastUsed: Date.now(),
       };
@@ -1263,20 +1344,30 @@ Branch: ${branch}`;
       // Refresh home tab and confirm via DM
       await this.updateAppHome(userId, client);
       const im2 = await client.conversations.open({ users: userId });
-      await client.chat.postMessage({ channel: im2.channel.id, text: `✅ Repository updated to: ${repository.repositoryUrl}` });
+      await client.chat.postMessage({
+        channel: im2.channel.id,
+        text: `✅ Repository updated to: ${repository.repositoryUrl}`,
+      });
     } catch (error) {
-      logger.error(`Failed to handle repository modal submission for user ${userId}:`, error);
+      logger.error(
+        `Failed to handle repository modal submission for user ${userId}:`,
+        error
+      );
     }
   }
 
   /**
    * Open repository selection modal
    */
-  private async openRepositoryModal(userId: string, body: any, client: any): Promise<void> {
+  private async openRepositoryModal(
+    userId: string,
+    body: any,
+    client: any
+  ): Promise<void> {
     try {
       // Get user's GitHub info to pre-populate suggestions
       const githubUser = await this.getUserGitHubInfo(userId);
-      
+
       // Create modal view
       const modalView = {
         type: "modal",
@@ -1334,7 +1425,7 @@ Branch: ${branch}`;
             text: "Or select from your repositories:",
           },
         } as any);
-        
+
         modalView.blocks.push({
           type: "input",
           block_id: "repository_select",
@@ -1361,14 +1452,21 @@ Branch: ${branch}`;
         view: modalView,
       });
     } catch (error) {
-      logger.error(`Failed to open repository modal for user ${userId}:`, error);
+      logger.error(
+        `Failed to open repository modal for user ${userId}:`,
+        error
+      );
     }
   }
 
   /**
    * Handle repository selection
    */
-  private async handleRepositorySelection(userId: string, body: any, client: any): Promise<void> {
+  private async handleRepositorySelection(
+    userId: string,
+    body: any,
+    client: any
+  ): Promise<void> {
     try {
       const selectedRepo = body.actions?.[0]?.selected_option?.value;
       if (!selectedRepo) {
@@ -1378,11 +1476,14 @@ Branch: ${branch}`;
       const username = await this.getOrCreateUserMapping(userId, client);
 
       // Update the repository cache with the selected repository
-      const repoName = selectedRepo.split('/').pop()?.replace('.git', '') || 'unknown';
+      const repoName =
+        selectedRepo.split("/").pop()?.replace(".git", "") || "unknown";
       const repository: UserRepository = {
         username,
         repositoryName: repoName,
-        repositoryUrl: selectedRepo.replace('.git', '').replace('https://github.com/', 'https://github.com/'),
+        repositoryUrl: selectedRepo
+          .replace(".git", "")
+          .replace("https://github.com/", "https://github.com/"),
         cloneUrl: selectedRepo,
         createdAt: Date.now(),
         lastUsed: Date.now(),
@@ -1398,12 +1499,18 @@ Branch: ${branch}`;
 
       // Send confirmation
       const im = await client.conversations.open({ users: userId });
-      await client.chat.postMessage({ channel: im.channel.id, text: `✅ Repository set to: ${repoName}` });
+      await client.chat.postMessage({
+        channel: im.channel.id,
+        text: `✅ Repository set to: ${repoName}`,
+      });
     } catch (error) {
       logger.error(`Failed to select repository for user ${userId}:`, error);
       try {
         const im = await client.conversations.open({ users: userId });
-        await client.chat.postMessage({ channel: im.channel.id, text: "❌ Failed to select repository. Please try again." });
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "❌ Failed to select repository. Please try again.",
+        });
       } catch {}
     }
   }
@@ -1411,11 +1518,15 @@ Branch: ${branch}`;
   /**
    * Get user's GitHub info from database
    */
-  private async getUserGitHubInfo(userId: string): Promise<{ token?: string; username?: string }> {
+  private async getUserGitHubInfo(
+    userId: string
+  ): Promise<{ token?: string; username?: string }> {
     try {
       // Import Pool type and create connection
-      const { getDbPool } = await import('../db');
-      const dbPool = getDbPool(process.env.DATABASE_URL || this.config.queues.connectionString);
+      const { getDbPool } = await import("../db");
+      const dbPool = getDbPool(
+        process.env.DATABASE_URL || this.config.queues.connectionString
+      );
 
       const result = await dbPool.query(
         `SELECT name, value FROM user_environ
@@ -1429,13 +1540,13 @@ Branch: ${branch}`;
 
       const info: { token?: string; username?: string } = {};
       for (const row of result.rows) {
-        if (row.name === 'GITHUB_TOKEN') {
+        if (row.name === "GITHUB_TOKEN") {
           try {
             info.token = this.decryptValue(row.value as string);
           } catch (e) {
-            logger.warn('Failed to decrypt stored GitHub token');
+            logger.warn("Failed to decrypt stored GitHub token");
           }
-        } else if (row.name === 'GITHUB_USER') {
+        } else if (row.name === "GITHUB_USER") {
           info.username = row.value;
         }
       }
@@ -1448,25 +1559,41 @@ Branch: ${branch}`;
   }
 
   private decryptValue(payload: string): string {
-    const crypto = require('node:crypto');
-    const key: string = (process.env.ENCRYPTION_KEY || 'default-32-char-encryption-key!!').padEnd(32).slice(0, 32);
-    const parts = payload.split(':');
-    if (parts.length !== 3) throw new Error('Invalid encrypted payload');
-    const iv = Buffer.from(parts[0]!, 'hex');
-    const tag = Buffer.from(parts[1]!, 'hex');
-    const data = Buffer.from(parts[2]!, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'utf8'), iv);
+    const crypto = require("node:crypto");
+    
+    if (!process.env.ENCRYPTION_KEY) {
+      throw new Error("ENCRYPTION_KEY environment variable is required for decryption");
+    }
+    
+    const key: string = process.env.ENCRYPTION_KEY
+      .padEnd(32)
+      .slice(0, 32);
+    const parts = payload.split(":");
+    if (parts.length !== 3) throw new Error("Invalid encrypted payload");
+    const iv = Buffer.from(parts[0]!, "hex");
+    const tag = Buffer.from(parts[1]!, "hex");
+    const data = Buffer.from(parts[2]!, "hex");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      Buffer.from(key, "utf8"),
+      iv
+    );
     decipher.setAuthTag(tag);
     const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-    return decrypted.toString('utf8');
+    return decrypted.toString("utf8");
   }
 
   /**
    * Persist selected repository for a Slack user
    */
-  private async saveSelectedRepository(userId: string, repoUrl: string): Promise<void> {
-    const { getDbPool } = await import('../db');
-    const dbPool = getDbPool(process.env.DATABASE_URL || this.config.queues.connectionString);
+  private async saveSelectedRepository(
+    userId: string,
+    repoUrl: string
+  ): Promise<void> {
+    const { getDbPool } = await import("../db");
+    const dbPool = getDbPool(
+      process.env.DATABASE_URL || this.config.queues.connectionString
+    );
 
     await dbPool.query(
       `INSERT INTO users (platform, platform_user_id) 
@@ -1522,7 +1649,6 @@ Branch: ${branch}`;
     }
   }
 
-
   private extractViewInputs(stateValues: any): string {
     // This method was kept for backward compatibility but could be moved to form-handlers
     const inputs: string[] = [];
@@ -1562,11 +1688,13 @@ Branch: ${branch}`;
   }
 
   /**
-   * Cleanup all sessions
+   * Cleanup all sessions and perform final memory cleanup
    */
   async cleanup(): Promise<void> {
+    logger.info('Performing final cleanup of SlackEventHandlers');
     this.activeSessions.clear();
     this.userMappings.clear();
     this.repositoryCache.clear();
+    logger.info('All Maps cleared during cleanup');
   }
 }

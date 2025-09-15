@@ -228,11 +228,13 @@ class ProcessManager {
           method: "HEAD",
           signal: AbortSignal.timeout(1000),
         }).catch(() => null);
-        
+
         if (response) {
           serviceUrl = `http://${host}:${port}`;
           tunnelLogStream.write(`Service detected at ${serviceUrl}\n`);
-          console.error(`[MCP Process Manager] Service detected at ${serviceUrl}`);
+          console.error(
+            `[MCP Process Manager] Service detected at ${serviceUrl}`
+          );
           break;
         }
       } catch (_e) {
@@ -245,14 +247,10 @@ class ProcessManager {
       `[MCP Process Manager] Starting cloudflared tunnel for process ${id} on ${serviceUrl} (attempt ${retryCount + 1})`
     );
 
-    const tunnelChild = spawn(
-      "cloudflared",
-      ["tunnel", "--url", serviceUrl],
-      {
-        detached: false,
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const tunnelChild = spawn("cloudflared", ["tunnel", "--url", serviceUrl], {
+      detached: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     // Handle spawn errors
     tunnelChild.on("error", (err) => {
@@ -625,16 +623,19 @@ server.tool(
               }
             } catch (error: any) {
               // Only log connection refused errors on first attempt
-              if (healthCheckAttempts === 1 && error.cause?.code === 'ECONNREFUSED') {
+              if (
+                healthCheckAttempts === 1 &&
+                error.cause?.code === "ECONNREFUSED"
+              ) {
                 // Service not started yet, this is expected
               }
             }
           }
-          
+
           if (serviceHealthy) {
             break;
           }
-          
+
           // Service not ready yet - less verbose logging
           if (healthCheckAttempts === 1) {
             console.error(
@@ -1018,10 +1019,7 @@ async function main() {
 export { main as startProcessManagerServer };
 
 // Only run directly if this file is executed directly
-if (
-  typeof process !== "undefined" &&
-  process.argv[1]
-) {
+if (typeof process !== "undefined" && process.argv[1]) {
   main().catch((error) => {
     console.error("[Process Manager MCP] Fatal error:", error);
     process.exit(1);

@@ -96,7 +96,7 @@ async function waitForBotResponse(
   channel,
   messageTs,
   timeout = 45000,
-  jsonOutput = false,
+  jsonOutput = false
 ) {
   if (!jsonOutput) console.log("⏳ Waiting for bot response...");
   const startTime = Date.now();
@@ -119,7 +119,7 @@ async function waitForBotResponse(
           foundResponse = botMessages[0];
           if (!jsonOutput)
             console.log(
-              `📱 Found bot response in thread at ${foundResponse.ts}`,
+              `📱 Found bot response in thread at ${foundResponse.ts}`
             );
           break;
         }
@@ -134,13 +134,13 @@ async function waitForBotResponse(
 
       if (history.messages) {
         const recentBotMessages = history.messages.filter(
-          (msg) => msg.bot_id && parseFloat(msg.ts) > parseFloat(messageTs),
+          (msg) => msg.bot_id && parseFloat(msg.ts) > parseFloat(messageTs)
         );
         if (recentBotMessages.length > 0) {
           foundResponse = recentBotMessages[0];
           if (!jsonOutput)
             console.log(
-              `📱 Found bot response in channel at ${foundResponse.ts}`,
+              `📱 Found bot response in channel at ${foundResponse.ts}`
             );
           break;
         }
@@ -207,7 +207,7 @@ async function runTest(messages, timeout = 45000, options = {}) {
               thread_ts: messageTs,
               message_ts: msg.ts,
               channel: targetChannel,
-            }),
+            })
           );
         }
         process.exit(0);
@@ -222,7 +222,7 @@ async function runTest(messages, timeout = 45000, options = {}) {
       targetChannel,
       messageTs,
       timeout,
-      jsonOutput,
+      jsonOutput
     );
 
     if (!response) {
@@ -230,7 +230,7 @@ async function runTest(messages, timeout = 45000, options = {}) {
         console.log(`❌ No bot response within ${timeout / 1000} seconds`);
         console.log(
           "\n🔗 Manual check: https://peerbotcommunity.slack.com/archives/" +
-            targetChannel,
+            targetChannel
         );
       }
       process.exit(1);
@@ -257,12 +257,12 @@ async function runTest(messages, timeout = 45000, options = {}) {
             url: `https://peerbotcommunity.slack.com/archives/${targetChannel}`,
           },
           null,
-          2,
-        ),
+          2
+        )
       );
     } else {
       console.log(
-        `\n🔗 Channel: https://peerbotcommunity.slack.com/archives/${targetChannel}`,
+        `\n🔗 Channel: https://peerbotcommunity.slack.com/archives/${targetChannel}`
       );
     }
 
@@ -270,7 +270,7 @@ async function runTest(messages, timeout = 45000, options = {}) {
   } catch (error) {
     if (jsonOutput) {
       console.log(
-        JSON.stringify({ success: false, error: error.message }, null, 2),
+        JSON.stringify({ success: false, error: error.message }, null, 2)
       );
     } else {
       console.error(`❌ Test failed: ${error.message}`);
@@ -309,7 +309,7 @@ for (let i = 0; i < args.length; i++) {
     console.log("");
     console.log("Options:");
     console.log(
-      "  --timeout <seconds>    Set timeout for bot response (default: 45)",
+      "  --timeout <seconds>    Set timeout for bot response (default: 45)"
     );
     console.log("  --json                 Output JSON format");
     console.log("  --thread-ts <ts>       Post to existing thread");

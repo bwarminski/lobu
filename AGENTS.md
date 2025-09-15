@@ -51,6 +51,18 @@ Worker pods now use persistent volumes for data storage:
 2. **Auto-Resume**: The worker automatically resumes conversations using Claude CLI's built-in `--resume` functionality when continuing a thread in the same persistent volume
 3. **Data Persistence**: All workspace data is preserved in the persistent volume, eliminating the need for conversation file syncing
 
+## Pull Request Workflow
+
+The main branch is protected - all changes must go through pull requests:
+
+1. **Create feature branch**: `git checkout -b feature/your-feature`
+2. **Make changes and test**: Run tests, formatting, and bot testing
+3. **Push branch**: `git push origin feature/your-feature`
+4. **Create PR**: Follow the PR template, ensure CI passes
+5. **Get approval**: PRs require review before merging
+
+See `CONTRIBUTING.md` for detailed PR guidelines.
+
 ## Testing with slack-qa-bot.js
 
 **See `.claude/commands/qa.md` for comprehensive testing documentation with examples.**

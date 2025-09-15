@@ -248,7 +248,7 @@ export class QueueIntegration {
   }> {
     try {
       logger.info("getGitStatus called - checking repository status");
-      
+
       if (!this.workspaceManager) {
         logger.warn("No workspace manager available for git status");
         return { hasGitChanges: false };
@@ -256,78 +256,110 @@ export class QueueIntegration {
 
       const status = await this.workspaceManager.getRepositoryStatus();
       const branch = status.branch;
-      logger.info(`Git branch detected: ${branch}, has changes: ${status.hasChanges}`);
-      
+      logger.info(
+        `Git branch detected: ${branch}, has changes: ${status.hasChanges}`
+      );
+
       // Check for PR using gh CLI
       let pullRequestUrl: string | undefined;
-      logger.info(`Branch value: "${branch}", Type: ${typeof branch}, starts with claude/: ${branch?.startsWith("claude/")}`);
-      
+      logger.info(
+        `Branch value: "${branch}", Type: ${typeof branch}, starts with claude/: ${branch?.startsWith("claude/")}`
+      );
+
       if (branch && branch.startsWith("claude/")) {
         logger.info(`Entering PR detection block for branch: ${branch}`);
         try {
           const { execSync } = require("child_process");
           const workingDir = this.workspaceManager.getCurrentWorkingDirectory();
-          logger.info(`About to check for PR in directory: ${workingDir}, branch: ${branch}`);
-          
+          logger.info(
+            `About to check for PR in directory: ${workingDir}, branch: ${branch}`
+          );
+
           // First check if gh CLI is authenticated
           try {
             logger.info("Checking GitHub CLI authentication...");
-            execSync("gh auth status", { 
-              cwd: workingDir, 
-              stdio: 'pipe',
-              timeout: 3000 // 3 second timeout
+            execSync("gh auth status", {
+              cwd: workingDir,
+              stdio: "pipe",
+              timeout: 3000, // 3 second timeout
             });
             logger.info("GitHub CLI is authenticated");
           } catch (authError: any) {
             // If GH_TOKEN is set, authentication is available even if gh auth status fails
             if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) {
-              logger.info("Using GH_TOKEN/GITHUB_TOKEN environment variable for authentication");
+              logger.info(
+                "Using GH_TOKEN/GITHUB_TOKEN environment variable for authentication"
+              );
             } else {
-              logger.warn("GitHub CLI not authenticated and no token found, skipping PR detection");
-              return { branch, hasGitChanges: status.hasChanges, pullRequestUrl: undefined };
+              logger.warn(
+                "GitHub CLI not authenticated and no token found, skipping PR detection"
+              );
+              return {
+                branch,
+                hasGitChanges: status.hasChanges,
+                pullRequestUrl: undefined,
+              };
             }
           }
-          
+
           // Try to get PR information
           let prInfo: string | undefined;
           try {
             logger.info("Checking for existing PR with gh pr view...");
             // Use gh pr list to check if a PR exists for this branch first
-            const prList = execSync(`gh pr list --head "${branch}" --json url,state --limit 1`, {
-              cwd: workingDir,
-              encoding: "utf8",
-              stdio: 'pipe',
-              timeout: 5000 // 5 second timeout
-            });
-            
+            const prList = execSync(
+              `gh pr list --head "${branch}" --json url,state --limit 1`,
+              {
+                cwd: workingDir,
+                encoding: "utf8",
+                stdio: "pipe",
+                timeout: 5000, // 5 second timeout
+              }
+            );
+
             logger.info(`PR list result: ${prList}`);
-            
+
             const prs = JSON.parse(prList || "[]");
             if (prs.length > 0) {
               prInfo = JSON.stringify(prs[0]);
               logger.info(`Found PR: ${prInfo}`);
             } else {
               logger.info(`No PR exists for branch ${branch}`);
-              return { branch, hasGitChanges: status.hasChanges, pullRequestUrl: undefined };
+              return {
+                branch,
+                hasGitChanges: status.hasChanges,
+                pullRequestUrl: undefined,
+              };
             }
           } catch (prError: any) {
             logger.warn(`Error checking PR: ${prError.message}`);
-            return { branch, hasGitChanges: status.hasChanges, pullRequestUrl: undefined };
+            return {
+              branch,
+              hasGitChanges: status.hasChanges,
+              pullRequestUrl: undefined,
+            };
           }
-          
+
           const parsed = JSON.parse(prInfo);
           if (parsed.url && parsed.state === "OPEN") {
             pullRequestUrl = parsed.url;
-            logger.info(`Found existing PR for branch ${branch}: ${pullRequestUrl}`);
+            logger.info(
+              `Found existing PR for branch ${branch}: ${pullRequestUrl}`
+            );
           } else {
             logger.debug(`PR exists but not open. State: ${parsed.state}`);
           }
         } catch (error: any) {
           // Unexpected error
-          logger.error(`Unexpected error checking PR for branch ${branch}:`, error.message);
+          logger.error(
+            `Unexpected error checking PR for branch ${branch}:`,
+            error.message
+          );
         }
       } else {
-        logger.info(`Skipping PR detection: branch="${branch}" doesn't start with "claude/" or is undefined`);
+        logger.info(
+          `Skipping PR detection: branch="${branch}" doesn't start with "claude/" or is undefined`
+        );
       }
 
       return {
@@ -340,8 +372,6 @@ export class QueueIntegration {
       return { hasGitChanges: false };
     }
   }
-
-
 
   /**
    * Perform the actual queue update

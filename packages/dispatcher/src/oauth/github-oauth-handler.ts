@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
-import axios from 'axios';
-import * as crypto from 'node:crypto';
-import type { Request, Response } from 'express';
-import { getDbPool } from '../db';
-import logger from '../logger';
+import axios from "axios";
+import * as crypto from "node:crypto";
+import type { Request, Response } from "express";
+import { getDbPool } from "../db";
+import logger from "../logger";
 
 export class GitHubOAuthHandler {
   private dbPool: any;
@@ -12,30 +12,54 @@ export class GitHubOAuthHandler {
   private readonly IV_LENGTH = 12; // 96-bit nonce for AES-GCM
   private homeTabCallback?: (userId: string) => Promise<void>;
 
-  constructor(databaseUrl: string, homeTabCallback?: (userId: string) => Promise<void>) {
+  constructor(
+    databaseUrl: string,
+    homeTabCallback?: (userId: string) => Promise<void>
+  ) {
     this.dbPool = getDbPool(databaseUrl);
-    this.encryptionKey = (process.env.ENCRYPTION_KEY || 'default-32-char-encryption-key!!').padEnd(32).slice(0, 32);
+    
+    if (!process.env.ENCRYPTION_KEY) {
+      throw new Error("ENCRYPTION_KEY environment variable is required for secure operation");
+    }
+    
+    this.encryptionKey = process.env.ENCRYPTION_KEY
+      .padEnd(32)
+      .slice(0, 32);
     this.homeTabCallback = homeTabCallback;
   }
 
   private encrypt(text: string): string {
     const iv = crypto.randomBytes(this.IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(this.encryptionKey, 'utf8'), iv);
-    const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+    const cipher = crypto.createCipheriv(
+      "aes-256-gcm",
+      Buffer.from(this.encryptionKey, "utf8"),
+      iv
+    );
+    const encrypted = Buffer.concat([
+      cipher.update(text, "utf8"),
+      cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+    return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
   }
 
   private decrypt(text: string): string {
-    const parts = text.split(':');
-    if (parts.length !== 3) throw new Error('Invalid state format');
-    const iv = Buffer.from(parts[0]!, 'hex');
-    const tag = Buffer.from(parts[1]!, 'hex');
-    const encryptedText = Buffer.from(parts[2]!, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(this.encryptionKey, 'utf8'), iv);
+    const parts = text.split(":");
+    if (parts.length !== 3) throw new Error("Invalid state format");
+    const iv = Buffer.from(parts[0]!, "hex");
+    const tag = Buffer.from(parts[1]!, "hex");
+    const encryptedText = Buffer.from(parts[2]!, "hex");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      Buffer.from(this.encryptionKey, "utf8"),
+      iv
+    );
     decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(encryptedText), decipher.final()]);
-    return decrypted.toString('utf8');
+    const decrypted = Buffer.concat([
+      decipher.update(encryptedText),
+      decipher.final(),
+    ]);
+    return decrypted.toString("utf8");
   }
 
   /**
@@ -43,15 +67,15 @@ export class GitHubOAuthHandler {
    */
   async handleAuthorize(req: Request, res: Response): Promise<void> {
     const clientId = process.env.GITHUB_CLIENT_ID;
-    
+
     if (!clientId) {
-      res.status(500).json({ error: 'GitHub OAuth not configured' });
+      res.status(500).json({ error: "GitHub OAuth not configured" });
       return;
     }
 
     const userId = req.query.user_id as string;
     if (!userId) {
-      res.status(400).json({ error: 'User ID required' });
+      res.status(400).json({ error: "User ID required" });
       return;
     }
 
@@ -63,19 +87,21 @@ export class GitHubOAuthHandler {
     const state = this.encrypt(stateData);
 
     // Use INGRESS_URL if provided, otherwise construct from request
-    const baseUrl = process.env.INGRESS_URL || 
-      `${req.protocol}://${req.get('host')}`;
-    
+    const baseUrl =
+      process.env.INGRESS_URL || `${req.protocol}://${req.get("host")}`;
+
     // If using default localhost, ensure we use port 8080
-    const redirectUri = baseUrl.includes('localhost') && !process.env.INGRESS_URL
-      ? `http://localhost:8080/api/github/oauth/callback`
-      : `${baseUrl}/api/github/oauth/callback`;
+    const redirectUri =
+      baseUrl.includes("localhost") && !process.env.INGRESS_URL
+        ? `http://localhost:8080/api/github/oauth/callback`
+        : `${baseUrl}/api/github/oauth/callback`;
 
     // GitHub OAuth URL with full repo scope
-    const githubAuthUrl = `https://github.com/login/oauth/authorize?` +
+    const githubAuthUrl =
+      `https://github.com/login/oauth/authorize?` +
       `client_id=${clientId}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-      `scope=${encodeURIComponent('repo read:user')}&` +
+      `scope=${encodeURIComponent("repo read:user")}&` +
       `state=${encodeURIComponent(state)}`;
 
     res.redirect(githubAuthUrl);
@@ -89,7 +115,7 @@ export class GitHubOAuthHandler {
       const { code, state } = req.query;
 
       if (!code || !state) {
-        res.status(400).send('Missing code or state parameter');
+        res.status(400).send("Missing code or state parameter");
         return;
       }
 
@@ -98,34 +124,38 @@ export class GitHubOAuthHandler {
       try {
         stateData = JSON.parse(this.decrypt(state as string));
       } catch (error) {
-        res.status(400).send('Invalid state parameter');
+        res.status(400).send("Invalid state parameter");
         return;
       }
 
       // Check timestamp (expire after 10 minutes)
       if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
-        res.status(400).send('State parameter expired');
+        res.status(400).send("State parameter expired");
         return;
       }
 
       // Exchange code for access token
-      const tokenResponse = await axios.post('https://github.com/login/oauth/access_token', {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-      }, {
-        headers: {
-          Accept: 'application/json',
+      const tokenResponse = await axios.post(
+        "https://github.com/login/oauth/access_token",
+        {
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
         },
-      });
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
 
       const accessToken = tokenResponse.data.access_token;
       if (!accessToken) {
-        throw new Error('Failed to get access token');
+        throw new Error("Failed to get access token");
       }
 
       // Get user info from GitHub
-      const userResponse = await axios.get('https://api.github.com/user', {
+      const userResponse = await axios.get("https://api.github.com/user", {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -135,7 +165,7 @@ export class GitHubOAuthHandler {
 
       // Store token in database
       const userId = stateData.userId.toUpperCase(); // Slack user IDs are uppercase
-      
+
       // First ensure user exists
       await this.dbPool.query(
         `INSERT INTO users (platform, platform_user_id) 
@@ -172,11 +202,13 @@ export class GitHubOAuthHandler {
       // Trigger home tab refresh in Slack
       try {
         if (this.homeTabCallback) {
-          logger.info(`Triggering home tab refresh for user ${userId} after GitHub OAuth`);
+          logger.info(
+            `Triggering home tab refresh for user ${userId} after GitHub OAuth`
+          );
           await this.homeTabCallback(userId);
         }
       } catch (error) {
-        logger.error('Failed to trigger home tab refresh:', error);
+        logger.error("Failed to trigger home tab refresh:", error);
         // Don't fail the OAuth flow if home tab refresh fails
       }
 
@@ -241,7 +273,7 @@ export class GitHubOAuthHandler {
         </html>
       `);
     } catch (error) {
-      logger.error('OAuth callback error:', error);
+      logger.error("OAuth callback error:", error);
       res.status(500).send(`
         <!DOCTYPE html>
         <html>
@@ -275,7 +307,7 @@ export class GitHubOAuthHandler {
               <div class="error-icon">❌</div>
               <h1>Connection Failed</h1>
               <p>Failed to connect to GitHub. Please try again.</p>
-              <p style="font-size: 14px; color: #999;">Error: ${error instanceof Error ? error.message : 'Unknown error'}</p>
+              <p style="font-size: 14px; color: #999;">Error: ${error instanceof Error ? error.message : "Unknown error"}</p>
             </div>
           </body>
         </html>
@@ -290,7 +322,7 @@ export class GitHubOAuthHandler {
     try {
       const userId = req.body.user_id;
       if (!userId) {
-        res.status(400).json({ error: 'User ID required' });
+        res.status(400).json({ error: "User ID required" });
         return;
       }
 
@@ -304,13 +336,15 @@ export class GitHubOAuthHandler {
 
       res.json({ success: true });
     } catch (error) {
-      logger.error('Logout error:', error);
-      res.status(500).json({ error: 'Failed to logout' });
+      logger.error("Logout error:", error);
+      res.status(500).json({ error: "Failed to logout" });
     }
   }
 
   /**
    * Cleanup resources
    */
-  async cleanup(): Promise<void> { /* no-op for shared pool */ }
+  async cleanup(): Promise<void> {
+    /* no-op for shared pool */
+  }
 }

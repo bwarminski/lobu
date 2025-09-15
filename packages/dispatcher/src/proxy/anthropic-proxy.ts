@@ -78,7 +78,7 @@ export class AnthropicProxy {
       // Validate PostgreSQL credentials
       const isValidUser = await this.validatePostgresCredentials(
         username,
-        password,
+        password
       );
       if (!isValidUser) {
         res.status(401).json({ error: "Invalid PostgreSQL credentials" });
@@ -95,7 +95,7 @@ export class AnthropicProxy {
 
   private async validatePostgresCredentials(
     username: string,
-    password: string,
+    password: string
   ): Promise<boolean> {
     // Parse the base connection string and replace credentials
     const baseUrl = new URL(this.config.postgresConnectionString);
@@ -115,7 +115,7 @@ export class AnthropicProxy {
     } catch (error) {
       logger.debug(
         `PostgreSQL auth failed for user ${username}:`,
-        (error as Error).message,
+        (error as Error).message
       );
       return false;
     } finally {
@@ -150,11 +150,13 @@ export class AnthropicProxy {
       req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined;
 
     logger.info(
-      `🔧 Original body type: ${typeof body}, length: ${body ? (typeof body === "string" ? body.length : JSON.stringify(body).length) : 0}`,
+      `🔧 Original body type: ${typeof body}, length: ${body ? (typeof body === "string" ? body.length : JSON.stringify(body).length) : 0}`
     );
 
     if (isOAuthToken) {
-      logger.info(`🔧 OAuth token detected - passthrough body (no tool override)`);
+      logger.info(
+        `🔧 OAuth token detected - passthrough body (no tool override)`
+      );
 
       // Passthrough: do not modify request body or tools
       body = body
@@ -218,7 +220,7 @@ export class AnthropicProxy {
         // Skip certain headers that shouldn't be forwarded
         if (
           !["transfer-encoding", "connection", "upgrade"].includes(
-            key.toLowerCase(),
+            key.toLowerCase()
           )
         ) {
           res.setHeader(key, value);
@@ -254,7 +256,7 @@ export class AnthropicProxy {
  * Create and configure Anthropic proxy
  */
 export function createAnthropicProxy(
-  config: AnthropicProxyConfig,
+  config: AnthropicProxyConfig
 ): AnthropicProxy {
   return new AnthropicProxy(config);
 }

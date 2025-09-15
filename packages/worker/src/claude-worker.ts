@@ -25,16 +25,18 @@ export class ClaudeWorker {
     this.workspaceManager = new WorkspaceManager(config.workspace);
 
     // Construct database URL from environment variables
-    if (!process.env.PEERBOT_DATABASE_HOST || 
-        !process.env.PEERBOT_DATABASE_PORT ||
-        !process.env.PEERBOT_DATABASE_USERNAME || 
-        !process.env.PEERBOT_DATABASE_PASSWORD) {
+    if (
+      !process.env.PEERBOT_DATABASE_HOST ||
+      !process.env.PEERBOT_DATABASE_PORT ||
+      !process.env.PEERBOT_DATABASE_USERNAME ||
+      !process.env.PEERBOT_DATABASE_PASSWORD
+    ) {
       throw new Error(
         "Database connection environment variables are required (PEERBOT_DATABASE_HOST, PEERBOT_DATABASE_PORT, PEERBOT_DATABASE_USERNAME, PEERBOT_DATABASE_PASSWORD)"
       );
     }
-    
-    const databaseUrl = `postgresql://${process.env.PEERBOT_DATABASE_USERNAME}:${process.env.PEERBOT_DATABASE_PASSWORD}@${process.env.PEERBOT_DATABASE_HOST}:${process.env.PEERBOT_DATABASE_PORT}/peerbot`;
+
+    const databaseUrl = `postgresql://${encodeURIComponent(process.env.PEERBOT_DATABASE_USERNAME)}:${encodeURIComponent(process.env.PEERBOT_DATABASE_PASSWORD)}@${process.env.PEERBOT_DATABASE_HOST}:${process.env.PEERBOT_DATABASE_PORT}/peerbot`;
 
     this.queueIntegration = new QueueIntegration({
       databaseUrl: databaseUrl,
@@ -44,8 +46,11 @@ export class ClaudeWorker {
       botResponseTs: config.botResponseTs, // Pass bot response timestamp from config
       workspaceManager: this.workspaceManager,
       // Only use actual session IDs, not the special "continue" value
-      claudeSessionId: config.sessionId || 
-        (config.resumeSessionId === "continue" ? undefined : config.resumeSessionId),
+      claudeSessionId:
+        config.sessionId ||
+        (config.resumeSessionId === "continue"
+          ? undefined
+          : config.resumeSessionId),
     });
   }
 
@@ -379,7 +384,10 @@ export class ClaudeWorker {
           this.config.sessionKey.replace(/\./g, "-")
         )
         .replace(/{{makeTargetsSummary}}/g, this.getMakeTargetsSummary())
-        .replace(/{{workingDirectory}}/g, this.workspaceManager.getCurrentWorkingDirectory());
+        .replace(
+          /{{workingDirectory}}/g,
+          this.workspaceManager.getCurrentWorkingDirectory()
+        );
 
       logger.info(`[CUSTOM-INSTRUCTIONS] \n${processed}`);
 

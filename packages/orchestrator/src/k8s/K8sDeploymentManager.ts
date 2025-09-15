@@ -41,8 +41,14 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         process.env.KUBERNETES_SERVICE_HOST?.includes("localhost")
       ) {
         const cluster = kc.getCurrentCluster();
-        if (cluster && cluster.skipTLSVerify !== true) {
-          (cluster as any).skipTLSVerify = true;
+        if (cluster && typeof cluster === 'object' && cluster.skipTLSVerify !== true) {
+          // Safely set skipTLSVerify property with type checking
+          Object.defineProperty(cluster, 'skipTLSVerify', {
+            value: true,
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
         }
       }
     } catch (error) {
@@ -236,7 +242,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                 name: "fix-permissions",
                 image: "busybox:1.36",
                 command: ["sh", "-c"],
-                args: ["chown -R 1001:1001 /workspace && chmod -R 755 /workspace"],
+                args: [
+                  "chown -R 1001:1001 /workspace && chmod -R 755 /workspace",
+                ],
                 securityContext: {
                   runAsUser: 0,
                   runAsNonRoot: false,
@@ -268,7 +276,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                 // Override the entrypoint to set ANTHROPIC_API_KEY before running the worker
                 command: ["/bin/bash", "-c"],
                 args: [
-                  `export ANTHROPIC_API_KEY="$PEERBOT_DATABASE_USERNAME:$PEERBOT_DATABASE_PASSWORD" && exec /app/entrypoint.sh`
+                  `export ANTHROPIC_API_KEY="$PEERBOT_DATABASE_USERNAME:$PEERBOT_DATABASE_PASSWORD" && exec /app/entrypoint.sh`,
                 ],
                 securityContext: {
                   runAsUser: 1001,
@@ -364,18 +372,18 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         // Use a proper JSON patch for scaling
         const patch = [
           {
-            op: 'replace',
-            path: '/spec/replicas',
-            value: replicas
-          }
+            op: "replace",
+            path: "/spec/replicas",
+            value: replicas,
+          },
         ];
-        
-        const options = { 
-          headers: { 
-            'Content-Type': 'application/json-patch+json' 
-          } 
+
+        const options = {
+          headers: {
+            "Content-Type": "application/json-patch+json",
+          },
         };
-        
+
         await this.appsV1Api.patchNamespacedDeployment(
           deploymentName,
           this.config.kubernetes.namespace,
@@ -457,11 +465,11 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
           },
         },
       };
-      
-      const options = { 
-        headers: { 
-          'Content-Type': 'application/strategic-merge-patch+json' 
-        } 
+
+      const options = {
+        headers: {
+          "Content-Type": "application/strategic-merge-patch+json",
+        },
       };
 
       await this.appsV1Api.patchNamespacedDeployment(
@@ -483,5 +491,4 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
       // Don't throw - activity tracking should not block message processing
     }
   }
-
 }

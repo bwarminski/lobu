@@ -44,17 +44,17 @@ export class GitHubRepositoryManager {
         // Return owner/repo format
         return `${match[1]}/${match[2]}`;
       }
-      
+
       // Fallback: try to extract from the URL path
-      const githubIndex = url.indexOf('github.com');
+      const githubIndex = url.indexOf("github.com");
       if (githubIndex !== -1) {
-        const pathPart = url.substring(githubIndex + 'github.com'.length);
-        const cleanPath = pathPart.replace(/^[:/]/, '').replace(/\.git$/, '');
-        if (cleanPath && !cleanPath.startsWith('http')) {
+        const pathPart = url.substring(githubIndex + "github.com".length);
+        const cleanPath = pathPart.replace(/^[:/]/, "").replace(/\.git$/, "");
+        if (cleanPath && !cleanPath.startsWith("http")) {
           return cleanPath;
         }
       }
-      
+
       // If we can't extract a proper name, return the full URL
       return url;
     } catch (_error) {
@@ -63,9 +63,12 @@ export class GitHubRepositoryManager {
     }
   }
 
-  private normalizeRepoUrls(url: string): { repositoryUrl: string; cloneUrl: string } {
+  private normalizeRepoUrls(url: string): {
+    repositoryUrl: string;
+    cloneUrl: string;
+  } {
     const clean = url.replace(/\.git$/, "");
-    const clone = url.endsWith('.git') ? url : `${clean}.git`;
+    const clone = url.endsWith(".git") ? url : `${clean}.git`;
     return { repositoryUrl: clean, cloneUrl: clone };
   }
 
@@ -75,20 +78,21 @@ export class GitHubRepositoryManager {
   async getUserRepositories(token: string): Promise<any[]> {
     try {
       const userOctokit = new Octokit({ auth: token });
-      
+
       // Fetch user's repositories (owned and collaborated)
-      const { data: repos } = await userOctokit.rest.repos.listForAuthenticatedUser({
-        sort: 'updated',
-        per_page: 100,
-        type: 'all', // Get all repos (owner, collaborator, org member)
-      });
+      const { data: repos } =
+        await userOctokit.rest.repos.listForAuthenticatedUser({
+          sort: "updated",
+          per_page: 100,
+          type: "all", // Get all repos (owner, collaborator, org member)
+        });
 
       return repos;
     } catch (error) {
-      logger.error('Failed to fetch user repositories:', error);
+      logger.error("Failed to fetch user repositories:", error);
       throw new GitHubRepositoryError(
-        'getUserRepositories',
-        'user',
+        "getUserRepositories",
+        "user",
         `Failed to fetch user repositories: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
@@ -98,10 +102,15 @@ export class GitHubRepositoryManager {
   /**
    * Get cached repository for a user without creating
    */
-  async getUserRepository(username: string, slackUserId?: string): Promise<UserRepository | undefined> {
+  async getUserRepository(
+    username: string,
+    slackUserId?: string
+  ): Promise<UserRepository | undefined> {
     // If a global repository override is configured, return it (highest priority)
     if (this.config.repository) {
-      const { repositoryUrl, cloneUrl } = this.normalizeRepoUrls(this.config.repository);
+      const { repositoryUrl, cloneUrl } = this.normalizeRepoUrls(
+        this.config.repository
+      );
       return {
         username,
         repositoryName: this.extractRepoNameFromUrl(this.config.repository),
@@ -113,7 +122,10 @@ export class GitHubRepositoryManager {
     }
 
     // Check for user's selected repository from database
-    const selectedRepo = await this.getUserSelectedRepository(username, slackUserId);
+    const selectedRepo = await this.getUserSelectedRepository(
+      username,
+      slackUserId
+    );
     if (selectedRepo) {
       return selectedRepo;
     }
@@ -125,14 +137,19 @@ export class GitHubRepositoryManager {
   /**
    * Get user's selected repository from database
    */
-  private async getUserSelectedRepository(username: string, slackUserId?: string): Promise<UserRepository | undefined> {
+  private async getUserSelectedRepository(
+    username: string,
+    slackUserId?: string
+  ): Promise<UserRepository | undefined> {
     try {
-      logger.info(`Checking for user-selected repository for ${username} (Slack ID: ${slackUserId || 'unknown'})`);
-      const { getDbPool } = await import('../db');
+      logger.info(
+        `Checking for user-selected repository for ${username} (Slack ID: ${slackUserId || "unknown"})`
+      );
+      const { getDbPool } = await import("../db");
       const dbPool = getDbPool(this.databaseUrl || process.env.DATABASE_URL);
 
       let result;
-      
+
       // If we have the Slack user ID, use it directly
       if (slackUserId) {
         result = await dbPool.query(
@@ -161,14 +178,16 @@ export class GitHubRepositoryManager {
       if (result.rows.length > 0 && result.rows[0].repo_url) {
         const repoUrl = result.rows[0].repo_url;
         const repoName = this.extractRepoNameFromUrl(repoUrl);
-        
-        logger.info(`Found user-selected repository for ${username}: ${repoUrl}`);
-        
+
+        logger.info(
+          `Found user-selected repository for ${username}: ${repoUrl}`
+        );
+
         return {
           username,
           repositoryName: repoName,
-          repositoryUrl: repoUrl.replace('.git', ''),
-          cloneUrl: repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`,
+          repositoryUrl: repoUrl.replace(".git", ""),
+          cloneUrl: repoUrl.endsWith(".git") ? repoUrl : `${repoUrl}.git`,
           createdAt: Date.now(),
           lastUsed: Date.now(),
         };
@@ -176,7 +195,10 @@ export class GitHubRepositoryManager {
         logger.info(`No user-selected repository found for ${username}`);
       }
     } catch (error) {
-      logger.warn(`Failed to get user selected repository for ${username}:`, error);
+      logger.warn(
+        `Failed to get user selected repository for ${username}:`,
+        error
+      );
     }
     return undefined;
   }
@@ -189,7 +211,9 @@ export class GitHubRepositoryManager {
       // If a global repository override is configured, use it (highest priority)
       if (this.config.repository) {
         // Create repository info from override URL (no caching for overrides)
-        const { repositoryUrl, cloneUrl } = this.normalizeRepoUrls(this.config.repository);
+        const { repositoryUrl, cloneUrl } = this.normalizeRepoUrls(
+          this.config.repository
+        );
         const repository: UserRepository = {
           username,
           repositoryName: this.extractRepoNameFromUrl(this.config.repository),

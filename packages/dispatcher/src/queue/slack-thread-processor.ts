@@ -54,7 +54,7 @@ function processMarkdownAndBlockkit(content: string): {
         if (language === "blockkit") {
           // Always hide the code block from the message for blockkit actions
           processedContent = processedContent.replace(fullMatch, "");
-          
+
           // Skip entirely if show: false
           if (metadata.show === false) {
             console.log(
@@ -62,12 +62,14 @@ function processMarkdownAndBlockkit(content: string): {
             );
             continue;
           }
-          
+
           const parsed = codeContent
             ? JSON.parse(codeContent.trim())
             : { blocks: [] };
-          const buttonValue = JSON.stringify({ blocks: parsed.blocks || [parsed] });
-          
+          const buttonValue = JSON.stringify({
+            blocks: parsed.blocks || [parsed],
+          });
+
           // Skip the button entirely if value exceeds 2000 chars (Slack limit)
           if (buttonValue.length > 2000) {
             console.log(
@@ -75,7 +77,7 @@ function processMarkdownAndBlockkit(content: string): {
             );
             continue;
           }
-          
+
           const actionId = generateDeterministicActionId(
             codeContent + metadata.action + blockIndex,
             "blockkit_form"
@@ -96,7 +98,7 @@ function processMarkdownAndBlockkit(content: string): {
           if (metadata.show !== true) {
             processedContent = processedContent.replace(fullMatch, "");
           }
-          
+
           // Skip entirely if show: false (no button)
           if (metadata.show === false) {
             console.log(
@@ -104,7 +106,7 @@ function processMarkdownAndBlockkit(content: string): {
             );
             continue;
           }
-          
+
           if (codeContent) {
             // Skip the button entirely if value exceeds 2000 chars (Slack limit)
             if (codeContent.length > 2000) {
@@ -113,7 +115,7 @@ function processMarkdownAndBlockkit(content: string): {
               );
               continue;
             }
-            
+
             const actionId = generateDeterministicActionId(
               codeContent + metadata.action + blockIndex,
               language
@@ -147,7 +149,7 @@ function processMarkdownAndBlockkit(content: string): {
   if (text) {
     // Slack has a 3000 character limit for text in section blocks
     const MAX_TEXT_LENGTH = 3000;
-    
+
     if (text.length <= MAX_TEXT_LENGTH) {
       blocks.push({
         type: "section",
@@ -162,15 +164,16 @@ function processMarkdownAndBlockkit(content: string): {
       while (remainingText.length > 0) {
         // Take up to MAX_TEXT_LENGTH characters, but try to break at a newline if possible
         let chunk = remainingText.substring(0, MAX_TEXT_LENGTH);
-        
+
         // If we're not at the end and we're cutting mid-text, try to find a better break point
         if (remainingText.length > MAX_TEXT_LENGTH) {
-          const lastNewline = chunk.lastIndexOf('\n');
-          if (lastNewline > MAX_TEXT_LENGTH * 0.8) { // If there's a newline in the last 20% of the chunk
+          const lastNewline = chunk.lastIndexOf("\n");
+          if (lastNewline > MAX_TEXT_LENGTH * 0.8) {
+            // If there's a newline in the last 20% of the chunk
             chunk = chunk.substring(0, lastNewline);
           }
         }
-        
+
         blocks.push({
           type: "section",
           text: {
@@ -178,7 +181,7 @@ function processMarkdownAndBlockkit(content: string): {
             text: chunk,
           },
         });
-        
+
         remainingText = remainingText.substring(chunk.length).trim();
       }
     }
@@ -198,7 +201,7 @@ function processMarkdownAndBlockkit(content: string): {
   console.log(
     `[DEBUG] processMarkdownAndBlockkit returning - text length: ${text?.length || 0}, blocks count: ${blocks.length}, action buttons: ${actionButtons.length}`
   );
-  
+
   return { text, blocks };
 }
 
@@ -209,19 +212,22 @@ class SlackRenderer extends marked.Renderer {
   heading(text: string, _level: number): string {
     // Convert headings - preserve inline formatting like bold/italic
     // Headers themselves are not automatically bold in Slack
-    
+
     let processedText = text;
-    
+
     // Convert markdown bold (**text**) to Slack bold (*text*)
-    processedText = processedText.replace(/\*\*(.+?)\*\*/g, '*$1*');
-    
+    processedText = processedText.replace(/\*\*(.+?)\*\*/g, "*$1*");
+
     // Convert markdown bold (__text__) to Slack bold (*text*)
-    processedText = processedText.replace(/__(.+?)__/g, '*$1*');
-    
+    processedText = processedText.replace(/__(.+?)__/g, "*$1*");
+
     // Convert markdown italic (*text*) to Slack italic (_text_)
     // But be careful not to convert Slack bold markers we just added
-    processedText = processedText.replace(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g, '_$1_');
-    
+    processedText = processedText.replace(
+      /(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)/g,
+      "_$1_"
+    );
+
     // Add extra spacing after headers for visual separation
     return `${processedText}\n\n`;
   }
@@ -293,7 +299,7 @@ export function convertMarkdownToSlack(content: string): string {
       // Convert to a format that marked can handle properly
       if (code && code.trim()) {
         // Use HTML pre/code tags that marked will process
-        const langAttr = lang ? ` class="language-${lang}"` : '';
+        const langAttr = lang ? ` class="language-${lang}"` : "";
         return `<pre><code${langAttr}>${code.trim()}</code></pre>`;
       }
       return match;
@@ -332,13 +338,13 @@ export function convertMarkdownToSlack(content: string): string {
         // For Slack text field, use single backticks for inline code
         // For multi-line code, we'll use indentation instead of backticks
         // since Slack text fields don't support proper code blocks
-        const lines = decodedCode.trim().split('\n');
+        const lines = decodedCode.trim().split("\n");
         if (lines.length === 1) {
           return `\`${lines[0]}\``;
         } else {
           // For multi-line code, use indentation (4 spaces) instead of backticks
           // This preserves the code structure without causing issues with # symbols
-          return lines.map((line: string) => `    ${line}`).join('\n');
+          return lines.map((line: string) => `    ${line}`).join("\n");
         }
       }
     );
@@ -390,7 +396,9 @@ async function generateGitHubActionButtons(
     // 2. An existing PR exists, OR
     // 3. We're on a session branch (even if all changes are committed)
     if (!hasGitChanges && !pullRequestUrl && !isSessionBranch) {
-      logger.debug(`No git changes, no PR, and not a session branch, skipping GitHub buttons`);
+      logger.debug(
+        `No git changes, no PR, and not a session branch, skipping GitHub buttons`
+      );
       return undefined;
     }
 
@@ -443,10 +451,12 @@ async function generateGitHubActionButtons(
     const repoUrl = repository.repositoryUrl;
     const repoPath = repoUrl.replace("https://github.com/", "");
 
-    logger.info(`Showing action buttons for branch: ${gitBranch}, PR exists: ${!!pullRequestUrl}`);
-    
+    logger.info(
+      `Showing action buttons for branch: ${gitBranch}, PR exists: ${!!pullRequestUrl}`
+    );
+
     const buttons: any[] = [];
-    
+
     // Show appropriate PR button based on whether PR exists
     if (pullRequestUrl) {
       // PR exists - show view button with green checkmark
@@ -457,7 +467,7 @@ async function generateGitHubActionButtons(
         action_id: generateDeterministicActionId(
           `view_pr_${repoPath}_${gitBranch}`,
           "github_view_pr"
-        )
+        ),
       });
     } else if (hasGitChanges || isSessionBranch) {
       // No PR but has changes OR on a session branch - show create PR button
@@ -472,11 +482,11 @@ async function generateGitHubActionButtons(
           action: "create_pr",
           repo: repoPath,
           branch: gitBranch,
-          prompt: "Commit changes and create a pull request"
-        })
+          prompt: "Commit changes and create a pull request",
+        }),
       });
     }
-    
+
     // View Code button
     if (hasGitChanges) {
       // Has uncommitted changes - show action button to commit/push first
@@ -491,8 +501,8 @@ async function generateGitHubActionButtons(
           action: "view_code",
           repo: repoPath,
           branch: gitBranch,
-          prompt: "Commit and push changes, then view code"
-        })
+          prompt: "Commit and push changes, then view code",
+        }),
       });
     } else {
       // No uncommitted changes - show direct link to view code
@@ -503,10 +513,10 @@ async function generateGitHubActionButtons(
         action_id: generateDeterministicActionId(
           `code_${repoPath}_${gitBranch}`,
           "github_code_link"
-        )
+        ),
       });
     }
-    
+
     return buttons.length > 0 ? buttons : undefined;
   } catch (_error) {
     // Return undefined on error - this will result in no action buttons being added
@@ -657,13 +667,14 @@ export class ThreadResponseConsumer {
 
       // Check if we have a bot message for this Claude session
       // First check if the worker provided a bot message timestamp
-      const existingBotMessageTs = data.botResponseTs || this.sessionBotMessages.get(sessionKey);
+      const existingBotMessageTs =
+        data.botResponseTs || this.sessionBotMessages.get(sessionKey);
       const isFirstResponse = !existingBotMessageTs;
       // Use originalMessageTs for reactions (the actual user message timestamp)
       const reactionTimestamp = data.originalMessageTs || data.messageId;
 
       // Handle reaction transitions without gear. Completion is signaled by processedMessageIds presence.
-      const isDM = data.channelId?.startsWith('D');
+      const isDM = data.channelId?.startsWith("D");
       if (data.error && reactionTimestamp) {
         // Error: change eyes to x on the relevant message
         await this.updateReaction(
@@ -675,7 +686,10 @@ export class ThreadResponseConsumer {
       }
 
       // On completion, processedMessageIds will be provided
-      if (Array.isArray(data.processedMessageIds) && data.processedMessageIds.length > 0) {
+      if (
+        Array.isArray(data.processedMessageIds) &&
+        data.processedMessageIds.length > 0
+      ) {
         if (isDM) {
           // Remove eyes from each processed user message (no checkmarks in DMs)
           for (const ts of data.processedMessageIds) {
@@ -716,20 +730,22 @@ export class ThreadResponseConsumer {
             `Bot created first response with ts: ${newBotResponseTs}, storing for session ${sessionKey}`
           );
           this.sessionBotMessages.set(sessionKey, newBotResponseTs);
-          
+
           // Also send the bot message timestamp back to the worker for future updates
           // This ensures the worker can include it in subsequent thread_response messages
           try {
             if (data.claudeSessionId) {
-              await this.pgBoss.send('worker_metadata_update', {
+              await this.pgBoss.send("worker_metadata_update", {
                 claudeSessionId: data.claudeSessionId,
                 botResponseTs: newBotResponseTs,
                 channelId: data.channelId,
-                threadTs: data.threadTs
+                threadTs: data.threadTs,
               });
             }
           } catch (error) {
-            logger.debug(`Failed to send bot message timestamp to worker: ${error}`);
+            logger.debug(
+              `Failed to send bot message timestamp to worker: ${error}`
+            );
           }
         }
       } else if (data.error) {
@@ -740,7 +756,10 @@ export class ThreadResponseConsumer {
 
       // Log completion when processedMessageIds is present but DON'T clear session
       // Keep the session active so any late-arriving messages still update the same bot message
-      if (Array.isArray(data.processedMessageIds) && data.processedMessageIds.length > 0) {
+      if (
+        Array.isArray(data.processedMessageIds) &&
+        data.processedMessageIds.length > 0
+      ) {
         logger.info(
           `Thread processing completed for message ${data.messageId}`
         );
@@ -867,7 +886,7 @@ export class ThreadResponseConsumer {
       );
       const result = processMarkdownAndBlockkit(content);
       console.log(
-        `[DEBUG] processMarkdownAndBlockkit result - blocks: ${result.blocks?.length || 0}, has actions: ${result.blocks?.some(b => b.type === 'actions')}`
+        `[DEBUG] processMarkdownAndBlockkit result - blocks: ${result.blocks?.length || 0}, has actions: ${result.blocks?.some((b) => b.type === "actions")}`
       );
 
       // Get GitHub action buttons for this session
@@ -887,11 +906,11 @@ export class ThreadResponseConsumer {
         if (result.blocks.length > 0) {
           result.blocks.push({ type: "divider" });
         }
-        
+
         // Add the GitHub action buttons as an actions block
         result.blocks.push({
           type: "actions",
-          elements: githubActionButtons
+          elements: githubActionButtons,
         });
       }
 
@@ -907,12 +926,12 @@ export class ThreadResponseConsumer {
       const MAX_BLOCKS = 50;
       const blocks = result.blocks.slice(0, MAX_BLOCKS);
       console.log(
-        `[DEBUG] Final blocks to send - count: ${blocks.length}, types: ${blocks.map(b => b.type).join(', ')}`
+        `[DEBUG] Final blocks to send - count: ${blocks.length}, types: ${blocks.map((b) => b.type).join(", ")}`
       );
-      if (blocks.some(b => b.type === 'actions')) {
+      if (blocks.some((b) => b.type === "actions")) {
         console.log(
           `[DEBUG] Actions block elements:`,
-          blocks.find(b => b.type === 'actions')?.elements
+          blocks.find((b) => b.type === "actions")?.elements
         );
       }
 
@@ -1104,14 +1123,14 @@ export class ThreadResponseConsumer {
       // Add GitHub action buttons if available
       if (githubActionButtons && githubActionButtons.length > 0) {
         // Add a divider before the GitHub actions
-        errorResult.blocks.push({ 
-          type: "divider"
+        errorResult.blocks.push({
+          type: "divider",
         } as any);
-        
+
         // Add the GitHub action buttons as an actions block
         errorResult.blocks.push({
           type: "actions",
-          elements: githubActionButtons
+          elements: githubActionButtons,
         } as any);
       }
 

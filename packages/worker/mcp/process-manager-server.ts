@@ -570,7 +570,7 @@ server.tool(
         let tunnelUrl: string | undefined;
         let serviceHealthy = false;
         let healthCheckAttempts = 0;
-        const maxHealthChecks = 15; // 15 attempts, 2 seconds each = 30 seconds total
+        const maxHealthChecks = 60; // 60 attempts, 2 seconds each = 120 seconds total
         const healthCheckInterval = 2000; // 2 seconds between checks
 
         console.error(
@@ -586,27 +586,36 @@ server.tool(
           tunnelUrl = updatedInfo?.tunnelUrl;
 
           // Try to make an HTTP request to the local service
-          try {
-            const response = await fetch(`http://localhost:${port}/`, {
-              method: "GET",
-              signal: AbortSignal.timeout(1500), // 1.5 second timeout for each request
-            });
+          // Try both localhost and 0.0.0.0 in case the service only binds to one
+          for (const host of ["localhost", "127.0.0.1", "0.0.0.0"]) {
+            try {
+              const response = await fetch(`http://${host}:${port}/`, {
+                method: "GET",
+                signal: AbortSignal.timeout(1500), // 1.5 second timeout for each request
+              });
 
-            // Any response (even error codes) means the service is running
-            if (response.status) {
-              serviceHealthy = true;
-              console.error(
-                `[MCP Process Manager] Service on port ${port} is healthy (status: ${response.status})`
-              );
-              break;
+              // Any response (even error codes) means the service is running
+              if (response.status) {
+                serviceHealthy = true;
+                console.error(
+                  `[MCP Process Manager] Service on port ${port} is healthy at ${host} (status: ${response.status})`
+                );
+                break;
+              }
+            } catch (_error: any) {
+              // Try next host
             }
-          } catch (_error: any) {
-            // Service not ready yet
-            if (healthCheckAttempts % 5 === 0) {
-              console.error(
-                `[MCP Process Manager] Service not ready on port ${port} (attempt ${healthCheckAttempts}/${maxHealthChecks})`
-              );
-            }
+          }
+          
+          if (serviceHealthy) {
+            break;
+          }
+          
+          // Service not ready yet
+          if (healthCheckAttempts % 5 === 0) {
+            console.error(
+              `[MCP Process Manager] Service not ready on port ${port} (attempt ${healthCheckAttempts}/${maxHealthChecks})`
+            );
           }
 
           // Wait before next check

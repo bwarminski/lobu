@@ -60,6 +60,54 @@ export class SlackEventHandlers {
   private getBotId(): string {
     return this.config.slack.botId || "default-slack-bot";
   }
+  
+  /**
+   * Setup slash command handlers
+   */
+  private setupSlashCommands(): void {
+    logger.info("Setting up slash command handlers...");
+    
+    // Handle /peerbot command
+    this.app.command("/peerbot", async ({ ack, body, client }) => {
+      await ack();
+      
+      const { text, user_id, channel_id } = body;
+      logger.info(`/peerbot command received: text='${text}', user=${user_id}, channel=${channel_id}`);
+      
+      if (text === "connect" || text === "repository") {
+        // Open repository selection modal
+        await this.openRepositoryModal(user_id, body, client);
+      } else if (text === "help") {
+        // Send help message
+        await client.chat.postEphemeral({
+          channel: channel_id,
+          user: user_id,
+          text: "*Peerbot Commands:*\n" +
+                "• `/peerbot connect` - Select a GitHub repository for this channel\n" +
+                "• `/login` - Connect your GitHub account\n" +
+                "• `/peerbot help` - Show this help message"
+        });
+      } else {
+        // Unknown command
+        await client.chat.postEphemeral({
+          channel: channel_id,
+          user: user_id,
+          text: `Unknown command: '${text}'\n` +
+                "Try `/peerbot help` for available commands."
+        });
+      }
+    });
+    
+    // Handle /login command
+    this.app.command("/login", async ({ ack, body, client }) => {
+      await ack();
+      const { user_id, channel_id } = body;
+      logger.info(`/login command received from user=${user_id}`);
+      
+      // Reuse existing GitHub connect handler
+      await this.handleGitHubConnect(user_id, channel_id, client);
+    });
+  }
 
   /**
    * Get environment variables from database with context awareness
@@ -126,6 +174,9 @@ export class SlackEventHandlers {
     setupMessageHandlers(this.app);
     setupUserHandlers(this.app);
     setupFileHandlers(this.app);
+    
+    // Setup slash command handler
+    this.setupSlashCommands();
 
     // Handle app mentions
     logger.info("Registering app_mention event handler");
@@ -1506,16 +1557,38 @@ Branch: ${branch}`;
       const isChannelContext = channelId && !channelId.startsWith('D');
       
       if (isChannelContext) {
+        // Check if user is channel admin for GITHUB_REPOSITORY changes
+        if (allowedVars.GITHUB_REPOSITORY) {
+          try {
+            const channelInfo = await client.conversations.info({ channel: channelId });
+            const isAdmin = channelInfo.channel?.is_member && 
+                          (channelInfo.channel?.is_owner || 
+                           channelInfo.channel?.is_admin ||
+                           channelInfo.channel?.creator === userId);
+            
+            if (!isAdmin) {
+              await client.chat.postEphemeral({
+                channel: channelId,
+                user: userId,
+                text: "❌ Only channel admins can change the repository for this channel"
+              });
+              return;
+            }
+          } catch (error) {
+            logger.error(`Failed to check admin status for ${userId} in ${channelId}:`, error);
+          }
+        }
+        
         // Store in channel_environ for channel-specific overrides
         for (const [key, value] of Object.entries(allowedVars)) {
           await dbPool.query(
-            `INSERT INTO channel_environ (platform, channel_id, name, value, type) 
-             VALUES ('slack', $1, $2, $3, 'channel') 
+            `INSERT INTO channel_environ (platform, channel_id, name, value, type, set_by_user_id) 
+             VALUES ('slack', $1, $2, $3, 'channel', $4) 
              ON CONFLICT (platform, channel_id, name) 
-             DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-            [channelId, key, value]
+             DO UPDATE SET value = EXCLUDED.value, set_by_user_id = EXCLUDED.set_by_user_id, updated_at = NOW()`,
+            [channelId, key, value, userId]
           );
-          logger.info(`Channel ${channelId} set environment: ${key}=${value.substring(0, 50)}...`);
+          logger.info(`Channel ${channelId} set environment by ${userId}: ${key}=${value.substring(0, 50)}...`);
         }
       } else {
         // Store in user_environ for user-specific overrides (DM or home tab)
@@ -1818,17 +1891,86 @@ Branch: ${branch}`;
         repository,
         timestamp: Date.now(),
       });
-
-      // Persist selection
-      await this.saveSelectedRepository(userId, repository.repositoryUrl);
-
-      // Refresh home tab and confirm via DM
-      await this.updateAppHome(userId, client);
-      const im2 = await client.conversations.open({ users: userId });
-      await client.chat.postMessage({
-        channel: im2.channel.id,
-        text: `✅ Repository updated to: ${repository.repositoryUrl}`,
-      });
+      
+      // Parse metadata to get channel context
+      let metadata = { channel_id: null, is_channel_context: false };
+      try {
+        if (view.private_metadata) {
+          metadata = JSON.parse(view.private_metadata);
+        }
+      } catch (e) {
+        logger.warn("Failed to parse modal metadata:", e);
+      }
+      
+      const dbPool = getDbPool(this.config.queues.connectionString);
+      
+      // Store based on context (channel vs user)
+      if (metadata.is_channel_context && metadata.channel_id) {
+        // Check admin permissions for channel context
+        try {
+          const channelInfo = await client.conversations.info({ channel: metadata.channel_id });
+          const isAdmin = channelInfo.channel?.is_member && 
+                        (channelInfo.channel?.is_owner || 
+                         channelInfo.channel?.is_admin ||
+                         channelInfo.channel?.creator === userId);
+          
+          if (!isAdmin) {
+            await client.chat.postEphemeral({
+              channel: metadata.channel_id,
+              user: userId,
+              text: "❌ Only channel admins can change the repository for this channel"
+            });
+            return;
+          }
+          
+          // Store in channel_environ
+          await dbPool.query(
+            `INSERT INTO channel_environ (platform, channel_id, name, value, type, set_by_user_id) 
+             VALUES ('slack', $1, 'GITHUB_REPOSITORY', $2, 'channel', $3) 
+             ON CONFLICT (platform, channel_id, name) 
+             DO UPDATE SET value = EXCLUDED.value, set_by_user_id = EXCLUDED.set_by_user_id, updated_at = NOW()`,
+            [metadata.channel_id, repository.repositoryUrl, userId]
+          );
+          logger.info(`Channel ${metadata.channel_id} repository set to ${repository.repositoryUrl} by ${userId}`);
+          
+          // Send channel confirmation
+          await client.chat.postMessage({
+            channel: metadata.channel_id,
+            text: `✅ Channel repository set to: ${repository.repositoryUrl}`,
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: `✅ *Channel repository set to:* \`${repository.repositoryUrl}\``,
+                },
+              },
+              {
+                type: "context",
+                elements: [
+                  {
+                    type: "mrkdwn",
+                    text: `Set by <@${userId}> • This repository will be used for all bot interactions in this channel.`,
+                  },
+                ],
+              },
+            ],
+          });
+        } catch (error) {
+          logger.error(`Failed to set channel repository:`, error);
+        }
+      } else {
+        // Store as user preference (existing behavior)
+        await this.saveSelectedRepository(userId, repository.repositoryUrl);
+        
+        // Refresh home tab and confirm via DM
+        await this.updateAppHome(userId, client);
+        const im2 = await client.conversations.open({ users: userId });
+        await client.chat.postMessage({
+          channel: im2.channel.id,
+          text: `✅ Personal repository updated to: ${repository.repositoryUrl}`,
+        });
+      }
     } catch (error) {
       logger.error(
         `Failed to handle repository modal submission for user ${userId}:`,
@@ -1853,14 +1995,24 @@ Branch: ${branch}`;
       // Check if personal repository exists
       const personalRepoName = username;
       const personalRepoUrl = `https://github.com/${this.config.github.organization}/${personalRepoName}`;
+      
+      // Store channel context in private_metadata if this was triggered from a channel
+      const channelId = (body as any).channel_id || (body as any).channel?.id;
+      const isChannelContext = channelId && !channelId.startsWith('D');
+      
+      const metadata = {
+        channel_id: channelId,
+        is_channel_context: isChannelContext
+      };
 
       // Create modal view
       const modalView = {
         type: "modal",
         callback_id: "repository_modal",
+        private_metadata: JSON.stringify(metadata),
         title: {
           type: "plain_text",
-          text: "Select Repository",
+          text: isChannelContext ? "Select Channel Repository" : "Select Repository",
         },
         submit: {
           type: "plain_text",

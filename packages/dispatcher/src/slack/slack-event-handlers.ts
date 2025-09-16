@@ -132,45 +132,56 @@ export class SlackEventHandlers {
   private setupSlashCommands(): void {
     logger.info("Setting up slash command handlers...");
     
-    // Handle /peerbot command
+    // Handle /peerbot command with subcommands
     this.app.command("/peerbot", async ({ ack, body, client }) => {
       await ack();
       
       const { text, user_id, channel_id } = body;
       logger.info(`/peerbot command received: text='${text}', user=${user_id}, channel=${channel_id}`);
       
-      if (text === "connect" || text === "repository") {
-        // Open repository selection modal
-        await this.openRepositoryModal(user_id, body, client);
-      } else if (text === "help") {
-        // Send help message
-        await client.chat.postEphemeral({
-          channel: channel_id,
-          user: user_id,
-          text: "*Peerbot Commands:*\n" +
-                "• `/peerbot connect` - Select a GitHub repository for this channel\n" +
-                "• `/login` - Connect your GitHub account\n" +
-                "• `/peerbot help` - Show this help message"
-        });
-      } else {
-        // Unknown command
-        await client.chat.postEphemeral({
-          channel: channel_id,
-          user: user_id,
-          text: `Unknown command: '${text}'\n` +
-                "Try `/peerbot help` for available commands."
-        });
-      }
-    });
-    
-    // Handle /login command
-    this.app.command("/login", async ({ ack, body, client }) => {
-      await ack();
-      const { user_id, channel_id } = body;
-      logger.info(`/login command received from user=${user_id}`);
+      // Parse the subcommand (first word)
+      const args = text.trim().split(/\s+/);
+      const subcommand = args[0]?.toLowerCase() || 'help';
       
-      // Reuse existing GitHub connect handler
-      await this.handleGitHubConnect(user_id, channel_id, client);
+      switch (subcommand) {
+        case 'connect':
+        case 'repository':
+          // Open repository selection modal
+          await this.openRepositoryModal(user_id, body, client);
+          break;
+          
+        case 'login':
+          // Handle GitHub authentication
+          logger.info(`/peerbot login command from user=${user_id}`);
+          await this.handleGitHubConnect(user_id, channel_id, client);
+          break;
+          
+        case 'help':
+        case '':
+          // Send help message
+          await client.chat.postEphemeral({
+            channel: channel_id,
+            user: user_id,
+            text: "*Peerbot Commands:*\n" +
+                  "• `/peerbot connect` - Select a GitHub repository for this channel\n" +
+                  "• `/peerbot login` - Connect your GitHub account\n" +
+                  "• `/peerbot help` - Show this help message\n\n" +
+                  "*Tip:* You can also use the shortcuts menu (lightning bolt icon) for quick actions!"
+          });
+          break;
+          
+        default:
+          // Unknown subcommand
+          await client.chat.postEphemeral({
+            channel: channel_id,
+            user: user_id,
+            text: `Unknown command: '${subcommand}'\n\n` +
+                  "Available commands:\n" +
+                  "• `/peerbot connect` - Select a repository\n" +
+                  "• `/peerbot login` - Connect GitHub account\n" +
+                  "• `/peerbot help` - Show help"
+          });
+      }
     });
   }
 

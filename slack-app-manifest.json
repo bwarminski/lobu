@@ -15,65 +15,34 @@
       "display_name": "Peerbot",
       "always_online": true
     },
-    "shortcuts": [
-      {
-        "name": "Create a project",
-        "type": "global",
-        "callback_id": "create_project",
-        "description": "Creates a project"
-      },
-      {
-        "name": "Experiment feature",
-        "type": "global",
-        "callback_id": "develop_feature",
-        "description": "Let's you experiment a feature"
-      },
-      {
-        "name": "Fix bug",
-        "type": "global",
-        "callback_id": "fix_bug",
-        "description": "Let's you fix a bug"
-      },
-      {
-        "name": "Ask question to the codebase",
-        "type": "global",
-        "callback_id": "ask_question",
-        "description": "Let's you ask a question to the codebase"
-      }
-    ],
     "slash_commands": [
       {
         "command": "/peerbot",
-        "description": "Peerbot commands - connect repositories and get help",
-        "usage_hint": "connect | help"
-      },
-      {
-        "command": "/login",
-        "description": "Connect your GitHub account to Peerbot",
-        "usage_hint": ""
+        "description": "Peerbot commands - manage repositories and authentication",
+        "usage_hint": "connect | login | help"
       }
     ],
     "assistant_view": {
-      "assistant_description": "It can generate Claude Code session working on public Github data",
-      "suggested_prompts": [
-        {
-          "title": "Setup peers",
-          "message": "List all the subagents in Claude and explain when they're triggered. Confirm with the user the changes and apply them to projects ./claude/agents/ directory and CLAUDE.md file."
-        },
-        {
-          "title": "Create a project",
-          "message": "Create a new project. If there is no subagent, suggest user run setup peers first. Ask user the type of the project and gather information to create a new project."
-        },
-        {
-          "title": "Start working on a new feature/bug",
-          "message": "List me projects and let me tell you what I want to develop on which project"
-        },
-        {
-          "title": "Be creative ✨",
-          "message": "Look at the existing projects; if there are none, let me create a new project. If there is only one project, switch to that project and and if it's a web server, run it and expose it with Cloudflare anonymous tunnel proxy. "
+            "assistant_description": "It can generate Claude Code session working on public Github data",
+            "suggested_prompts": [
+                {
+                    "title": "Create a project",
+                    "message": "Create a new project"
+                },
+                {
+                    "title": "Start working on a feature",
+                    "message": "List me projects and let me tell you what I want to develop on which project"
+                },
+                {
+                  "title": "Fix a bug",
+                  "message": "List me projects and let me tell you what I want to develop on which project"
+              },
+              {
+                "title": "Ask a question to the codebase",
+                "message": "List me projects and let me tell you what I want to develop on which project"
+            }
+            ]
         }
-      ]
-    }
   },
   "oauth_config": {
     "redirect_urls": [],

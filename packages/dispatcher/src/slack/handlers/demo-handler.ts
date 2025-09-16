@@ -35,21 +35,13 @@ export async function handleTryDemo(
     );
     const userDbId = userResult.rows[0].id;
     
-    // Set demo repository and demo mode flag
+    // Set demo repository (just like selecting any other repository)
     await dbPool.query(
       `INSERT INTO user_environ (user_id, name, value, type) 
        VALUES ($1, 'GITHUB_REPOSITORY', $2, 'user') 
        ON CONFLICT (user_id, name) 
        DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
       [userDbId, demoRepo]
-    );
-    
-    await dbPool.query(
-      `INSERT INTO user_environ (user_id, name, value, type) 
-       VALUES ($1, 'IS_DEMO_MODE', 'true', 'user') 
-       ON CONFLICT (user_id, name) 
-       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [userDbId]
     );
     
     // Send confirmation and instructions
@@ -103,23 +95,4 @@ export async function handleTryDemo(
   }
 }
 
-/**
- * Clear demo mode when user connects GitHub
- */
-export async function clearDemoMode(userId: string): Promise<void> {
-  try {
-    const dbPool = getDbPool(process.env.DATABASE_URL!);
-    
-    // Remove demo mode flag
-    await dbPool.query(
-      `DELETE FROM user_environ 
-       WHERE user_id = (SELECT id FROM users WHERE platform = 'slack' AND platform_user_id = $1)
-       AND name = 'IS_DEMO_MODE'`,
-      [userId.toUpperCase()]
-    );
-    
-    logger.info(`Demo mode cleared for user ${userId}`);
-  } catch (error) {
-    logger.error(`Failed to clear demo mode for user ${userId}:`, error);
-  }
-}
+// No need for clearDemoMode - user can just select a different repository

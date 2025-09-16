@@ -1934,21 +1934,13 @@ Branch: ${branch}`;
       );
       const userDbId = userResult.rows[0].id;
       
-      // Set demo repository and demo mode flag
+      // Set demo repository (just like selecting any other repository)
       await dbPool.query(
         `INSERT INTO user_environ (user_id, name, value, type) 
          VALUES ($1, 'GITHUB_REPOSITORY', $2, 'user') 
          ON CONFLICT (user_id, name) 
          DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
         [userDbId, demoRepo]
-      );
-      
-      await dbPool.query(
-        `INSERT INTO user_environ (user_id, name, value, type) 
-         VALUES ($1, 'IS_DEMO_MODE', 'true', 'user') 
-         ON CONFLICT (user_id, name) 
-         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [userDbId]
       );
       
       // Clear cache

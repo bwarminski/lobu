@@ -1909,8 +1909,12 @@ Branch: ${branch}`;
     client: any
   ): Promise<void> {
     try {
-      // Set demo repository as environment override
-      const demoRepo = "https://github.com/anthropics/anthropic-sdk-typescript";
+      // Get demo repository from environment or use default
+      const demoRepo = process.env.DEMO_REPOSITORY || "https://github.com/anthropics/anthropic-sdk-typescript";
+      
+      // Parse repository info for display
+      const repoPath = demoRepo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+      const [owner, repo] = repoPath.split('/');
       
       // Store in user_environ for the demo
       const dbPool = getDbPool(this.config.queues.connectionString);
@@ -1930,13 +1934,21 @@ Branch: ${branch}`;
       );
       const userDbId = userResult.rows[0].id;
       
-      // Set demo repository
+      // Set demo repository and demo mode flag
       await dbPool.query(
         `INSERT INTO user_environ (user_id, name, value, type) 
          VALUES ($1, 'GITHUB_REPOSITORY', $2, 'user') 
          ON CONFLICT (user_id, name) 
          DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
         [userDbId, demoRepo]
+      );
+      
+      await dbPool.query(
+        `INSERT INTO user_environ (user_id, name, value, type) 
+         VALUES ($1, 'IS_DEMO_MODE', 'true', 'user') 
+         ON CONFLICT (user_id, name) 
+         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [userDbId]
       );
       
       // Clear cache
@@ -1953,7 +1965,7 @@ Branch: ${branch}`;
             text: {
               type: "mrkdwn",
               text: "🎮 *Demo mode activated!*\n\n"
-                    + "You're now connected to the Anthropic SDK TypeScript repository for demo purposes."
+                    + `You're now connected to the *${owner}/${repo}* repository for demo purposes.`
             }
           },
           {

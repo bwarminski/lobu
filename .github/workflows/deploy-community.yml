@@ -59,8 +59,8 @@ jobs:
             # Use repository dispatch tag
             TAG="${{ github.event.client_payload.tag }}"
           else
-            # Default to latest
-            TAG="latest"
+            # Default to the current commit SHA
+            TAG="${{ github.sha }}"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Using Docker image tag: ${TAG}"
@@ -82,6 +82,15 @@ jobs:
           
       - name: Clean up old Helm releases
         run: |
+          # Check for stuck deployments and rollback if needed
+          echo "Checking for stuck Helm operations..."
+          PENDING=$(helm list -n $NAMESPACE --pending -q)
+          if [ -n "$PENDING" ]; then
+            echo "Found pending release: $PENDING - attempting rollback"
+            helm rollback $PENDING -n $NAMESPACE || echo "Rollback failed, trying to delete"
+            helm delete $PENDING -n $NAMESPACE --no-hooks || echo "Delete also failed"
+          fi
+          
           # List all Helm releases in the namespace
           echo "Current Helm releases:"
           helm list -n $NAMESPACE || true

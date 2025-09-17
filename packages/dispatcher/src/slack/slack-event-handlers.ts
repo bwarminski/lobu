@@ -32,16 +32,28 @@ export class SlackEventHandlers {
     private repoManager: GitHubRepositoryManager,
     private config: DispatcherConfig
   ) {
+    // queueProducer and repoManager are currently unused but kept for API compatibility
+    void this.queueProducer;
+    void this.repoManager;
     // Initialize specialized handlers
-    this.messageHandler = new MessageHandler(queueProducer, repoManager, config);
-    this.actionHandler = new ActionHandler(repoManager, queueProducer, config, this.messageHandler);
+    this.messageHandler = new MessageHandler(
+      queueProducer,
+      repoManager,
+      config
+    );
+    this.actionHandler = new ActionHandler(
+      repoManager,
+      queueProducer,
+      config,
+      this.messageHandler
+    );
     this.shortcutCommandHandler = new ShortcutCommandHandler(
       app,
       config,
       this.messageHandler,
       this.actionHandler
     );
-    
+
     // Setup all event handlers
     this.setupEventHandlers();
     // Setup options handlers for dropdowns/selects
@@ -53,53 +65,57 @@ export class SlackEventHandlers {
    */
   private setupOptionsHandlers(): void {
     logger.info("Setting up options handlers for external selects");
-    
+
     // Handle repository search
     this.app.options("existing_repo_select", async ({ options, ack, body }) => {
       // Handle both initial load and search
       const query = options?.value || "";
       const userId = body.user?.id;
-      
-      logger.info(`Repository search triggered - query: "${query}", user: ${userId}`);
-      
+
+      logger.info(
+        `Repository search triggered - query: "${query}", user: ${userId}`
+      );
+
       try {
         // Get user's GitHub token
         logger.info(`Fetching GitHub info for user ${userId}`);
         const githubUser = await getUserGitHubInfo(userId);
-        logger.info(`GitHub user info retrieved: token=${!!githubUser.token}, username=${githubUser.username}`);
-        
+        logger.info(
+          `GitHub user info retrieved: token=${!!githubUser.token}, username=${githubUser.username}`
+        );
+
         if (!githubUser.token) {
           // No token = no suggestions
           logger.info(`No GitHub token found for user ${userId}`);
           await ack({ options: [] });
           return;
         }
-        
+
         // Search both user repos and org repos in parallel
         const [userRepos, orgRepos] = await Promise.all([
           this.searchUserRepos(query, githubUser.token),
-          this.searchOrgRepos(query, githubUser.token)
+          this.searchOrgRepos(query, githubUser.token),
         ]);
-        
-        logger.info(`Found ${userRepos.length} user repos, ${orgRepos.length} org repos`);
-        
+
+        logger.info(
+          `Found ${userRepos.length} user repos, ${orgRepos.length} org repos`
+        );
+
         // Combine and deduplicate
         const allRepos = [...userRepos, ...orgRepos];
         const uniqueRepos = Array.from(
-          new Map(allRepos.map(repo => [repo.html_url, repo])).values()
+          new Map(allRepos.map((repo) => [repo.html_url, repo])).values()
         );
-        
+
         // Format for Slack (limit to 100)
-        const options = uniqueRepos
-          .slice(0, 100)
-          .map(repo => ({
-            text: {
-              type: "plain_text" as const,
-              text: repo.full_name // Shows "owner/repo"
-            },
-            value: repo.html_url
-          }));
-        
+        const options = uniqueRepos.slice(0, 100).map((repo) => ({
+          text: {
+            type: "plain_text" as const,
+            text: repo.full_name, // Shows "owner/repo"
+          },
+          value: repo.html_url,
+        }));
+
         logger.info(`Returning ${options.length} repository options`);
         await ack({ options });
       } catch (error) {
@@ -116,7 +132,7 @@ export class SlackEventHandlers {
   private async searchUserRepos(query: string, token: string): Promise<any[]> {
     try {
       let url: string;
-      
+
       if (query) {
         // Search user's repos with query
         url = `https://api.github.com/user/repos?per_page=100&sort=updated`;
@@ -124,30 +140,33 @@ export class SlackEventHandlers {
         // Get recent repos if no query
         url = `https://api.github.com/user/repos?per_page=20&sort=updated`;
       }
-      
+
       const response = await fetch(url, {
         headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
+          Authorization: `token ${token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
       });
-      
+
       if (!response.ok) {
-        logger.warn(`GitHub API error for user repos: ${response.status} ${response.statusText}`);
+        logger.warn(
+          `GitHub API error for user repos: ${response.status} ${response.statusText}`
+        );
         return [];
       }
-      
-      const repos = await response.json() as any;
-      
+
+      const repos = (await response.json()) as any;
+
       // Filter by query if provided
       if (query) {
         const lowerQuery = query.toLowerCase();
-        return repos.filter((repo: any) => 
-          repo.name.toLowerCase().includes(lowerQuery) ||
-          repo.full_name.toLowerCase().includes(lowerQuery)
+        return repos.filter(
+          (repo: any) =>
+            repo.name.toLowerCase().includes(lowerQuery) ||
+            repo.full_name.toLowerCase().includes(lowerQuery)
         );
       }
-      
+
       return repos;
     } catch {
       return [];
@@ -159,37 +178,40 @@ export class SlackEventHandlers {
    */
   private async searchOrgRepos(query: string, token: string): Promise<any[]> {
     const org = process.env.GITHUB_ORGANIZATION;
-    
+
     if (!org) return [];
-    
+
     try {
       // Get organization repos
       const response = await fetch(
         `https://api.github.com/orgs/${org}/repos?per_page=100&sort=updated`,
         {
           headers: {
-            'Authorization': `token ${token}`,
-            'Accept': 'application/vnd.github.v3+json'
-          }
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github.v3+json",
+          },
         }
       );
-      
+
       if (!response.ok) {
-        logger.warn(`GitHub API error for org repos: ${response.status} ${response.statusText}`);
+        logger.warn(
+          `GitHub API error for org repos: ${response.status} ${response.statusText}`
+        );
         return [];
       }
-      
-      const repos = await response.json() as any;
-      
+
+      const repos = (await response.json()) as any;
+
       // Filter by query if provided
       if (query) {
         const lowerQuery = query.toLowerCase();
-        return repos.filter((repo: any) => 
-          repo.name.toLowerCase().includes(lowerQuery) ||
-          repo.full_name.toLowerCase().includes(lowerQuery)
+        return repos.filter(
+          (repo: any) =>
+            repo.name.toLowerCase().includes(lowerQuery) ||
+            repo.full_name.toLowerCase().includes(lowerQuery)
         );
       }
-      
+
       // Return top 20 if no query
       return repos.slice(0, 20);
     } catch {
@@ -214,10 +236,10 @@ export class SlackEventHandlers {
     setupMessageHandlers(this.app);
     setupUserHandlers(this.app);
     setupFileHandlers(this.app);
-    
+
     // Setup team join event handler for welcome messages
     setupTeamJoinHandler(this.app, this.getBotId());
-    
+
     // Setup shortcuts, slash commands, and view submissions
     this.shortcutCommandHandler.setupHandlers();
 
@@ -244,7 +266,7 @@ export class SlackEventHandlers {
    */
   private setupAppMentionHandler(): void {
     logger.info("Registering app_mention event handler");
-    
+
     this.app.event("app_mention", async ({ event, client, say }) => {
       // Ignore mentions generated by our own bot only (not other bots)
       const botUserId = this.config.slack.botUserId;
@@ -275,15 +297,32 @@ export class SlackEventHandlers {
       // Extract the actual message text (removing the bot mention)
       const userRequest = this.messageHandler.extractUserRequest(event.text);
       const messageText = userRequest.toLowerCase().trim();
-      
+
       // Check for text commands first (same as DM handler)
-      if (messageText === 'welcome' || messageText === 'help' || messageText === 'start' || messageText === 'onboard') {
+      if (
+        messageText === "welcome" ||
+        messageText === "help" ||
+        messageText === "start" ||
+        messageText === "onboard"
+      ) {
         logger.info(`Handling welcome command via app_mention: ${messageText}`);
-        await this.shortcutCommandHandler.handleTextCommand('welcome', event.user || "", event.channel, client, event.thread_ts || event.ts);
+        await this.shortcutCommandHandler.handleTextCommand(
+          "welcome",
+          event.user || "",
+          event.channel,
+          client,
+          event.thread_ts || event.ts
+        );
         return;
-      } else if (messageText === 'login' || messageText === 'connect github') {
+      } else if (messageText === "login" || messageText === "connect github") {
         logger.info(`Handling login command via app_mention: ${messageText}`);
-        await this.shortcutCommandHandler.handleTextCommand('login', event.user || "", event.channel, client, event.thread_ts || event.ts);
+        await this.shortcutCommandHandler.handleTextCommand(
+          "login",
+          event.user || "",
+          event.channel,
+          client,
+          event.thread_ts || event.ts
+        );
         return;
       }
 
@@ -298,7 +337,7 @@ export class SlackEventHandlers {
    */
   private setupDirectMessageHandler(): void {
     logger.info("Registering direct message handler");
-    
+
     this.app.message(async ({ message, client }) => {
       // Only handle direct messages
       if (!message.subtype && (message as any).channel_type === "im") {
@@ -333,17 +372,37 @@ export class SlackEventHandlers {
         // Check for text commands first
         const messageText = event.text?.toLowerCase().trim();
         logger.info(`Checking for text command: "${messageText}"`);
-        
+
         // Handle text commands that mimic slash commands
-        if (messageText === 'welcome' || messageText === 'help' || messageText === 'start' || messageText === 'onboard') {
+        if (
+          messageText === "welcome" ||
+          messageText === "help" ||
+          messageText === "start" ||
+          messageText === "onboard"
+        ) {
           logger.info(`Handling welcome command via text: ${messageText}`);
           // Reuse the slash command handler's welcome functionality
-          await this.shortcutCommandHandler.handleTextCommand('welcome', event.user, event.channel, client, event.thread_ts || event.ts);
+          await this.shortcutCommandHandler.handleTextCommand(
+            "welcome",
+            event.user,
+            event.channel,
+            client,
+            event.thread_ts || event.ts
+          );
           return;
-        } else if (messageText === 'login' || messageText === 'connect github') {
+        } else if (
+          messageText === "login" ||
+          messageText === "connect github"
+        ) {
           logger.info(`Handling login command via text: ${messageText}`);
           // Reuse the slash command handler's login functionality
-          await this.shortcutCommandHandler.handleTextCommand('login', event.user, event.channel, client, event.thread_ts || event.ts);
+          await this.shortcutCommandHandler.handleTextCommand(
+            "login",
+            event.user,
+            event.channel,
+            client,
+            event.thread_ts || event.ts
+          );
           return;
         }
 
@@ -351,7 +410,11 @@ export class SlackEventHandlers {
         const context = this.messageHandler.extractSlackContext(event);
         const userRequest = this.messageHandler.extractUserRequest(event.text);
 
-        await this.messageHandler.handleUserRequest(context, userRequest, client);
+        await this.messageHandler.handleUserRequest(
+          context,
+          userRequest,
+          client
+        );
       }
     });
   }
@@ -360,14 +423,17 @@ export class SlackEventHandlers {
    * Handle all button and interactive component actions
    */
   private setupActionHandler(): void {
-    logger.info("Registering action handler for buttons and interactive components");
-    
+    logger.info(
+      "Registering action handler for buttons and interactive components"
+    );
+
     this.app.action(/.*/, async ({ action, ack, client, body }) => {
       await ack();
 
       const actionId = (action as any).action_id;
       const userId = body.user.id;
-      const channelId = (body as any).channel?.id || (body as any).container?.channel_id;
+      const channelId =
+        (body as any).channel?.id || (body as any).container?.channel_id;
       const messageTs = (body as any).message?.ts || "";
 
       logger.info(`Action received: ${actionId} from user ${userId}`);
@@ -389,22 +455,25 @@ export class SlackEventHandlers {
    */
   private setupFormSubmissionHandler(): void {
     logger.info("Registering view_submission handler for forms");
-    
-    this.app.view("blockkit_form_submission", async ({ ack, body, view, client }) => {
-      await ack();
 
-      const userId = body.user.id;
+    this.app.view(
+      "blockkit_form_submission",
+      async ({ ack, body, view, client }) => {
+        await ack();
 
-      logger.info(`Form submission from user ${userId}`);
+        const userId = body.user.id;
 
-      await handleBlockkitFormSubmission(
-        userId,
-        view,
-        client,
-        async (context: any, userRequest: string, client: any) =>
-          this.messageHandler.handleUserRequest(context, userRequest, client)
-      );
-    });
+        logger.info(`Form submission from user ${userId}`);
+
+        await handleBlockkitFormSubmission(
+          userId,
+          view,
+          client,
+          async (context: any, userRequest: string, client: any) =>
+            this.messageHandler.handleUserRequest(context, userRequest, client)
+        );
+      }
+    );
   }
 
   /**
@@ -412,7 +481,7 @@ export class SlackEventHandlers {
    */
   private setupAppHomeHandler(): void {
     logger.info("Registering app_home_opened event handler");
-    
+
     this.app.event("app_home_opened", async ({ event, client }) => {
       try {
         if (event.tab === "home") {
@@ -442,7 +511,10 @@ export class SlackEventHandlers {
   /**
    * Get or create user mapping (required by external components)
    */
-  async getOrCreateUserMapping(slackUserId: string, client: any): Promise<string> {
+  async getOrCreateUserMapping(
+    slackUserId: string,
+    client: any
+  ): Promise<string> {
     return this.messageHandler.getOrCreateUserMapping(slackUserId, client);
   }
 }

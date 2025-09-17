@@ -17,8 +17,8 @@ export async function handleGitHubConnect(
     const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
 
     // Check if this is a DM or channel
-    const isDM = channelId.startsWith('D');
-    
+    // const isDM = channelId.startsWith('D'); // Currently unused
+
     await client.chat.postMessage({
       channel: channelId,
       blocks: [
@@ -26,26 +26,26 @@ export async function handleGitHubConnect(
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "🔗 *Connect your GitHub account*\n\nClick the link below to authorize Peerbot to access your GitHub repositories:"
-          }
+            text: "🔗 *Connect your GitHub account*\n\nClick the link below to authorize Peerbot to access your GitHub repositories:",
+          },
         },
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `<${authUrl}|Connect with GitHub>`
-          }
+            text: `<${authUrl}|Connect with GitHub>`,
+          },
         },
         {
           type: "context",
           elements: [
             {
               type: "mrkdwn",
-              text: "🔒 We'll only access repositories you explicitly grant permission to"
-            }
-          ]
-        }
-      ]
+              text: "🔒 We'll only access repositories you explicitly grant permission to",
+            },
+          ],
+        },
+      ],
     });
 
     logger.info(`GitHub connect initiated for user ${userId}`);
@@ -53,7 +53,10 @@ export async function handleGitHubConnect(
     ErrorHandler.logAndHandle("initiate GitHub connect", error, { userId });
     await client.chat.postMessage({
       channel: channelId,
-      text: ErrorHandler.formatSlackError(error, "Failed to generate GitHub login link")
+      text: ErrorHandler.formatSlackError(
+        error,
+        "Failed to generate GitHub login link"
+      ),
     });
   }
 }
@@ -67,7 +70,7 @@ export async function handleGitHubLogout(
 ): Promise<void> {
   try {
     const dbPool = getDbPool(process.env.DATABASE_URL!);
-    
+
     // Remove GitHub token and username from database
     await dbPool.query(
       `DELETE FROM user_environ 
@@ -83,7 +86,7 @@ export async function handleGitHubLogout(
     if (im.channel?.id) {
       await client.chat.postMessage({
         channel: im.channel.id,
-        text: "✅ Successfully logged out from GitHub"
+        text: "✅ Successfully logged out from GitHub",
       });
     }
   } catch (error) {
@@ -100,7 +103,7 @@ export async function getUserGitHubInfo(userId: string): Promise<{
 }> {
   try {
     const dbPool = getDbPool(process.env.DATABASE_URL!);
-    
+
     const result = await dbPool.query(
       `SELECT name, value 
        FROM user_environ 
@@ -113,15 +116,18 @@ export async function getUserGitHubInfo(userId: string): Promise<{
     let username = null;
 
     for (const row of result.rows) {
-      if (row.name === 'GITHUB_TOKEN') {
+      if (row.name === "GITHUB_TOKEN") {
         try {
           // Token is encrypted, decrypt it
           token = decrypt(row.value);
         } catch (error) {
-          logger.error(`Failed to decrypt GitHub token for user ${userId}:`, error);
+          logger.error(
+            `Failed to decrypt GitHub token for user ${userId}:`,
+            error
+          );
           token = null;
         }
-      } else if (row.name === 'GITHUB_USER') {
+      } else if (row.name === "GITHUB_USER") {
         username = row.value;
       }
     }

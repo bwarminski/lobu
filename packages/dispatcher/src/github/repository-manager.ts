@@ -339,18 +339,19 @@ export class GitHubRepositoryManager {
       logger.info(`Creating repository for user ${username}...`);
 
       // Always create repository in authenticated user's space
-      const repoResponse = await this.octokit.rest.repos.createForAuthenticatedUser({
-        name: repositoryName,
-        description: `Personal workspace for ${username} - Peerbot`,
-        private: false,
-        has_issues: true,
-        has_projects: false,
-        has_wiki: false,
-        auto_init: true,
-        gitignore_template: "Node",
-        license_template: "mit",
-      });
-      
+      const repoResponse =
+        await this.octokit.rest.repos.createForAuthenticatedUser({
+          name: repositoryName,
+          description: `Personal workspace for ${username} - Peerbot`,
+          private: false,
+          has_issues: true,
+          has_projects: false,
+          has_wiki: false,
+          auto_init: true,
+          gitignore_template: "Node",
+          license_template: "mit",
+        });
+
       logger.info(
         `Created repository for user ${username} in their GitHub account`
       );

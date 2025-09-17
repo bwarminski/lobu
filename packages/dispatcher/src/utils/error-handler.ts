@@ -40,7 +40,8 @@ export class ErrorHandler {
    * Create a Slack-friendly error message
    */
   static formatSlackError(error: any, prefix = "Error"): string {
-    const message = error instanceof Error ? error.message : "Unknown error occurred";
+    const message =
+      error instanceof Error ? error.message : "Unknown error occurred";
     return `❌ *${prefix}:* ${message}`;
   }
 

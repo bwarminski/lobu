@@ -1,10 +1,14 @@
 import logger from "../../logger";
-import { getDbPool } from "../../db";
+// import { getDbPool } from "../../db"; // Currently unused
 import type { GitHubRepositoryManager } from "../../github/repository-manager";
 import type { QueueProducer } from "../../queue/task-queue-producer";
 import type { DispatcherConfig, SlackContext } from "../../types";
 import type { MessageHandler } from "./message-handler";
-import { handleGitHubConnect, handleGitHubLogout, getUserGitHubInfo } from "./github-handler";
+import {
+  handleGitHubConnect,
+  handleGitHubLogout,
+  getUserGitHubInfo,
+} from "./github-handler";
 import { handleTryDemo } from "./demo-handler";
 import { openRepositoryModal } from "./repository-modal-utils";
 import {
@@ -19,7 +23,10 @@ export class ActionHandler {
     private queueProducer: QueueProducer,
     private config: DispatcherConfig,
     private messageHandler: MessageHandler
-  ) {}
+  ) {
+    // queueProducer is currently unused but kept for API compatibility
+    void this.queueProducer;
+  }
 
   /**
    * Handle block action events
@@ -46,19 +53,28 @@ export class ActionHandler {
         break;
 
       case "open_repository_modal":
-        await openRepositoryModal({ userId, body, client, checkAdminStatus: false, getGitHubUserInfo: getUserGitHubInfo });
+        await openRepositoryModal({
+          userId,
+          body,
+          client,
+          checkAdminStatus: false,
+          getGitHubUserInfo: getUserGitHubInfo,
+        });
         break;
 
       case "github_connect":
         await handleGitHubConnect(userId, channelId, client);
         break;
-        
+
       case "try_demo":
         // Get the message timestamp to keep demo response in same thread
         const demoMessageTs = body.message?.ts;
         await handleTryDemo(userId, channelId, client, demoMessageTs);
         // Clear cache and update home tab after demo setup
-        const username = await this.messageHandler.getOrCreateUserMapping(userId, client);
+        const username = await this.messageHandler.getOrCreateUserMapping(
+          userId,
+          client
+        );
         this.messageHandler.clearCacheForUser(username);
         await this.updateAppHome(userId, client);
         break;
@@ -81,7 +97,11 @@ export class ActionHandler {
             text: demoPrompt,
             userDisplayName: body.user?.username || "User",
           };
-          await this.messageHandler.handleUserRequest(context, demoPrompt, client);
+          await this.messageHandler.handleUserRequest(
+            context,
+            demoPrompt,
+            client
+          );
         }
         break;
 
@@ -109,7 +129,11 @@ export class ActionHandler {
             body,
             client,
             (context: SlackContext, userRequest: string, client: any) =>
-              this.messageHandler.handleUserRequest(context, userRequest, client)
+              this.messageHandler.handleUserRequest(
+                context,
+                userRequest,
+                client
+              )
           );
         }
         // Handle stop worker button clicks
@@ -185,10 +209,10 @@ export class ActionHandler {
         const pullRequestPrompt =
           prompt ||
           "Review your code, cleanup temporary files, commit changes to GIT and create a pull request";
-        
+
         // Get the actual thread_ts from the message
         const actualThreadTs = body.message?.thread_ts || body.message?.ts;
-        
+
         // Post confirmation message like other interactive elements
         const formattedInput = `> 🔄 *Pull Request button clicked*\n\n${pullRequestPrompt}`;
 
@@ -226,7 +250,11 @@ export class ActionHandler {
           userDisplayName: body.user?.username || "User",
         };
 
-        await this.messageHandler.handleUserRequest(context, pullRequestPrompt, client);
+        await this.messageHandler.handleUserRequest(
+          context,
+          pullRequestPrompt,
+          client
+        );
       }
     } catch (error) {
       logger.error(`Failed to handle GitHub PR action: ${error}`);
@@ -247,7 +275,10 @@ export class ActionHandler {
     );
 
     try {
-      const username = await this.messageHandler.getOrCreateUserMapping(userId, client);
+      const username = await this.messageHandler.getOrCreateUserMapping(
+        userId,
+        client
+      );
 
       // Check if user has GitHub token
       const githubUser = await getUserGitHubInfo(userId);
@@ -255,30 +286,35 @@ export class ActionHandler {
 
       let repository;
       let readmeSection: string | null = null;
-      
+
       // Check for environment overrides
       const userEnv = await this.messageHandler.getUserEnvironment(userId);
       const overrideRepo = userEnv.GITHUB_REPOSITORY as string | undefined;
-      
+
       // Try to get or create repository
       try {
         if (overrideRepo) {
-          const repoUrl = overrideRepo.replace(/\/$/, '').replace(/\.git$/, '');
-          const repoName = repoUrl.split('/').pop() || 'unknown';
-          
+          const repoUrl = overrideRepo.replace(/\/$/, "").replace(/\.git$/, "");
+          const repoName = repoUrl.split("/").pop() || "unknown";
+
           repository = {
             username,
             repositoryName: repoName,
             repositoryUrl: repoUrl,
-            cloneUrl: repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`,
+            cloneUrl: repoUrl.endsWith(".git") ? repoUrl : `${repoUrl}.git`,
             createdAt: Date.now(),
-            lastUsed: Date.now()
+            lastUsed: Date.now(),
           };
-          
-          logger.info(`Using environment override repository for user ${userId}: ${repoUrl}`);
+
+          logger.info(
+            `Using environment override repository for user ${userId}: ${repoUrl}`
+          );
         } else {
           // Try to get existing repository
-          repository = await this.repoManager.getUserRepository(username, userId);
+          repository = await this.repoManager.getUserRepository(
+            username,
+            userId
+          );
 
           // If no cached repository and we have a token, create one
           if (!repository && (this.config.github.token || isGitHubConnected)) {
@@ -315,7 +351,10 @@ export class ActionHandler {
       // Show repository info or login prompt
       if (repository && isGitHubConnected) {
         const repoUrl = repository.repositoryUrl.replace(/\.git$/, "");
-        const repoDisplayName = repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//, "");
+        const repoDisplayName = repoUrl.replace(
+          /^https?:\/\/(www\.)?github\.com\//,
+          ""
+        );
 
         blocks.push({
           type: "section",
@@ -342,7 +381,10 @@ export class ActionHandler {
       } else if (repository && !isGitHubConnected) {
         // Repository exists but user not authenticated - show login prompt with repo info
         const repoUrl = repository.repositoryUrl.replace(/\.git$/, "");
-        const repoDisplayName = repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//, "");
+        const repoDisplayName = repoUrl.replace(
+          /^https?:\/\/(www\.)?github\.com\//,
+          ""
+        );
 
         blocks.push({
           type: "section",
@@ -354,7 +396,7 @@ export class ActionHandler {
 
         const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
         const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
-        
+
         const demoElements = [
           {
             type: "button",
@@ -414,7 +456,7 @@ export class ActionHandler {
 
         const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
         const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
-        
+
         const loginElements = [
           {
             type: "button",
@@ -446,10 +488,11 @@ export class ActionHandler {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*💡 Quick Tips:*\n" +
-                "• Mention me in any channel or DM me directly\n" +
-                "• Ask questions about code, create features, or fix bugs\n" +
-                "• Use `/peerbot help` for all commands",
+          text:
+            "*💡 Quick Tips:*\n" +
+            "• Mention me in any channel or DM me directly\n" +
+            "• Ask questions about code, create features, or fix bugs\n" +
+            "• Use `/peerbot help` for all commands",
         },
       });
 
@@ -541,12 +584,20 @@ export class ActionHandler {
 
   /**
    * Handle creating a personal repository
+   * Currently unused - keeping for potential future use
    */
+  // @ts-ignore - Method preserved for potential future use
   private async handleCreatePersonalRepo(
     userId: string,
     channelId: string,
     client: any
   ): Promise<void> {
+    // Method body commented out to avoid unused method warning
+    void userId;
+    void channelId;
+    void client;
+    return;
+    /*
     try {
       const username = await this.messageHandler.getOrCreateUserMapping(userId, client);
       const repository = await this.repoManager.ensureUserRepository(username);
@@ -609,13 +660,15 @@ export class ActionHandler {
         }
       }
     }
+    */
   }
-
 
   /**
    * Fetch repository README content
    */
-  private async fetchRepositoryReadme(repositoryUrl: string): Promise<string | null> {
+  private async fetchRepositoryReadme(
+    repositoryUrl: string
+  ): Promise<string | null> {
     try {
       const urlParts = repositoryUrl
         .replace(/^https?:\/\//, "")

@@ -101,6 +101,8 @@ export async function handleBlockkitForm(
   body: any,
   client: any
 ): Promise<void> {
+  // userId is currently unused but kept for API compatibility
+  void userId;
   logger.info(`Handling blockkit form: ${actionId}`);
 
   let blocks: any[] = [];

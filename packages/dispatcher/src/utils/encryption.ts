@@ -6,9 +6,11 @@ const IV_LENGTH = 12; // 96-bit nonce for AES-GCM
  * Get encryption key from environment, properly padded
  */
 function getEncryptionKey(): string {
-  const key = process.env.ENCRYPTION_KEY || '';
+  const key = process.env.ENCRYPTION_KEY || "";
   if (!key) {
-    throw new Error("ENCRYPTION_KEY environment variable is required for secure operation");
+    throw new Error(
+      "ENCRYPTION_KEY environment variable is required for secure operation"
+    );
   }
   return key.padEnd(32).slice(0, 32);
 }

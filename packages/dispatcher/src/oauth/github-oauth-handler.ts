@@ -18,7 +18,6 @@ export class GitHubOAuthHandler {
     this.homeTabCallback = homeTabCallback;
   }
 
-
   /**
    * Handle OAuth authorization request
    */
@@ -163,7 +162,7 @@ export class GitHubOAuthHandler {
             `Triggering home tab refresh for user ${userId} after GitHub OAuth`
           );
           await this.homeTabCallback(userId);
-          
+
           // Also send a DM with repository selection prompt
           // This requires access to Slack client, which we'll pass through the callback
         }

@@ -35,9 +35,9 @@ export class ShortcutCommandHandler {
     threadTs?: string
   ): Promise<void> {
     logger.info(`Handling text command '${command}' from user ${userId}`);
-    
+
     // All text commands now use the unified context-aware welcome
-    if (command === 'welcome' || command === 'login') {
+    if (command === "welcome" || command === "login") {
       await this.sendContextAwareWelcome(userId, channelId, client, threadTs);
     } else {
       logger.warn(`Unknown text command: ${command}`);
@@ -49,63 +49,63 @@ export class ShortcutCommandHandler {
    */
   private setupShortcuts(): void {
     logger.info("Setting up shortcut handlers...");
-    
+
     // Handle "Create a project" shortcut
     this.app.shortcut("create_project", async ({ ack, body, client }) => {
       await ack();
       const userId = body.user.id;
       logger.info(`Create project shortcut triggered by ${userId}`);
-      
-      await openRepositoryModal({ 
-        userId, 
-        body, 
-        client, 
-        checkAdminStatus: true, 
-        getGitHubUserInfo: getUserGitHubInfo
+
+      await openRepositoryModal({
+        userId,
+        body,
+        client,
+        checkAdminStatus: true,
+        getGitHubUserInfo: getUserGitHubInfo,
       });
     });
-    
+
     // Handle "Experiment feature" shortcut
     this.app.shortcut("develop_feature", async ({ ack, body, client }) => {
       await ack();
       const userId = body.user.id;
       logger.info(`Develop feature shortcut triggered by ${userId}`);
-      
+
       const im = await client.conversations.open({ users: userId });
       if (im.channel?.id) {
         await client.chat.postMessage({
           channel: im.channel.id,
-          text: "🚀 Ready to experiment with a new feature! Start by describing what you want to build."
+          text: "🚀 Ready to experiment with a new feature! Start by describing what you want to build.",
         });
       }
     });
-    
+
     // Handle "Fix bug" shortcut
     this.app.shortcut("fix_bug", async ({ ack, body, client }) => {
       await ack();
       const userId = body.user.id;
       logger.info(`Fix bug shortcut triggered by ${userId}`);
-      
+
       const im = await client.conversations.open({ users: userId });
       if (im.channel?.id) {
         await client.chat.postMessage({
           channel: im.channel.id,
-          text: "🐛 Let's fix that bug! Describe the issue you're experiencing."
+          text: "🐛 Let's fix that bug! Describe the issue you're experiencing.",
         });
       }
     });
-    
+
     // Handle "Ask question" shortcut
     this.app.shortcut("ask_question", async ({ ack, body, client }) => {
       await ack();
       const userId = body.user.id;
       logger.info(`Ask question shortcut triggered by ${userId}`);
-      
+
       const im = await client.conversations.open({ users: userId });
       if (im.channel?.id) {
         await client.chat.postMessage({
           channel: im.channel.id,
-          text: "❓ What would you like to know about your codebase?"
+          text: "❓ What would you like to know about your codebase?",
         });
       }
     });
@@ -116,14 +116,16 @@ export class ShortcutCommandHandler {
    */
   private setupSlashCommands(): void {
     logger.info("Setting up slash command handlers...");
-    
+
     // Handle /peerbot command - always show context-aware welcome
     this.app.command("/peerbot", async ({ ack, body, client }) => {
       await ack();
-      
+
       const { user_id, channel_id } = body;
-      logger.info(`/peerbot command received from user=${user_id}, channel=${channel_id}`);
-      
+      logger.info(
+        `/peerbot command received from user=${user_id}, channel=${channel_id}`
+      );
+
       // Send context-aware welcome message (no thread for slash commands)
       await this.sendContextAwareWelcome(user_id, channel_id, client);
     });
@@ -141,11 +143,14 @@ export class ShortcutCommandHandler {
     // Check if user has GitHub connected
     const githubUser = await getUserGitHubInfo(userId);
     const isGitHubConnected = !!githubUser.token;
-    
+
     // Check if user has a repository selected
-    const userEnv = await this.messageHandler.getUserEnvironment(userId, channelId);
+    const userEnv = await this.messageHandler.getUserEnvironment(
+      userId,
+      channelId
+    );
     const hasRepository = !!userEnv.GITHUB_REPOSITORY;
-    
+
     // Build blocks based on user state
     const blocks: any[] = [
       {
@@ -153,25 +158,26 @@ export class ShortcutCommandHandler {
         text: {
           type: "plain_text",
           text: "Welcome to Peerbot! 👋",
-          emoji: true
-        }
+          emoji: true,
+        },
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "I'm your AI coding assistant powered by Claude. I can help you with:\n\n"
-                + "• 💻 Writing and reviewing code\n"
-                + "• 🔧 Building features and fixing bugs\n"
-                + "• 📚 Understanding codebases\n"
-                + "• 🚀 Creating new projects"
-        }
+          text:
+            "I'm your AI coding assistant powered by Claude. I can help you with:\n\n" +
+            "• 💻 Writing and reviewing code\n" +
+            "• 🔧 Building features and fixing bugs\n" +
+            "• 📚 Understanding codebases\n" +
+            "• 🚀 Creating new projects",
+        },
       },
       {
-        type: "divider"
-      }
+        type: "divider",
+      },
     ];
-    
+
     if (!isGitHubConnected) {
       // Not logged in - show login and demo options
       blocks.push(
@@ -179,28 +185,28 @@ export class ShortcutCommandHandler {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "*Get Started:*\nConnect your GitHub account or try a demo to explore my capabilities."
-          }
+            text: "*Get Started:*\nConnect your GitHub account or try a demo to explore my capabilities.",
+          },
         },
         {
           type: "actions",
           elements: (() => {
             const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
             const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
-            
+
             const elements = [
               {
                 type: "button",
                 text: {
                   type: "plain_text",
                   text: "🔗 Login with GitHub",
-                  emoji: true
+                  emoji: true,
                 },
                 style: "primary",
-                url: authUrl
-              } as any
+                url: authUrl,
+              } as any,
             ];
-            
+
             // Only show Try Demo button if DEMO_REPOSITORY is configured
             if (process.env.DEMO_REPOSITORY) {
               elements.push({
@@ -208,15 +214,15 @@ export class ShortcutCommandHandler {
                 text: {
                   type: "plain_text",
                   text: "🎮 Try Demo",
-                  emoji: true
+                  emoji: true,
                 },
                 action_id: "try_demo",
-                value: "slash_command_demo"
+                value: "slash_command_demo",
               } as any);
             }
-            
+
             return elements;
-          })()
+          })(),
         }
       );
     } else if (!hasRepository) {
@@ -226,8 +232,8 @@ export class ShortcutCommandHandler {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*GitHub Connected:* ${githubUser.username || "✓"}\n\nSelect a repository to start working:`
-          }
+            text: `*GitHub Connected:* ${githubUser.username || "✓"}\n\nSelect a repository to start working:`,
+          },
         },
         {
           type: "actions",
@@ -238,13 +244,13 @@ export class ShortcutCommandHandler {
                 text: {
                   type: "plain_text",
                   text: "📂 Select Repository",
-                  emoji: true
+                  emoji: true,
                 },
                 style: "primary",
-                action_id: "open_repository_modal"
-              }
+                action_id: "open_repository_modal",
+              },
             ];
-            
+
             // Only show Try Demo button if DEMO_REPOSITORY is configured
             if (process.env.DEMO_REPOSITORY) {
               elements.push({
@@ -252,29 +258,30 @@ export class ShortcutCommandHandler {
                 text: {
                   type: "plain_text",
                   text: "🎮 Try Demo",
-                  emoji: true
+                  emoji: true,
                 },
                 action_id: "try_demo",
-                value: "slash_command_demo"
+                value: "slash_command_demo",
               } as any);
             }
-            
+
             return elements;
-          })()
+          })(),
         }
       );
     } else {
       // Logged in with repository selected - show current setup
       const repoUrl = userEnv.GITHUB_REPOSITORY as string;
-      const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
-      
+      const repoName =
+        repoUrl.split("/").pop()?.replace(".git", "") || "repository";
+
       blocks.push(
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*Ready to code!*\n\nActive Repository: *${repoName}*\n${repoUrl}`
-          }
+            text: `*Ready to code!*\n\nActive Repository: *${repoName}*\n${repoUrl}`,
+          },
         },
         {
           type: "actions",
@@ -284,52 +291,52 @@ export class ShortcutCommandHandler {
               text: {
                 type: "plain_text",
                 text: "🔄 Change Repository",
-                emoji: true
+                emoji: true,
               },
-              action_id: "open_repository_modal"
-            }
-          ]
+              action_id: "open_repository_modal",
+            },
+          ],
         }
       );
     }
-    
+
     blocks.push(
       {
-        type: "divider"
+        type: "divider",
       },
       {
         type: "context",
         elements: [
           {
             type: "mrkdwn",
-            text: "💡 *Quick Start:* Just @mention me or send me a direct message to start coding!"
-          }
-        ]
+            text: "💡 *Quick Start:* Just @mention me or send me a direct message to start coding!",
+          },
+        ],
       }
     );
-    
+
     // Send as ephemeral message if in channel, regular if in DM
-    const isDM = channelId.startsWith('D');
-    
+    const isDM = channelId.startsWith("D");
+
     if (isDM) {
       const messagePayload: any = {
         channel: channelId,
         text: "Welcome to Peerbot! 👋",
-        blocks
+        blocks,
       };
-      
+
       // Add thread_ts if provided to respond in the same thread
       if (threadTs) {
         messagePayload.thread_ts = threadTs;
       }
-      
+
       await client.chat.postMessage(messagePayload);
     } else {
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
         text: "Welcome to Peerbot! 👋",
-        blocks
+        blocks,
       });
     }
   }
@@ -339,41 +346,47 @@ export class ShortcutCommandHandler {
    */
   private setupViewSubmissions(): void {
     logger.info("Setting up view submission handlers...");
-    
+
     // Handle repository selection modal submission
-    this.app.view("repository_selection", async ({ ack, body, view, client }) => {
-      const userId = body.user.id;
-      logger.info(`Repository selection submitted by user ${userId}`);
-      
-      try {
-        await this.handleRepositoryModalSubmission(userId, view, client);
-        await ack();
-      } catch (error) {
-        logger.error("Error in repository selection:", error);
-        const errorMessage = error instanceof Error ? error.message : "Failed to process repository selection";
-        const errors: Record<string, string> = {};
-        if (errorMessage.includes("choose only one")) {
-          errors.existing_repo_input = errorMessage;
-          errors.new_repo_input = errorMessage;
-        } else if (errorMessage.includes("existing repository")) {
-          errors.existing_repo_input = errorMessage;
-        } else if (errorMessage.includes("new repository")) {
-          errors.new_repo_input = errorMessage;
-        } else {
-          errors.existing_repo_input = errorMessage;
+    this.app.view(
+      "repository_selection",
+      async ({ ack, body, view, client }) => {
+        const userId = body.user.id;
+        logger.info(`Repository selection submitted by user ${userId}`);
+
+        try {
+          await this.handleRepositoryModalSubmission(userId, view, client);
+          await ack();
+        } catch (error) {
+          logger.error("Error in repository selection:", error);
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to process repository selection";
+          const errors: Record<string, string> = {};
+          if (errorMessage.includes("choose only one")) {
+            errors.existing_repo_input = errorMessage;
+            errors.new_repo_input = errorMessage;
+          } else if (errorMessage.includes("existing repository")) {
+            errors.existing_repo_input = errorMessage;
+          } else if (errorMessage.includes("new repository")) {
+            errors.new_repo_input = errorMessage;
+          } else {
+            errors.existing_repo_input = errorMessage;
+          }
+
+          await ack({
+            response_action: "errors",
+            errors,
+          });
         }
-        
-        await ack({
-          response_action: "errors",
-          errors,
-        });
       }
-    });
+    );
 
     // Handle environment variable modal submission
     this.app.view("set_environment", async ({ ack, body, view, client }) => {
       const userId = body.user.id;
-      
+
       try {
         await this.handleSetEnvironment(userId, view, client);
         await ack();
@@ -387,7 +400,6 @@ export class ShortcutCommandHandler {
     });
   }
 
-
   /**
    * Handle repository modal submission
    */
@@ -397,41 +409,53 @@ export class ShortcutCommandHandler {
     client: any
   ): Promise<void> {
     logger.info(`Processing repository selection for user ${userId}`);
-    
+
     try {
       // Check which option was filled
-      const existingRepoUrl = view.state.values.existing_repo_input?.existing_repo_select?.selected_option?.value;
-      const newRepoName = view.state.values.new_repo_input?.new_repo_name?.value;
-      
+      const existingRepoUrl =
+        view.state.values.existing_repo_input?.existing_repo_select
+          ?.selected_option?.value;
+      const newRepoName =
+        view.state.values.new_repo_input?.new_repo_name?.value;
+
       if (!existingRepoUrl && !newRepoName) {
-        throw new Error("Please either enter an existing repository URL or a name for a new repository");
+        throw new Error(
+          "Please either enter an existing repository URL or a name for a new repository"
+        );
       }
-      
+
       if (existingRepoUrl && newRepoName) {
-        throw new Error("Please choose only one option: either an existing repository or create a new one");
+        throw new Error(
+          "Please choose only one option: either an existing repository or create a new one"
+        );
       }
-      
+
       let repositoryUrl: string;
-      
+
       if (newRepoName) {
         // Create new repository
         // Get GitHub user info
-        const username = await this.messageHandler.getOrCreateUserMapping(userId, client);
+        // const username = await this.messageHandler.getOrCreateUserMapping(userId, client); // Currently unused
         const githubUser = await getUserGitHubInfo(userId);
-        
+
         if (!githubUser.token) {
-          throw new Error("GitHub authentication required to create repositories");
+          throw new Error(
+            "GitHub authentication required to create repositories"
+          );
         }
-        
+
         // Create repository in user's space
-        const newRepo = await this.createGitHubRepository(newRepoName, githubUser.token);
+        const newRepo = await this.createGitHubRepository(
+          newRepoName,
+          githubUser.token
+        );
         repositoryUrl = newRepo.html_url;
-        
+
         logger.info(`Created new repository: ${repositoryUrl}`);
       } else {
         repositoryUrl = existingRepoUrl!;
       }
-      
+
       // Parse metadata to get channel context
       let metadata: any = {};
       try {
@@ -439,19 +463,23 @@ export class ShortcutCommandHandler {
       } catch (error) {
         logger.warn("Failed to parse modal metadata");
       }
-      
+
       const channelId = metadata.channel_id;
-      
+
       // Save the selected repository
       await this.saveSelectedRepository(userId, repositoryUrl, channelId);
-      
+
       // Clear cache for the user
-      const username = await this.messageHandler.getOrCreateUserMapping(userId, client);
+      const username = await this.messageHandler.getOrCreateUserMapping(
+        userId,
+        client
+      );
       this.messageHandler.clearCacheForUser(username);
-      
+
       // Send confirmation
-      const repoName = repositoryUrl.split('/').pop()?.replace('.git', '') || 'repository';
-      
+      const repoName =
+        repositoryUrl.split("/").pop()?.replace(".git", "") || "repository";
+
       // Send confirmation message
       if (channelId) {
         await client.chat.postMessage({
@@ -468,7 +496,7 @@ export class ShortcutCommandHandler {
           });
         }
       }
-      
+
       // Update app home
       await this.actionHandler.updateAppHome(userId, client);
     } catch (error) {
@@ -486,13 +514,13 @@ export class ShortcutCommandHandler {
     channelId?: string
   ): Promise<void> {
     const dbPool = getDbPool(this.config.queues.connectionString);
-    
+
     try {
       // Check if we should save to channel or user environ
-      if (channelId && !channelId.startsWith('D')) {
+      if (channelId && !channelId.startsWith("D")) {
         // Check if user is admin
         const isAdmin = await this.isUserChannelAdmin(userId, channelId);
-        
+
         if (isAdmin) {
           // Save to channel_environ
           await dbPool.query(
@@ -504,12 +532,14 @@ export class ShortcutCommandHandler {
                           updated_at = NOW()`,
             [channelId, repositoryUrl, userId.toUpperCase()]
           );
-          
-          logger.info(`Saved channel repository for ${channelId}: ${repositoryUrl}`);
+
+          logger.info(
+            `Saved channel repository for ${channelId}: ${repositoryUrl}`
+          );
           return;
         }
       }
-      
+
       // Save to user_environ (default case or non-admin)
       // First ensure user exists
       await dbPool.query(
@@ -518,14 +548,14 @@ export class ShortcutCommandHandler {
          ON CONFLICT (platform, platform_user_id) DO NOTHING`,
         [userId.toUpperCase()]
       );
-      
+
       // Get user ID
       const userResult = await dbPool.query(
         `SELECT id FROM users WHERE platform = 'slack' AND platform_user_id = $1`,
         [userId.toUpperCase()]
       );
       const userDbId = userResult.rows[0]?.id;
-      
+
       if (userDbId) {
         await dbPool.query(
           `INSERT INTO user_environ (user_id, name, value, type)
@@ -534,7 +564,7 @@ export class ShortcutCommandHandler {
            DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
           [userDbId, repositoryUrl]
         );
-        
+
         logger.info(`Saved user repository for ${userId}: ${repositoryUrl}`);
       }
     } catch (error) {
@@ -552,12 +582,12 @@ export class ShortcutCommandHandler {
     client: any
   ): Promise<void> {
     const dbPool = getDbPool(this.config.queues.connectionString);
-    
+
     try {
       // Extract input values
       const inputs = this.extractViewInputs(view.state.values);
       const envVars = this.parseEnvironmentVariables(inputs);
-      
+
       // Ensure user exists
       await dbPool.query(
         `INSERT INTO users (platform, platform_user_id)
@@ -565,14 +595,14 @@ export class ShortcutCommandHandler {
          ON CONFLICT (platform, platform_user_id) DO NOTHING`,
         [userId.toUpperCase()]
       );
-      
+
       // Get user ID
       const userResult = await dbPool.query(
         `SELECT id FROM users WHERE platform = 'slack' AND platform_user_id = $1`,
         [userId.toUpperCase()]
       );
       const userDbId = userResult.rows[0]?.id;
-      
+
       if (userDbId) {
         // Save each environment variable
         for (const [key, value] of Object.entries(envVars)) {
@@ -584,16 +614,18 @@ export class ShortcutCommandHandler {
             [userDbId, key, value]
           );
         }
-        
-        logger.info(`Saved ${Object.keys(envVars).length} environment variables for user ${userId}`);
+
+        logger.info(
+          `Saved ${Object.keys(envVars).length} environment variables for user ${userId}`
+        );
       }
-      
+
       // Send confirmation
       const im = await client.conversations.open({ users: userId });
       if (im.channel?.id) {
         await client.chat.postMessage({
           channel: im.channel.id,
-          text: `✅ Environment variables saved successfully:\n${Object.keys(envVars).join(', ')}`,
+          text: `✅ Environment variables saved successfully:\n${Object.keys(envVars).join(", ")}`,
         });
       }
     } catch (error) {
@@ -605,12 +637,14 @@ export class ShortcutCommandHandler {
   /**
    * Check if user is channel admin
    */
-  private async isUserChannelAdmin(_userId: string, _channelId: string): Promise<boolean> {
+  private async isUserChannelAdmin(
+    _userId: string,
+    _channelId: string
+  ): Promise<boolean> {
     // This would need to be implemented based on your Slack workspace setup
     // For now, return false as a safe default
     return false;
   }
-
 
   /**
    * Create a new GitHub repository
@@ -621,23 +655,26 @@ export class ShortcutCommandHandler {
   ): Promise<any> {
     // Create repository in user's space instead of organization
     const response = await fetch(`https://api.github.com/user/repos`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `token ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
+        Authorization: `token ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         name: repoName,
         private: false,
         auto_init: true,
-        description: `Created via Peerbot`
-      })
+        description: `Created via Peerbot`,
+      }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-      const errorMsg = errorData.message || errorData.errors?.[0]?.message || 'Unknown error';
+      const errorData: any = await response
+        .json()
+        .catch(() => ({ message: "Unknown error" }));
+      const errorMsg =
+        errorData.message || errorData.errors?.[0]?.message || "Unknown error";
       throw new Error(`Failed to create repository: ${errorMsg}`);
     }
 
@@ -649,7 +686,7 @@ export class ShortcutCommandHandler {
    */
   private extractViewInputs(stateValues: any): string {
     const inputs: string[] = [];
-    
+
     for (const blockId of Object.keys(stateValues)) {
       const block = stateValues[blockId];
       for (const actionId of Object.keys(block)) {
@@ -659,8 +696,8 @@ export class ShortcutCommandHandler {
         }
       }
     }
-    
-    return inputs.join('\n');
+
+    return inputs.join("\n");
   }
 
   /**
@@ -668,19 +705,19 @@ export class ShortcutCommandHandler {
    */
   private parseEnvironmentVariables(input: string): Record<string, string> {
     const envVars: Record<string, string> = {};
-    const lines = input.split('\n');
-    
+    const lines = input.split("\n");
+
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed && trimmed.includes('=')) {
-        const [key, ...valueParts] = trimmed.split('=');
-        const value = valueParts.join('=');
+      if (trimmed && trimmed.includes("=")) {
+        const [key, ...valueParts] = trimmed.split("=");
+        const value = valueParts.join("=");
         if (key && value) {
           envVars[key.trim()] = value.trim();
         }
       }
     }
-    
+
     return envVars;
   }
 }

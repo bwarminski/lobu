@@ -6,7 +6,7 @@ import type { App } from "@slack/bolt";
  */
 export function setupTeamJoinHandler(app: App, botId: string): void {
   logger.info("Setting up team_join event handler...");
-  
+
   app.event("team_join", async ({ event, client }) => {
     try {
       const userId = (event as any).user?.id;
@@ -14,19 +14,19 @@ export function setupTeamJoinHandler(app: App, botId: string): void {
         logger.error("No user ID in team_join event");
         return;
       }
-      
+
       logger.info(`New team member joined: ${userId}`);
-      
+
       // Open a DM with the new user
       const im = await client.conversations.open({ users: userId });
       if (!im.channel?.id) {
         logger.error("Failed to open DM with new user");
         return;
       }
-      
+
       // Send welcome message
       await sendWelcomeMessage(im.channel.id, botId, client, undefined, userId);
-      
+
       logger.info(`Welcome message sent to new user ${userId}`);
     } catch (error) {
       logger.error("Error handling team_join event:", error);
@@ -46,58 +46,64 @@ export async function sendWelcomeMessage(
   threadTs?: string,
   userId?: string
 ): Promise<void> {
+  // botId is currently unused but kept for API compatibility
+  void botId;
   const blocks: any[] = [
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: "Welcome to Peerbot! 👋",
-          emoji: true
-        }
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "Welcome to Peerbot! 👋",
+        emoji: true,
       },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "I'm your AI coding assistant powered by Claude. I can help you with:\n\n"
-                + "• 💻 Writing and reviewing code\n"
-                + "• 🔧 Building features and fixing bugs\n"
-                + "• 📚 Understanding codebases\n"
-                + "• 🚀 Creating new projects\n\n"
-                + "Let's get you started!"
-        }
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "I'm your AI coding assistant powered by Claude. I can help you with:\n\n" +
+          "• 💻 Writing and reviewing code\n" +
+          "• 🔧 Building features and fixing bugs\n" +
+          "• 📚 Understanding codebases\n" +
+          "• 🚀 Creating new projects\n\n" +
+          "Let's get you started!",
       },
-      {
-        type: "divider"
+    },
+    {
+      type: "divider",
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Option 1: Connect Your GitHub*\n" +
+          "Link your GitHub account to work with your own repositories.",
       },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "*Option 1: Connect Your GitHub*\n"
-                + "Link your GitHub account to work with your own repositories."
-        },
-        accessory: userId ? {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "🔗 Login with GitHub",
-            emoji: true
+      accessory: userId
+        ? ({
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "🔗 Login with GitHub",
+              emoji: true,
+            },
+            style: "primary",
+            url: `${process.env.INGRESS_URL || "http://localhost:8080"}/api/github/oauth/authorize?user_id=${userId}`,
+          } as any)
+        : {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "🔗 Login with GitHub",
+              emoji: true,
+            },
+            style: "primary",
+            action_id: "github_connect",
+            value: "welcome_login",
           },
-          style: "primary",
-          url: `${process.env.INGRESS_URL || "http://localhost:8080"}/api/github/oauth/authorize?user_id=${userId}`
-        } as any : {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "🔗 Login with GitHub",
-            emoji: true
-          },
-          style: "primary",
-          action_id: "github_connect",
-          value: "welcome_login"
-        }
-      },
+    },
   ];
 
   // Add demo option if DEMO_REPOSITORY is configured
@@ -106,51 +112,52 @@ export async function sendWelcomeMessage(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*Option 2: Try a Demo*\n" +
-              "Explore Peerbot's capabilities with a demo repository."
+        text:
+          "*Option 2: Try a Demo*\n" +
+          "Explore Peerbot's capabilities with a demo repository.",
       },
       accessory: {
         type: "button",
         text: {
           type: "plain_text",
           text: "🎮 Try Demo",
-          emoji: true
+          emoji: true,
         },
         action_id: "try_demo",
-        value: "welcome_demo"
-      }
+        value: "welcome_demo",
+      },
     });
   }
 
   // Add final sections
   blocks.push(
     {
-      type: "divider"
+      type: "divider",
     },
     {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: "💡 *Quick Start:* Just @mention me or send me a direct message to start coding!"
-        }
-      ]
+          text: "💡 *Quick Start:* Just @mention me or send me a direct message to start coding!",
+        },
+      ],
     },
     {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: "📖 *Commands:* Type `/peerbot` to see available options"
-        }
-      ]
+          text: "📖 *Commands:* Type `/peerbot` to see available options",
+        },
+      ],
     }
   );
 
   const messagePayload: any = {
     channel: channelId,
     text: "Welcome to Peerbot! 👋",
-    blocks
+    blocks,
   };
 
   // Add thread_ts if provided (for consistency with demo activation)

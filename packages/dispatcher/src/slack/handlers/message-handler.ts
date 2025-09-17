@@ -22,7 +22,7 @@ export class MessageHandler {
   >(); // username -> {repository, timestamp}
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
   private readonly SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours session TTL
-  private readonly USER_MAPPING_TTL = 60 * 60 * 1000; // 1 hour user mapping TTL
+  // private readonly USER_MAPPING_TTL = 60 * 60 * 1000; // 1 hour user mapping TTL - Currently unused
   private lastCleanupTime = Date.now();
 
   constructor(
@@ -43,24 +43,29 @@ export class MessageHandler {
   /**
    * Get user environment variables from database with channel precedence
    */
-  async getUserEnvironment(userId: string, channelId?: string): Promise<Record<string, string | undefined>> {
+  async getUserEnvironment(
+    userId: string,
+    channelId?: string
+  ): Promise<Record<string, string | undefined>> {
     const dbPool = getDbPool(process.env.DATABASE_URL!);
     const envVariables: Record<string, string | undefined> = {};
 
     try {
       // First check channel_environ if channelId is provided and not a DM
-      if (channelId && !channelId.startsWith('D')) {
+      if (channelId && !channelId.startsWith("D")) {
         const channelResult = await dbPool.query(
           `SELECT name, value FROM channel_environ WHERE channel_id = $1 AND platform = 'slack'`,
           [channelId]
         );
-        
+
         for (const row of channelResult.rows) {
           envVariables[row.name] = row.value;
         }
-        
+
         if (channelResult.rows.length > 0) {
-          logger.info(`Found ${channelResult.rows.length} channel environment variables for channel ${channelId}`);
+          logger.info(
+            `Found ${channelResult.rows.length} channel environment variables for channel ${channelId}`
+          );
         }
       }
 
@@ -72,28 +77,37 @@ export class MessageHandler {
          WHERE u.platform = 'slack' AND u.platform_user_id = $1`,
         [userId.toUpperCase()]
       );
-      
+
       for (const row of userResult.rows) {
         // Only set if not already set by channel_environ
         if (!(row.name in envVariables)) {
           envVariables[row.name] = row.value;
         }
       }
-      
+
       if (userResult.rows.length > 0) {
-        logger.info(`Found ${userResult.rows.length} user environment variables for user ${userId}`);
+        logger.info(
+          `Found ${userResult.rows.length} user environment variables for user ${userId}`
+        );
       }
 
       // Log which environment is being used
       if (envVariables.GITHUB_REPOSITORY) {
-        const source = channelId && !channelId.startsWith('D') && 
-          (await dbPool.query(
-            `SELECT 1 FROM channel_environ WHERE channel_id = $1 AND platform = 'slack' AND name = 'GITHUB_REPOSITORY'`,
-            [channelId]
-          )).rows.length > 0 ? 'channel' : 'user';
-        logger.info(`Using ${source} repository override: ${envVariables.GITHUB_REPOSITORY}`);
+        const source =
+          channelId &&
+          !channelId.startsWith("D") &&
+          (
+            await dbPool.query(
+              `SELECT 1 FROM channel_environ WHERE channel_id = $1 AND platform = 'slack' AND name = 'GITHUB_REPOSITORY'`,
+              [channelId]
+            )
+          ).rows.length > 0
+            ? "channel"
+            : "user";
+        logger.info(
+          `Using ${source} repository override: ${envVariables.GITHUB_REPOSITORY}`
+        );
       }
-
     } catch (error) {
       logger.error(`Error fetching environment for user ${userId}:`, error);
     }
@@ -147,24 +161,27 @@ export class MessageHandler {
       const isNewSession = !context.threadTs;
 
       // Check for environment overrides from database
-      const userEnv = await this.getUserEnvironment(context.userId, context.channelId);
+      const userEnv = await this.getUserEnvironment(
+        context.userId,
+        context.channelId
+      );
       const overrideRepo = userEnv.GITHUB_REPOSITORY as string | undefined;
-      
+
       let repository;
       if (overrideRepo) {
         // User has overridden the repository URL
         const repoUrl = overrideRepo;
-        const parts = repoUrl.split('/');
+        const parts = repoUrl.split("/");
         const repoName = parts[parts.length - 1];
-        
+
         repository = {
           repositoryUrl: repoUrl,
           repositoryName: repoName,
-          cloneUrl: repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`,
+          cloneUrl: repoUrl.endsWith(".git") ? repoUrl : `${repoUrl}.git`,
           createdAt: Date.now(),
-          lastUsed: Date.now()
+          lastUsed: Date.now(),
         };
-        
+
         logger.info(`Using overridden repository for ${username}: ${repoUrl}`);
       } else {
         // Normal flow - check cache then fetch
@@ -370,7 +387,7 @@ export class MessageHandler {
       return true; // If no restrictions, allow all
     }
 
-    const userList = allowedUsers.split(",").map(u => u.trim());
+    const userList = allowedUsers.split(",").map((u) => u.trim());
     return userList.includes(userId);
   }
 
@@ -390,14 +407,15 @@ export class MessageHandler {
     try {
       const userInfo = await client.users.info({ user: slackUserId });
       const userProfile = userInfo?.user?.profile;
-      
-      let username = userProfile?.display_name || userProfile?.real_name || slackUserId;
+
+      let username =
+        userProfile?.display_name || userProfile?.real_name || slackUserId;
       username = username.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-      
+
       if (!username.match(/^[a-z0-9]/)) {
         username = `user-${username}`;
       }
-      
+
       this.userMappings.set(slackUserId, username);
       logger.info(`Created user mapping: ${slackUserId} -> ${username}`);
       return username;

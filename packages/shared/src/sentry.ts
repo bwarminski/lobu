@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import { postgresIntegration } from "@sentry/node";
+import { postgresIntegration } from "@sentry/integrations";
 
 /**
  * Initialize Sentry with configuration from environment variables

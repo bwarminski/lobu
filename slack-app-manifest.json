@@ -23,26 +23,26 @@
       }
     ],
     "assistant_view": {
-            "assistant_description": "It can generate Claude Code session working on public Github data",
-            "suggested_prompts": [
-                {
-                    "title": "Create a project",
-                    "message": "Create a new project"
-                },
-                {
-                    "title": "Start working on a feature",
-                    "message": "List me projects and let me tell you what I want to develop on which project"
-                },
-                {
-                  "title": "Fix a bug",
-                  "message": "List me projects and let me tell you what I want to develop on which project"
-              },
-              {
-                "title": "Ask a question to the codebase",
-                "message": "List me projects and let me tell you what I want to develop on which project"
-            }
-            ]
+      "assistant_description": "It can generate Claude Code session working on public Github data",
+      "suggested_prompts": [
+        {
+          "title": "Create a project",
+          "message": "Create a new project"
+        },
+        {
+          "title": "Start working on a feature",
+          "message": "List me projects and let me tell you what I want to develop on which project"
+        },
+        {
+          "title": "Fix a bug",
+          "message": "List me projects and let me tell you what I want to develop on which project"
+        },
+        {
+          "title": "Ask a question to the codebase",
+          "message": "List me projects and let me tell you what I want to develop on which project"
         }
+      ]
+    }
   },
   "oauth_config": {
     "redirect_urls": [],

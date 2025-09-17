@@ -7,11 +7,16 @@ import { getDbPool } from "../../db";
 export async function handleTryDemo(
   userId: string,
   channelId: string,
-  client: any
+  client: any,
+  threadTs?: string
 ): Promise<void> {
   try {
     // Get demo repository from environment or use default
-    const demoRepo = process.env.DEMO_REPOSITORY || "https://github.com/anthropics/anthropic-sdk-typescript";
+    const demoRepo = process.env.DEMO_REPOSITORY;
+    
+    if (!demoRepo) {
+      throw new Error('DEMO_REPOSITORY environment variable is not set');
+    }
     
     // Parse repository info for display
     const repoPath = demoRepo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
@@ -44,8 +49,8 @@ export async function handleTryDemo(
       [userDbId, demoRepo]
     );
     
-    // Send confirmation and instructions
-    await client.chat.postMessage({
+    // Send confirmation and instructions (in thread if available)
+    const messagePayload: any = {
       channel: channelId,
       text: "🎮 Demo mode activated!",
       blocks: [
@@ -54,18 +59,68 @@ export async function handleTryDemo(
           text: {
             type: "mrkdwn",
             text: "🎮 *Demo mode activated!*\n\n"
-                  + `You're now connected to the *${owner}/${repo}* repository for demo purposes.`
+                  + `You're now connected to the *${owner}/${repo}* repository - a landing page for Peerbot.`
           }
         },
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "*Try these examples:*\n"
-                  + "• \"Show me the main API client implementation\"\n"
-                  + "• \"Explain how error handling works in this SDK\"\n"
-                  + "• \"What are the available authentication methods?\"\n"
-                  + "• \"Create a simple example using this SDK\""
+            text: "*Try these quick examples:*"
+          }
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "📄 Show landing page structure"
+              },
+              action_id: "demo_example_1",
+              value: "Show me the structure of the landing page and what technologies it uses"
+            },
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "🎨 Improve hero section"
+              },
+              action_id: "demo_example_2",
+              value: "Analyze the hero section and suggest improvements for better conversion"
+            }
+          ]
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "✨ Add new feature"
+              },
+              action_id: "demo_example_3",
+              value: "Add a testimonials section to the landing page with animated cards"
+            },
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: "🔍 SEO analysis"
+              },
+              action_id: "demo_example_4",
+              value: "Analyze the SEO of this landing page and suggest improvements"
+            }
+          ]
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "*Or type your own request:*\n"
+                  + "Just message me what you'd like to explore or build!"
           }
         },
         {
@@ -81,17 +136,27 @@ export async function handleTryDemo(
           ]
         }
       ]
-    });
+    };
+    
+    // Add thread_ts if provided (to keep in same thread as welcome message)
+    if (threadTs) {
+      messagePayload.thread_ts = threadTs;
+    }
+    
+    await client.chat.postMessage(messagePayload);
     
     logger.info(`Demo mode activated for user ${userId} with repo ${demoRepo}`);
     
   } catch (error) {
     logger.error(`Failed to set demo mode for user ${userId}:`, error);
-    await client.chat.postEphemeral({
+    const messagePayload: any = {
       channel: channelId,
-      user: userId,
-      text: "❌ Failed to activate demo mode. Please try again."
-    });
+      text: "❌ Failed to activate demo mode. Please try again.",
+    };
+    if (threadTs) {
+      messagePayload.thread_ts = threadTs;
+    }
+    await client.chat.postMessage(messagePayload);
   }
 }
 

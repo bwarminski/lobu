@@ -91,7 +91,7 @@ slack:
   allowPrivateChannels: true
 
 claude:
-  model: "claude-opus-4-20250514"
+  model: "claude-sonnet-4-20250514"
   timeoutMinutes: "5" # Default timeout
 
 # Disable static worker deployment - workers are created dynamically by orchestrator

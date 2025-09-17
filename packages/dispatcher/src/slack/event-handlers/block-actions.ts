@@ -80,10 +80,10 @@ export async function handleExecutableCodeBlock(
     await handleUserRequestFn(context, formattedInput, client);
   } catch (error) {
     logger.error(`Failed to handle executable code block ${actionId}:`, error);
-
-    await client.chat.postEphemeral({
+    const actualThreadTs = (body as any)?.message?.thread_ts || messageTs;
+    await client.chat.postMessage({
       channel: channelId,
-      user: userId,
+      thread_ts: actualThreadTs,
       text: `❌ Failed to execute code: ${error instanceof Error ? error.message : "Unknown error"}`,
     });
   }
@@ -151,10 +151,11 @@ export async function handleBlockkitForm(
         ? `${rawBlocksJson.substring(0, 2500)}\n...[truncated]`
         : rawBlocksJson;
 
-    await client.chat.postEphemeral({
+    const actualThreadTs = (body as any)?.message?.thread_ts || messageTs;
+    await client.chat.postMessage({
       channel: channelId,
-      user: userId,
-      text: `❌ **Failed to open form:** ${error instanceof Error ? error.message : "Unknown error"}\n\n**Raw Block Kit content for debugging:**\n\`\`\`json\n${truncatedBlocks}\n\`\`\`\n\n💡 *The Block Kit content may not be compatible with Slack modals. Check the Slack Block Kit documentation for modal-specific validation rules.*`,
+      thread_ts: actualThreadTs,
+      text: `❌ Failed to open form: ${error instanceof Error ? error.message : "Unknown error"}\n\nRaw Block Kit (truncated):\n\`\`\`json\n${truncatedBlocks}\n\`\`\`\n\nTip: Some blocks are not modal-compatible.`,
     });
   }
 }
@@ -191,10 +192,10 @@ export async function handleStopWorker(
     );
 
     if (response.ok) {
-      // Success - notify user
-      await client.chat.postEphemeral({
+      // Success - notify user in thread
+      await client.chat.postMessage({
         channel: channelId,
-        user: userId,
+        thread_ts: messageTs,
         text: `✅ Claude worker stopped successfully. The deployment "${deploymentName}" has been scaled to 0.`,
       });
 
@@ -224,10 +225,9 @@ export async function handleStopWorker(
       `Failed to stop worker for deployment ${deploymentName}:`,
       error
     );
-
-    await client.chat.postEphemeral({
+    await client.chat.postMessage({
       channel: channelId,
-      user: userId,
+      thread_ts: messageTs,
       text: `❌ Failed to stop Claude worker: ${error instanceof Error ? error.message : "Unknown error"}`,
     });
   }

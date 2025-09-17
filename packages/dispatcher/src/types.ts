@@ -81,20 +81,6 @@ export interface WorkerJobRequest {
   resumeSessionId?: string; // Claude session ID to resume from
 }
 
-export interface WorkerDeploymentRequest {
-  userId: string;
-  botId: string;
-  threadId: string;
-  platform: string;
-  platformUserId: string;
-  messageId: string;
-  messageText: string;
-  channelId: string;
-  platformMetadata: Record<string, any>;
-  claudeOptions: Record<string, any>;
-  environmentVariables?: Record<string, string>;
-}
-
 export interface ThreadSession {
   sessionKey: string;
   threadTs?: string;
@@ -123,28 +109,4 @@ export interface UserRepository {
   cloneUrl: string;
   createdAt: number;
   lastUsed: number;
-}
-
-// Error types
-export class DispatcherError extends Error {
-  constructor(
-    public operation: string,
-    message: string,
-    public cause?: Error
-  ) {
-    super(message);
-    this.name = "DispatcherError";
-  }
-}
-
-export class GitHubRepositoryError extends Error {
-  constructor(
-    public operation: string,
-    public username: string,
-    message: string,
-    public cause?: Error
-  ) {
-    super(message);
-    this.name = "GitHubRepositoryError";
-  }
 }

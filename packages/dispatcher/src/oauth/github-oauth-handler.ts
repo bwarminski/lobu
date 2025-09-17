@@ -1,15 +1,13 @@
 #!/usr/bin/env bun
 
 import axios from "axios";
-import * as crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { getDbPool } from "../db";
 import logger from "../logger";
+import { encrypt, decrypt } from "../utils/encryption";
 
 export class GitHubOAuthHandler {
   private dbPool: any;
-  private encryptionKey: string;
-  private readonly IV_LENGTH = 12; // 96-bit nonce for AES-GCM
   private homeTabCallback?: (userId: string) => Promise<void>;
 
   constructor(
@@ -17,50 +15,9 @@ export class GitHubOAuthHandler {
     homeTabCallback?: (userId: string) => Promise<void>
   ) {
     this.dbPool = getDbPool(databaseUrl);
-
-    if (!process.env.ENCRYPTION_KEY) {
-      throw new Error(
-        "ENCRYPTION_KEY environment variable is required for secure operation"
-      );
-    }
-
-    this.encryptionKey = process.env.ENCRYPTION_KEY.padEnd(32).slice(0, 32);
     this.homeTabCallback = homeTabCallback;
   }
 
-  private encrypt(text: string): string {
-    const iv = crypto.randomBytes(this.IV_LENGTH);
-    const cipher = crypto.createCipheriv(
-      "aes-256-gcm",
-      Buffer.from(this.encryptionKey, "utf8"),
-      iv
-    );
-    const encrypted = Buffer.concat([
-      cipher.update(text, "utf8"),
-      cipher.final(),
-    ]);
-    const tag = cipher.getAuthTag();
-    return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
-  }
-
-  private decrypt(text: string): string {
-    const parts = text.split(":");
-    if (parts.length !== 3) throw new Error("Invalid state format");
-    const iv = Buffer.from(parts[0]!, "hex");
-    const tag = Buffer.from(parts[1]!, "hex");
-    const encryptedText = Buffer.from(parts[2]!, "hex");
-    const decipher = crypto.createDecipheriv(
-      "aes-256-gcm",
-      Buffer.from(this.encryptionKey, "utf8"),
-      iv
-    );
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([
-      decipher.update(encryptedText),
-      decipher.final(),
-    ]);
-    return decrypted.toString("utf8");
-  }
 
   /**
    * Handle OAuth authorization request
@@ -84,7 +41,7 @@ export class GitHubOAuthHandler {
       userId,
       timestamp: Date.now(),
     });
-    const state = this.encrypt(stateData);
+    const state = encrypt(stateData);
 
     // Use INGRESS_URL if provided, otherwise construct from request
     const baseUrl =
@@ -122,7 +79,7 @@ export class GitHubOAuthHandler {
       // Decrypt and validate state
       let stateData;
       try {
-        stateData = JSON.parse(this.decrypt(state as string));
+        stateData = JSON.parse(decrypt(state as string));
       } catch (error) {
         res.status(400).send("Invalid state parameter");
         return;
@@ -182,7 +139,7 @@ export class GitHubOAuthHandler {
       const userDbId = userResult.rows[0].id;
 
       // Store GitHub token and username (token encrypted at rest)
-      const encToken = this.encrypt(accessToken);
+      const encToken = encrypt(accessToken);
       await this.dbPool.query(
         `INSERT INTO user_environ (user_id, name, value, type) 
          VALUES ($1, 'GITHUB_TOKEN', $2, 'user') 

@@ -137,9 +137,9 @@ export async function handleBlockkitFormSubmission(
     await handleUserRequestFn(context, userInput, client);
   } catch (error) {
     logger.error(`Failed to handle blockkit form submission:`, error);
-    await client.chat.postEphemeral({
+    await client.chat.postMessage({
       channel: channelId,
-      user: userId,
+      thread_ts: threadTs,
       text: `❌ Failed to process form submission: ${error instanceof Error ? error.message : "Unknown error"}`,
     });
   }
@@ -166,11 +166,21 @@ export async function handleRepositoryOverrideSubmission(
   const threadTs = metadata.thread_ts;
 
   if (!repoUrl) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      text: "Please provide a repository URL.",
-    });
+    if (channelId && threadTs) {
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: "Please provide a repository URL.",
+      });
+    } else {
+      const im = await client.conversations.open({ users: userId });
+      if (im.channel?.id) {
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "Please provide a repository URL.",
+        });
+      }
+    }
     return;
   }
 
@@ -185,11 +195,21 @@ export async function handleRepositoryOverrideSubmission(
     });
   } catch (error) {
     logger.error(`Failed to save repository URL for ${username}:`, error);
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      text: "❌ Failed to save repository URL. Please try again.",
-    });
+    if (channelId && threadTs) {
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: "❌ Failed to save repository URL. Please try again.",
+      });
+    } else {
+      const im = await client.conversations.open({ users: userId });
+      if (im.channel?.id) {
+        await client.chat.postMessage({
+          channel: im.channel.id,
+          text: "❌ Failed to save repository URL. Please try again.",
+        });
+      }
+    }
     return;
   }
 
@@ -201,12 +221,14 @@ export async function handleRepositoryOverrideSubmission(
       text: `✅ Repository set to ${repoUrl}`,
     });
   } else {
-    // If triggered from home tab, send ephemeral confirmation and refresh home tab
-    await client.chat.postEphemeral({
-      channel: userId, // DM channel
-      user: userId,
-      text: `✅ Repository set to ${repoUrl}`,
-    });
+    // If triggered from home tab, send a DM confirmation and refresh home tab
+    const im = await client.conversations.open({ users: userId });
+    if (im.channel?.id) {
+      await client.chat.postMessage({
+        channel: im.channel.id,
+        text: `✅ Repository set to ${repoUrl}`,
+      });
+    }
 
     // Refresh the home tab to show updated repository
     await updateAppHomeFn(userId, client);

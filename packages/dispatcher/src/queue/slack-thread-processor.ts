@@ -482,14 +482,13 @@ async function generateGitHubActionButtons(
           action: "create_pr",
           repo: repoPath,
           branch: gitBranch,
-          prompt:
-            "Review your code, cleanup temporary files, commit changes to GIT and create a pull request",
+          prompt: "Review your code, cleanup temporary files, commit changes to GIT and create a pull request",
         }),
       });
     }
 
     // View Code button
-    if (hasGitChanges) {
+    if (pullRequestUrl || hasGitChanges) {
       // Has uncommitted changes - show action button to commit/push first
       buttons.push({
         type: "button",
@@ -504,17 +503,6 @@ async function generateGitHubActionButtons(
           branch: gitBranch,
           prompt: "Commit and push changes, then view code",
         }),
-      });
-    } else {
-      // No uncommitted changes - show direct link to view code
-      buttons.push({
-        type: "button",
-        text: { type: "plain_text", text: "View Code" },
-        url: `https://github.dev/${repoPath}/tree/${gitBranch}`,
-        action_id: generateDeterministicActionId(
-          `code_${repoPath}_${gitBranch}`,
-          "github_code_link"
-        ),
       });
     }
 

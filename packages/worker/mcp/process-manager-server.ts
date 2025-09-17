@@ -219,38 +219,19 @@ class ProcessManager {
       `Starting cloudflared tunnel for port ${port} at ${new Date().toISOString()} (attempt ${retryCount + 1})\n`
     );
 
-    // Try to detect which address the service is listening on
-    let serviceUrl = `http://localhost:${port}`;
-    for (const host of ["127.0.0.1", "localhost", "0.0.0.0"]) {
-      try {
-        const testUrl = `http://${host}:${port}/`;
-        const response = await fetch(testUrl, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(1000),
-        }).catch(() => null);
-
-        if (response) {
-          serviceUrl = `http://${host}:${port}`;
-          tunnelLogStream.write(`Service detected at ${serviceUrl}\n`);
-          console.error(
-            `[MCP Process Manager] Service detected at ${serviceUrl}`
-          );
-          break;
-        }
-      } catch (_e) {
-        // Try next host
-      }
-    }
-
     // Log to worker console (use stderr so it appears in pod logs)
     console.error(
-      `[MCP Process Manager] Starting cloudflared tunnel for process ${id} on ${serviceUrl} (attempt ${retryCount + 1})`
+      `[MCP Process Manager] Starting cloudflared tunnel for process ${id} on port ${port} (attempt ${retryCount + 1})`
     );
 
-    const tunnelChild = spawn("cloudflared", ["tunnel", "--url", serviceUrl], {
-      detached: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const tunnelChild = spawn(
+      "cloudflared",
+      ["tunnel", "--url", `http://localhost:${port}`],
+      {
+        detached: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
 
     // Handle spawn errors
     tunnelChild.on("error", (err) => {
@@ -329,6 +310,7 @@ class ProcessManager {
         urlExtracted = true;
         clearTimeout(extractTimeout);
         const prefix = urlMatch[1];
+        // Peerbot.ai is a proxy for trycloudflare.com, it helps Peerbot being used in CI/CD pipelines by providing scale to zero capabilities for previews.
         info.tunnelUrl = `https://${prefix}.peerbot.ai`;
         tunnelLogStream.write(
           `\n[MCP] Successfully extracted URL: ${urlMatch[0]}\n`
@@ -605,45 +587,35 @@ server.tool(
           tunnelUrl = updatedInfo?.tunnelUrl;
 
           // Try to make an HTTP request to the local service
-          // Try multiple addresses in case the service only binds to specific ones
-          for (const host of ["127.0.0.1", "localhost", "0.0.0.0", "::1"]) {
+          // Try both localhost and 0.0.0.0 in case the service only binds to one
+          for (const host of ["localhost", "127.0.0.1", "0.0.0.0"]) {
             try {
               const response = await fetch(`http://${host}:${port}/`, {
-                method: "HEAD", // Use HEAD to avoid downloading content
-                signal: AbortSignal.timeout(1000), // 1 second timeout for each request
+                method: "GET",
+                signal: AbortSignal.timeout(1500), // 1.5 second timeout for each request
               });
 
               // Any response (even error codes) means the service is running
               if (response.status) {
                 serviceHealthy = true;
                 console.error(
-                  `[MCP Process Manager] ✅ Service on port ${port} is healthy at ${host} (status: ${response.status})`
+                  `[MCP Process Manager] Service on port ${port} is healthy at ${host} (status: ${response.status})`
                 );
                 break;
               }
-            } catch (error: any) {
-              // Only log connection refused errors on first attempt
-              if (
-                healthCheckAttempts === 1 &&
-                error.cause?.code === "ECONNREFUSED"
-              ) {
-                // Service not started yet, this is expected
-              }
+            } catch (_error: any) {
+              // Try next host
             }
           }
-
+          
           if (serviceHealthy) {
             break;
           }
-
-          // Service not ready yet - less verbose logging
-          if (healthCheckAttempts === 1) {
+          
+          // Service not ready yet
+          if (healthCheckAttempts % 5 === 0) {
             console.error(
-              `[MCP Process Manager] Waiting for service to start on port ${port}...`
-            );
-          } else if (healthCheckAttempts % 10 === 0) {
-            console.error(
-              `[MCP Process Manager] Still waiting for service on port ${port} (${healthCheckAttempts * 2}s elapsed)`
+              `[MCP Process Manager] Service not ready on port ${port} (attempt ${healthCheckAttempts}/${maxHealthChecks})`
             );
           }
 
@@ -1019,7 +991,10 @@ async function main() {
 export { main as startProcessManagerServer };
 
 // Only run directly if this file is executed directly
-if (typeof process !== "undefined" && process.argv[1]) {
+if (
+  typeof process !== "undefined" &&
+  process.argv[1]
+) {
   main().catch((error) => {
     console.error("[Process Manager MCP] Fatal error:", error);
     process.exit(1);

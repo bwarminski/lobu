@@ -77,7 +77,6 @@ deploy:
 	@# Use TARGET environment variable or make variable
 	@if [ -n "$$TARGET" ] || [ -n "$(TARGET)" ]; then \
 		TARGET_PATH="$${TARGET:-$(TARGET)}"; \
-	if [ -n "$$TARGET_PATH" ]; then \
 		if [ -f "$$TARGET_PATH" ]; then \
 			VALUES_FILE="$$TARGET_PATH"; \
 			echo "📋 Using custom values file: $$VALUES_FILE"; \

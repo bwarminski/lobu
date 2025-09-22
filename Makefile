@@ -74,13 +74,9 @@ deploy:
 		echo ""; \
 		exit 1; \
 	fi
-	@# Parse target argument
-	@TARGET_PATH=""; \
-	for arg in $(MAKECMDGOALS); do \
-		case $$arg in \
-			--target=*) TARGET_PATH=$${arg#--target=} ;; \
-		esac; \
-	done; \
+	@# Use TARGET environment variable or make variable
+	@if [ -n "$$TARGET" ] || [ -n "$(TARGET)" ]; then \
+		TARGET_PATH="$${TARGET:-$(TARGET)}"; \
 	if [ -n "$$TARGET_PATH" ]; then \
 		if [ -f "$$TARGET_PATH" ]; then \
 			VALUES_FILE="$$TARGET_PATH"; \

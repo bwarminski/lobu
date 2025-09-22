@@ -119,46 +119,5 @@ jobs:
           echo "📝 Recent Logs from Orchestrator:"
           kubectl logs -n $NAMESPACE deployment/$DEPLOYMENT_NAME-orchestrator --tail=20 || true
           
-      - name: Slack Notification (Success)
-        if: success() && github.event_name == 'push' && env.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.24.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        with:
-          payload: |
-            {
-              "text": "✅ Peerbot deployed successfully",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "✅ *Peerbot Deployment Successful*\n• *Version:* `${{ steps.get-tag.outputs.tag }}`\n• *Branch:* `${{ github.ref_name }}`\n• *Deployed by:* ${{ github.actor }}"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          
-      - name: Slack Notification (Failure)
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.24.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        with:
-          payload: |
-            {
-              "text": "❌ Peerbot deployment failed",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "❌ *Peerbot Deployment Failed*\n• *Version:* `${{ steps.get-tag.outputs.tag }}`\n• *Branch:* `${{ github.ref_name }}`\n• *Failed by:* ${{ github.actor }}\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      # Slack notifications removed - SLACK_WEBHOOK_URL not configured
+      # To enable Slack notifications, add SLACK_WEBHOOK_URL to repository secrets

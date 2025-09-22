@@ -5,6 +5,8 @@ import { WebClient } from "@slack/web-api";
 import { marked } from "marked";
 import PgBoss from "pg-boss";
 import type { GitHubRepositoryManager } from "../github/repository-manager";
+import { generateGitHubAuthUrl } from "../utils/github-utils";
+import { getUserGitHubInfo } from "../slack/handlers/github-handler";
 
 // Generate deterministic action IDs based on content to prevent conflicts during rapid message updates - fixed
 function generateDeterministicActionId(
@@ -455,6 +457,13 @@ async function generateGitHubActionButtons(
       `Showing action buttons for branch: ${gitBranch}, PR exists: ${!!pullRequestUrl}`
     );
 
+    // Check if user has GitHub authentication
+    const githubInfo = await getUserGitHubInfo(userId);
+    const hasGitHubAuth = !!githubInfo.token;
+
+    // Generate auth URL for GitHub OAuth
+    const authUrl = generateGitHubAuthUrl(userId);
+
     const buttons: any[] = [];
 
     // Show appropriate PR button based on whether PR exists
@@ -470,6 +479,33 @@ async function generateGitHubActionButtons(
         ),
       });
     } else if (hasGitChanges || isSessionBranch) {
+      // Build dynamic prompt based on GitHub auth status
+      let prompt: string;
+      
+      if (hasGitHubAuth) {
+        // User is authenticated - agent should handle forking if needed
+        prompt = `📝 *Create Pull Request*
+
+• Review the code and cleanup any temporary files
+• Commit all changes to Git
+• Try to push: \`git push -u origin ${gitBranch}\`
+• If push fails due to permissions:
+  - Fork the repository: \`gh repo fork --clone=false\`
+  - Add fork as remote: \`git remote add fork $(gh repo fork --clone=false 2>&1 | grep -o 'https://[^ ]*')\`
+  - Push to fork: \`git push -u fork ${gitBranch}\`
+• Create PR: \`gh pr create --web\``;
+      } else {
+        // User is not authenticated - provide auth link
+        prompt = `📝 *Create Pull Request*
+
+• Review the code and cleanup any temporary files
+• Commit all changes to Git
+• Try to push: \`git push -u origin ${gitBranch}\`
+• If you get a permission error (403), ask the user to authenticate [here](${authUrl})
+• After authentication, retry the push
+• Create PR: \`gh pr create --web\``;
+      }
+
       // No PR but has changes OR on a session branch - show create PR button
       buttons.push({
         type: "button",
@@ -482,30 +518,11 @@ async function generateGitHubActionButtons(
           action: "create_pr",
           repo: repoPath,
           branch: gitBranch,
-          prompt:
-            "Review your code, cleanup temporary files, commit changes to GIT and create a pull request",
+          prompt: prompt,
         }),
       });
     }
 
-    // View Code button
-    if (pullRequestUrl || hasGitChanges) {
-      // Has uncommitted changes - show action button to commit/push first
-      buttons.push({
-        type: "button",
-        text: { type: "plain_text", text: "📝 View Code" },
-        action_id: generateDeterministicActionId(
-          `code_${repoPath}_${gitBranch}`,
-          "github_code"
-        ),
-        value: JSON.stringify({
-          action: "view_code",
-          repo: repoPath,
-          branch: gitBranch,
-          prompt: "Commit and push changes, then view code",
-        }),
-      });
-    }
 
     return buttons.length > 0 ? buttons : undefined;
   } catch (_error) {
@@ -536,7 +553,7 @@ interface ThreadResponsePayload {
 
 /**
  * Consumer that listens to thread_response queue and updates Slack messages
- * This handles all Slack communication that was previously done by the worker
+ * This handles all Slack communication that was previously done by the workerdon
  */
 export class ThreadResponseConsumer {
   private pgBoss: PgBoss;

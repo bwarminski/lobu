@@ -594,14 +594,8 @@ export class WorkspaceManager {
       logger.info("Cleaning up workspace...");
 
       if (this.workspaceInfo) {
-        // Commit any final changes
-        try {
-          await this.commitAndPush(
-            "Final session cleanup by Claude Code Worker"
-          );
-        } catch (error) {
-          logger.warn("Failed to commit final changes:", error);
-        }
+        // No auto-push during cleanup - changes remain local
+        logger.info("Workspace has changes that will remain local");
       }
 
       logger.info("Workspace cleanup completed");

@@ -2,6 +2,7 @@ import type { App } from "@slack/bolt";
 import logger from "../../logger";
 import { getDbPool } from "../../db";
 import type { DispatcherConfig } from "../../types";
+import { generateGitHubAuthUrl } from "../../utils/github-utils";
 import type { MessageHandler } from "./message-handler";
 import type { ActionHandler } from "./action-handler";
 import { openRepositoryModal } from "./repository-modal-utils";
@@ -191,8 +192,7 @@ export class ShortcutCommandHandler {
         {
           type: "actions",
           elements: (() => {
-            const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
-            const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
+            const authUrl = generateGitHubAuthUrl(userId);
 
             const elements = [
               {

@@ -1,4 +1,5 @@
 import logger from "../../logger";
+import { generateGitHubAuthUrl } from "../../utils/github-utils";
 
 export interface RepositoryModalOptions {
   userId: string;
@@ -71,7 +72,7 @@ export async function openRepositoryModal({
         },
       });
 
-      const authUrl = `${process.env.INGRESS_URL || "http://localhost:8080"}/api/github/oauth/authorize?user_id=${userId}`;
+      const authUrl = generateGitHubAuthUrl(userId);
       blocks.push({
         type: "section",
         text: {

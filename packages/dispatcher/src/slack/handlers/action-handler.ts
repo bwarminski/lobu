@@ -3,6 +3,7 @@ import logger from "../../logger";
 import type { GitHubRepositoryManager } from "../../github/repository-manager";
 import type { QueueProducer } from "../../queue/task-queue-producer";
 import type { DispatcherConfig, SlackContext } from "../../types";
+import { generateGitHubAuthUrl } from "../../utils/github-utils";
 import type { MessageHandler } from "./message-handler";
 import {
   handleGitHubConnect,
@@ -171,12 +172,7 @@ export class ActionHandler {
             client
           );
         }
-        // Handle GitHub Code button clicks (no action needed, just log)
-        else if (actionId.startsWith("github_code_")) {
-          logger.info(
-            `GitHub Code button clicked: ${actionId} by user ${userId}`
-          );
-        } else {
+ else {
           logger.info(
             `Unsupported action: ${actionId} from user ${userId} in channel ${channelId}`
           );
@@ -226,20 +222,18 @@ export class ActionHandler {
         // Get the actual thread_ts from the message
         const actualThreadTs = body.message?.thread_ts || body.message?.ts;
 
-        // Post confirmation message like other interactive elements
-        const formattedInput = `> 🔄 *Pull Request button clicked*\n\n${pullRequestPrompt}`;
-
+        // Post confirmation message with the prompt (which is already markdown formatted)
         const inputMessage = await client.chat.postMessage({
           channel: channelId,
           thread_ts: actualThreadTs,
-          text: formattedInput,
+          text: `Pull Request requested`,
           blocks: [
             {
               type: "context",
               elements: [
                 {
                   type: "mrkdwn",
-                  text: `<@${userId}> clicked "Create Pull Request" button`,
+                  text: `<@${userId}> requested a pull request`,
                 },
               ],
             },
@@ -259,10 +253,11 @@ export class ActionHandler {
           teamId: body.team?.id || "",
           threadTs: actualThreadTs,
           messageTs: inputMessage.ts as string,
-          text: formattedInput,
+          text: `Pull Request requested for ${branch}`,
           userDisplayName: body.user?.username || "User",
         };
 
+        // Send the raw prompt to Claude, not the display version
         await this.messageHandler.handleUserRequest(
           context,
           pullRequestPrompt,
@@ -278,6 +273,7 @@ export class ActionHandler {
       });
     }
   }
+
 
   /**
    * Update App Home tab with repository information and README
@@ -407,8 +403,7 @@ export class ActionHandler {
           },
         });
 
-        const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
-        const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
+        const authUrl = generateGitHubAuthUrl(userId);
 
         const demoElements = [
           {
@@ -467,8 +462,7 @@ export class ActionHandler {
           },
         });
 
-        const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
-        const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
+        const authUrl = generateGitHubAuthUrl(userId);
 
         const loginElements = [
           {
@@ -555,8 +549,7 @@ export class ActionHandler {
    * Handle GitHub login
    */
   private async handleGitHubLogin(userId: string, client: any): Promise<void> {
-    const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
-    const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
+    const authUrl = generateGitHubAuthUrl(userId);
 
     try {
       const im = await client.conversations.open({ users: userId });

@@ -270,27 +270,7 @@ export class ClaudeWorker {
       logger.info("result.output sample:", result.output?.substring(0, 300));
       logger.info("About to update Slack...");
 
-      // Do a final push of any remaining changes
-      let pushFailed = false;
-      let pushErrorMsg = "";
-      try {
-        const status = await this.workspaceManager.getRepositoryStatus();
-        if (status.hasChanges) {
-          logger.info("Final push: Committing remaining changes...");
-          await this.workspaceManager.commitAndPush(
-            `Session complete: ${status.changedFiles.length} file(s) modified`
-          );
-        }
-      } catch (pushError: any) {
-        logger.warn("Final push failed:", pushError);
-        pushFailed = true;
-        // Check if it's a permission error
-        if (pushError?.message?.includes("403") || pushError?.message?.includes("Permission")) {
-          pushErrorMsg = "\n\n⚠️ Note: Changes were saved locally but couldn't be pushed to GitHub (permission denied). You may need to manually push the changes.";
-        } else {
-          pushErrorMsg = "\n\n⚠️ Note: Changes were saved locally but couldn't be pushed to GitHub. Make sure you have the correct permissions on the repository, login with github and try again.";
-        }
-      }
+      // No auto-push - let Claude handle git operations when user explicitly requests
 
       if (result.success) {
         // Update with Claude's response and completion status
@@ -298,14 +278,9 @@ export class ClaudeWorker {
 
         // IMPORTANT: Always update with a message, even if Claude didn't provide final text
         // This ensures the "thinking" message is replaced
-        let finalMessage = claudeResponse?.trim()
+        const finalMessage = claudeResponse?.trim()
           ? claudeResponse
           : "✅ Task completed successfully";
-        
-        // Append push failure warning if needed
-        if (pushFailed) {
-          finalMessage += pushErrorMsg;
-        }
 
         logger.info(`Sending final message via queue: ${finalMessage}...`);
         await this.queueIntegration.updateProgress(finalMessage);
@@ -334,17 +309,7 @@ export class ClaudeWorker {
     } catch (error) {
       logger.error("Worker execution failed:", error);
 
-      // Try to push any pending changes before failing
-      try {
-        const status = await this.workspaceManager.getRepositoryStatus();
-        if (status?.hasChanges) {
-          await this.workspaceManager.commitAndPush(
-            `Session error: Saving ${status.changedFiles.length} file(s) before exit`
-          );
-        }
-      } catch (pushError) {
-        logger.warn("Error push failed:", pushError);
-      }
+      // No auto-push on error - changes remain local
 
       // Try to send error via queue
       try {

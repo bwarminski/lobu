@@ -2,6 +2,7 @@ import logger from "../../logger";
 import { getDbPool } from "../../db";
 import { ErrorHandler } from "../../utils/error-handler";
 import { decrypt } from "../../utils/encryption";
+import { generateGitHubAuthUrl } from "../../utils/github-utils";
 
 /**
  * Handle GitHub connect action - initiates OAuth flow
@@ -13,8 +14,7 @@ export async function handleGitHubConnect(
 ): Promise<void> {
   try {
     // Generate OAuth URL with user ID
-    const baseUrl = process.env.INGRESS_URL || "http://localhost:8080";
-    const authUrl = `${baseUrl}/api/github/oauth/authorize?user_id=${userId}`;
+    const authUrl = generateGitHubAuthUrl(userId);
 
     // Check if this is a DM or channel
     // const isDM = channelId.startsWith('D'); // Currently unused

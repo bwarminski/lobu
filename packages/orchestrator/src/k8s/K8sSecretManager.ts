@@ -40,8 +40,19 @@ export class K8sSecretManager extends BaseSecretManager {
 
       if (existingPassword) {
         console.log(
-          `Found existing secret for user ${username}, using existing credentials`
+          `Found existing secret for user ${username}, ensuring database user exists`
         );
+        // Ensure the database user exists (in case database was recreated)
+        try {
+          await createPostgresUser(username, existingPassword);
+          console.log(`Ensured database user ${username} exists`);
+        } catch (error: any) {
+          // User might already exist, which is fine
+          if (!error.message?.includes("already exists")) {
+            console.error(`Failed to ensure database user ${username}:`, error.message);
+            throw error;
+          }
+        }
         return existingPassword;
       }
     } catch (_error) {

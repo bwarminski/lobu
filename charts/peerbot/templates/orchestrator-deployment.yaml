@@ -68,6 +68,14 @@ spec:
               name: {{ include "peerbot.fullname" . }}-secrets
               key: database-url
         
+        # Encryption key for environment variables
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "peerbot.fullname" . }}-secrets
+              key: encryption-key
+              optional: false
+        
         # Sentry configuration
         - name: SENTRY_DSN
           valueFrom:

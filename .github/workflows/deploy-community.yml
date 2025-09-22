@@ -97,7 +97,7 @@ jobs:
           POSTGRESQL_PASSWORD: ${{ secrets.POSTGRESQL_PASSWORD }}
         run: |
           echo "🚀 Deploying with make deploy..."
-          make deploy --target=community
+          TARGET=community make deploy
             
       - name: Verify Deployment
         run: |

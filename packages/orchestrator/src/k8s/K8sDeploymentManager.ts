@@ -375,7 +375,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                       secretKeyRef: {
                         name: "peerbot-secrets",
                         key: "github-token",
-                      },
+                        optional: true,
+                      } as any,
                     },
                   },
                 ],

@@ -217,5 +217,19 @@ spegel:
   enabled: true
   image:
     tag: "v0.4.0"
-  # Spegel automatically discovers other nodes via Kubernetes API
-  # No additional configuration needed for basic P2P functionality
+  # Resources for Spegel containers (required by resource quota)
+  resources:
+    configuration:
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+    registry:
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"

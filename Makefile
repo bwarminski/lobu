@@ -126,6 +126,7 @@ deploy:
 		IMAGE_TAG="latest"; \
 	fi; \
 	helm upgrade --install "$${DEPLOYMENT_NAME:-peerbot}" charts/peerbot/ \
+		--dependency-update \
 		--create-namespace \
 		--namespace "$${NAMESPACE:-peerbot}" \
 		-f "$$VALUES_FILE" \

@@ -31,7 +31,7 @@
     "dev:dispatcher": "bun run packages/dispatcher/src/index.ts",
     "dev:worker": "bun run packages/worker/src/index.ts",
     "docker:build": "docker build -f docker/dispatcher.Dockerfile -t claude-dispatcher . && docker build -f docker/worker.Dockerfile -t claude-worker .",
-    "k8s:deploy": "helm upgrade --install peerbot charts/peerbot",
+    "k8s:deploy": "helm upgrade --install peerbot charts/peerbot --dependency-update",
     "k8s:uninstall": "helm uninstall peerbot"
   },
   "dependencies": {

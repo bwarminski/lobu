@@ -4,11 +4,9 @@
 global:
   imagePullSecrets: []
 
-# Image pre-puller DaemonSet to cache images on all nodes
-imagePuller:
+# Spegel P2P image distribution
+spegel:
   enabled: true
-  nodeSelector: {}
-  tolerations: []
 
 # Kubernetes namespace
 kubernetes:

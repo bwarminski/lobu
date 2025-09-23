@@ -146,7 +146,7 @@ deploy:
 		--set secrets.claudeCodeOAuthToken="$$CLAUDE_CODE_OAUTH_TOKEN" \
 		--set secrets.postgresqlPassword="$$POSTGRESQL_PASSWORD" \
 		--wait \
-		--timeout 10m
+		--timeout "$${HELM_TIMEOUT:-10m}"
 	@# Migrations are handled by orchestrator on startup, so just verify it's running
 	@echo "🗄️ Verifying orchestrator is running (migrations run automatically)..."
 	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=peerbot,app.kubernetes.io/component=orchestrator -n "$${NAMESPACE:-peerbot}" --timeout=300s || echo "Orchestrator may still be starting..."

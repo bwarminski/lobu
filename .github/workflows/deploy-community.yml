@@ -139,7 +139,19 @@ jobs:
           echo "🚀 Deploying with make deploy..."
           # Login to GitHub Container Registry for OCI charts
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-          TARGET=community make deploy
+          
+          # Set shorter timeout for CI to fail faster if stuck
+          export HELM_TIMEOUT=5m
+          
+          # Run deployment with timeout
+          timeout 360 bash -c "TARGET=community make deploy" || {
+            echo "⚠️ Deployment timed out or failed, checking pod status..."
+            kubectl get pods -n $NAMESPACE
+            echo ""
+            echo "📝 Recent events:"
+            kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -20
+            exit 1
+          }
             
       - name: Verify Deployment
         run: |

@@ -24,12 +24,12 @@ spec:
     count/pods: {{ .Values.resourceQuota.counts.pods | default "20" }}
     count/jobs.batch: {{ .Values.resourceQuota.counts.jobs | default "15" }}
     count/configmaps: {{ .Values.resourceQuota.counts.configmaps | default "10" }}
-    count/secrets: {{ .Values.resourceQuota.counts.secrets | default "10" }}
-    count/services: {{ .Values.resourceQuota.counts.services | default "5" }}
-    count/persistentvolumeclaims: {{ .Values.resourceQuota.counts.pvcs | default "5" }}
+    count/secrets: {{ .Values.resourceQuota.counts.secrets | default "100" }}
+    count/services: {{ .Values.resourceQuota.counts.services | default "50" }}
+    count/persistentvolumeclaims: {{ .Values.resourceQuota.counts.pvcs | default "50" }}
     
     # Prevent resource-intensive objects
-    count/services.loadbalancers: {{ .Values.resourceQuota.counts.loadbalancers | default "1" }}
+    count/services.loadbalancers: {{ .Values.resourceQuota.counts.loadbalancers | default "5" }}
     count/services.nodeports: {{ .Values.resourceQuota.counts.nodeports | default "0" }}
 
 {{- if and .Values.resourceQuota.enabled (ne .Values.workerQuota.enabled false) }}

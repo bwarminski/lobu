@@ -190,6 +190,7 @@ resourceQuota:
     pods: "50"     # Support 30+ worker pods plus core services
     persistentvolumeclaims: "100"  # Support persistent volumes for workers
     pvcs: "100"    # Alias for persistentvolumeclaims
+    secrets: "100" # Support Helm releases and user secrets
 
 # Worker-specific quota
 workerQuota:

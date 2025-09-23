@@ -75,6 +75,24 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
       
+      - name: Check and Fix Stuck Helm Release
+        run: |
+          echo "🔍 Checking for stuck Helm releases..."
+          # Check if there's a stuck release
+          if helm list -n $NAMESPACE --pending | grep -q $DEPLOYMENT_NAME; then
+            echo "⚠️ Found stuck Helm release, attempting to rollback..."
+            helm rollback $DEPLOYMENT_NAME -n $NAMESPACE --wait --timeout=60s || true
+          fi
+          
+          # Check again and delete if still stuck
+          if helm list -n $NAMESPACE --pending | grep -q $DEPLOYMENT_NAME; then
+            echo "⚠️ Rollback failed, deleting stuck release..."
+            helm delete $DEPLOYMENT_NAME -n $NAMESPACE --no-hooks || true
+            sleep 5
+          fi
+          
+          echo "✅ Helm release check complete"
+      
       - name: Deploy with make
         env:
           # Mark as GitHub Actions environment

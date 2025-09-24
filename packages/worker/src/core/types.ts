@@ -124,27 +124,5 @@ export interface WorkerJobSpec {
   slackResponseTs: string;
 }
 
-// Error types
-export class SessionError extends Error {
-  constructor(
-    public sessionKey: string,
-    public code: string,
-    message: string,
-    public cause?: Error
-  ) {
-    super(message);
-    this.name = "SessionError";
-  }
-}
-
-export class WorkerError extends Error {
-  constructor(
-    public workerId: string,
-    public operation: string,
-    message: string,
-    public cause?: Error
-  ) {
-    super(message);
-    this.name = "WorkerError";
-  }
-}
+// Re-export from shared package
+export { SessionError, CoreWorkerError as WorkerError } from "@peerbot/shared";

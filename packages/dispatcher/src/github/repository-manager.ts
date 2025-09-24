@@ -4,18 +4,8 @@ import { Octokit } from "@octokit/rest";
 import logger from "../logger";
 import type { GitHubConfig, UserRepository } from "../types";
 
-// Define custom error class
-class GitHubRepositoryError extends Error {
-  constructor(
-    public operation: string,
-    public username: string,
-    message: string,
-    public cause?: Error
-  ) {
-    super(message);
-    this.name = "GitHubRepositoryError";
-  }
-}
+// Import from shared package
+import { GitHubRepositoryError } from "@peerbot/shared";
 
 export class GitHubRepositoryManager {
   private octokit: Octokit;

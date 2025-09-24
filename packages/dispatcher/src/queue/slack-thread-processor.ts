@@ -49,21 +49,14 @@ function processMarkdownAndBlockkit(content: string): {
       });
 
       if (metadata.action) {
-        console.log(
-          `[DEBUG] Found action block - language: ${language}, action: ${metadata.action}, show: ${metadata.show}`
+        logger.debug(
+          `Found action block - language: ${language}, action: ${metadata.action}, show: ${metadata.show}`
         );
 
         if (language === "blockkit") {
           // Always hide the code block from the message for blockkit actions
+          // The show parameter doesn't affect button creation for blockkit
           processedContent = processedContent.replace(fullMatch, "");
-
-          // Skip entirely if show: false
-          if (metadata.show === false) {
-            console.log(
-              `[DEBUG] Skipping blockkit with show:false - action: ${metadata.action}`
-            );
-            continue;
-          }
 
           const parsed = codeContent
             ? JSON.parse(codeContent.trim())

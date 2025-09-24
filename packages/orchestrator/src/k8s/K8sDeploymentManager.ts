@@ -290,6 +290,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
           },
           spec: {
             serviceAccountName: "peerbot-worker",
+            runtimeClassName: this.config.worker.runtimeClassName || "kata",
             securityContext: {
               fsGroup: 1001,
               fsGroupChangePolicy: "OnRootMismatch",

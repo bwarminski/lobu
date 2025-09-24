@@ -97,6 +97,7 @@ claude:
 # Disable static worker deployment - workers are created dynamically by orchestrator
 worker:
   enabled: false
+  runtimeClassName: "kata"
   image:
     repository: buremba/peerbot-worker
     pullPolicy: Always

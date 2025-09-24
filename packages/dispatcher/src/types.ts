@@ -86,6 +86,7 @@ export interface ThreadSession {
   threadTs?: string;
   channelId: string;
   userId: string;
+  threadCreator?: string; // Track the original thread creator
   username: string;
   jobName?: string;
   repositoryUrl: string;

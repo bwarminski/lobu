@@ -152,8 +152,8 @@ export class MessageHandler {
       `Thread routing - messageTs: ${context.messageTs}, threadTs: ${context.threadTs}, normalizedThreadTs: ${normalizedThreadTs}`
     );
 
-    // Generate session key with normalized threadTs
-    const sessionKey = SessionUtils.generateSessionKey({
+    // Generate session key with normalized threadTs - use thread creator as userId for consistency
+    const threadCreatorSessionKey = SessionUtils.generateSessionKey({
       platform: "slack",
       channelId: context.channelId,
       userId: context.userId,
@@ -161,12 +161,44 @@ export class MessageHandler {
       messageTs: context.messageTs,
     });
 
+    // Check for existing session to find thread creator
+    let existingSession: ThreadSession | undefined;
+    for (const [, session] of this.activeSessions.entries()) {
+      if (
+        session.threadTs === normalizedThreadTs &&
+        session.channelId === context.channelId
+      ) {
+        existingSession = session;
+        break;
+      }
+    }
+
+    // Check if this is a reply from someone other than the thread creator
+    if (
+      existingSession?.threadCreator &&
+      existingSession.threadCreator !== context.userId
+    ) {
+      logger.warn(
+        `User ${context.userId} tried to interact with thread owned by ${existingSession.threadCreator}`
+      );
+
+      // Send ownership message
+      await client.chat.postMessage({
+        channel: context.channelId,
+        thread_ts: normalizedThreadTs,
+        text: `This thread is owned by <@${existingSession.threadCreator}>. Only the thread creator can interact with the bot in this conversation.`,
+        mrkdwn: true,
+      });
+
+      return;
+    }
+
+    const sessionKey = threadCreatorSessionKey;
+
     logger.info(
       `Handling request for session: ${sessionKey} (threadTs: ${normalizedThreadTs})`
     );
 
-    // Check if session is already active
-    const existingSession = this.activeSessions.get(sessionKey);
     logger.info(
       `Existing session status for ${sessionKey}: ${existingSession?.status || "none"}`
     );
@@ -230,6 +262,7 @@ export class MessageHandler {
         threadTs: threadTs,
         channelId: context.channelId,
         userId: context.userId,
+        threadCreator: context.userId, // Store the thread creator
         username,
         repositoryUrl: repository?.repositoryUrl || "",
         lastActivity: Date.now(),

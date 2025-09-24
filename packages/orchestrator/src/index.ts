@@ -430,6 +430,7 @@ async function main() {
           tag: process.env.WORKER_IMAGE_TAG || "latest",
           pullPolicy: process.env.WORKER_IMAGE_PULL_POLICY || "Always",
         },
+        runtimeClassName: process.env.WORKER_RUNTIME_CLASS_NAME || "kata",
         resources: {
           requests: {
             cpu: process.env.WORKER_CPU_REQUEST || "100m",

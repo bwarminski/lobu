@@ -14,6 +14,7 @@ export interface OrchestratorConfig {
       tag: string;
       pullPolicy?: string;
     };
+    runtimeClassName?: string; // Container runtime class (e.g., "kata" for kata containers)
     resources: {
       requests: { cpu: string; memory: string };
       limits: { cpu: string; memory: string };
@@ -90,6 +91,7 @@ export interface SimpleDeployment {
       };
       spec: {
         serviceAccountName?: string;
+        runtimeClassName?: string;
         securityContext?: {
           fsGroup?: number;
           fsGroupChangePolicy?: "Always" | "OnRootMismatch";

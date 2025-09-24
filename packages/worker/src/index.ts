@@ -104,15 +104,6 @@ process.on("SIGINT", async () => {
  */
 async function appendTerminationMessage(signal: string): Promise<void> {
   try {
-    if (
-      process.env.PEERBOT_DATABASE_HOST &&
-      process.env.PEERBOT_DATABASE_PORT &&
-      process.env.PEERBOT_DATABASE_USERNAME &&
-      process.env.PEERBOT_DATABASE_PASSWORD &&
-      process.env.SLACK_RESPONSE_CHANNEL &&
-      process.env.SLACK_RESPONSE_TS
-    ) {
-      // Construct database URL from components
       const databaseUrl = `postgresql://${process.env.PEERBOT_DATABASE_USERNAME}:${process.env.PEERBOT_DATABASE_PASSWORD}@${process.env.PEERBOT_DATABASE_HOST}:${process.env.PEERBOT_DATABASE_PORT}/peerbot`;
 
       const queueIntegration = new QueueIntegration({
@@ -124,7 +115,7 @@ async function appendTerminationMessage(signal: string): Promise<void> {
 
       await queueIntegration.start();
       await queueIntegration.updateProgress(
-        `🛑 **Worker terminated (${signal})** - The host is terminated and not processing further requests.`
+        `🛑 *Worker terminated (${signal})* - The host is terminated and not processing further requests.`
       );
       await queueIntegration.signalDone();
 
@@ -132,7 +123,6 @@ async function appendTerminationMessage(signal: string): Promise<void> {
       // No direct reaction calls needed here
 
       await queueIntegration.stop();
-    }
   } catch (error) {
     logger.error(
       `Failed to send ${signal} termination message via queue:`,

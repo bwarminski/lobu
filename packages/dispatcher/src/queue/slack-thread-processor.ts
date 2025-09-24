@@ -55,15 +55,8 @@ function processMarkdownAndBlockkit(content: string): {
 
         if (language === "blockkit") {
           // Always hide the code block from the message for blockkit actions
+          // The show parameter doesn't affect button creation for blockkit
           processedContent = processedContent.replace(fullMatch, "");
-
-          // Skip entirely if show: false
-          if (metadata.show === false) {
-            logger.debug(
-              `Skipping blockkit with show:false - action: ${metadata.action}`
-            );
-            continue;
-          }
 
           const parsed = codeContent
             ? JSON.parse(codeContent.trim())

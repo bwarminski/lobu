@@ -1,76 +1,35 @@
 # Dispatcher Agent Instructions
 
 ## Package Overview
-The dispatcher is the entry point for all Slack events and interactions. It acts as the message router and communication hub that receives Slack events, processes them, and coordinates with other services.
+Slack event router and communication hub. Entry point for all Slack interactions.
 
-## Core Responsibilities
-
-### Event Processing
-- **Slack Event Handling**: Processes all Slack events including messages, reactions, button clicks, and modal submissions
-- **Message Routing**: Routes different types of messages and events to appropriate handlers
-- **User Authentication**: Manages GitHub OAuth integration and user authentication flows
-- **Repository Management**: Handles repository selection and management for users
-
-### Queue Management
-- **Task Queue Producer**: Publishes messages to task queues for worker processing
-- **Thread Response Consumer**: Consumes and processes responses from workers
-- **Message Coordination**: Ensures proper message threading and response handling
-
-### HTTP Services
-- **Slack Webhook Endpoint**: Receives Slack events via HTTP (when not using Socket Mode)
-- **Anthropic Proxy**: Provides proxy capabilities for Anthropic API requests
-- **Health Endpoints**: Exposes health check and status endpoints
-
-## Key Components
+## Core Files & Responsibilities
 
 ### Event Handlers (`src/slack/event-handlers/`)
-- `message-handlers.ts`: Processes direct messages and channel messages
-- `block-actions.ts`: Handles Slack interactive components (buttons, menus)
-- `file-handlers.ts`: Processes file uploads and attachments
-- `form-handlers.ts`: Manages modal form submissions
-- `user-handlers.ts`: Handles user-related events
+- `message-handlers.ts`: Routes messages to workers, ensures one thread = one worker
+- `block-actions.ts`: Handles buttons, menus, interactive components
+- `file-handlers.ts`: Processes file uploads and attachments  
+- `form-handlers.ts`: Manages modal submissions
+- `user-handlers.ts`: User authentication and setup
 
 ### Queue Integration (`src/queue/`)
-- `task-queue-producer.ts`: Publishes tasks to PostgreSQL-based queues
-- `slack-thread-processor.ts`: Consumes worker responses and updates Slack
+- `task-queue-producer.ts`: Publishes to `worker_deployment` and `thread_message_{deploymentId}` queues
+- `slack-thread-processor.ts`: Consumes `thread_response` queue, updates Slack messages
 
 ### GitHub Integration (`src/github/`)
-- `repository-manager.ts`: Manages GitHub repositories and user access
+- `repository-manager.ts`: OAuth flows, repository access, token encryption
 
-## Implementation Guidelines
+## PostgreSQL Tables
+- `users`: Platform user data with RLS isolation
+- `user_environ`: Environment variables (channel/repository scoped)
 
-### Adding New Event Types
-1. Create handler in appropriate `src/slack/event-handlers/` file
-2. Register event listener in `SlackEventHandlers` class
-3. Use `queueProducer` to send tasks to workers if processing is required
-4. Implement proper error handling and user feedback
+## Critical Architecture Rules
+- **One thread = One worker**: All messages in a Slack thread go to same worker deployment
+- Use `targetThreadId` for consistent worker naming: `peerbot-worker-{userId}-{threadId}`
+- Never use message timestamps for worker identification
 
-### Queue Communication
-- Use PostgreSQL-based queues (pg-boss) for reliability
-- Always include proper metadata (user ID, channel, thread timestamp)
-- Handle queue failures gracefully with user notifications
-- Implement proper retry mechanisms
-
-### GitHub Integration
-- Use OAuth for user authentication (prefer over personal tokens)
-- Store encrypted tokens using shared encryption utilities
-- Validate repository access before operations
-- Handle GitHub API rate limits appropriately
-
-### Error Handling
-- Log all errors with appropriate context
-- Provide user-friendly error messages in Slack
-- Use centralized error handling from `@peerbot/shared`
-- Implement graceful degradation for service failures
-
-## Environment Dependencies
-- `SLACK_BOT_TOKEN`: Required for Slack API access
-- `DATABASE_URL`: PostgreSQL connection for queues and storage
-- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`: For OAuth integration
-- `ANTHROPIC_API_KEY`: For proxy functionality
-
-## Testing Considerations
-- Mock Slack API calls using test helpers from `@peerbot/shared`
-- Test event handling flows end-to-end
-- Verify queue message publishing and consumption
-- Test OAuth flows with GitHub integration
+## Environment Variables
+- `SLACK_BOT_TOKEN`: Slack API access
+- `DATABASE_URL`: PostgreSQL connection 
+- `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`: OAuth
+- `ANTHROPIC_API_KEY`: API proxy

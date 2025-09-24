@@ -1,5 +1,7 @@
 import { startProcessManagerServer } from "../mcp/process-manager-server.js";
-import logger from "./logger.js";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("worker");
 
 export interface ProcessManagerInstance {
   port: number;

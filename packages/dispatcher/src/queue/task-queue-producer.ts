@@ -3,7 +3,9 @@
 import * as Sentry from "@sentry/node";
 import { Pool } from "pg";
 import PgBoss from "pg-boss";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Queue producer for dispatching messages to pgboss queues

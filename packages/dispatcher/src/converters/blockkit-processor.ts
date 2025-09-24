@@ -6,6 +6,9 @@ import {
   parseCodeBlockMetadata,
   processCodeBlockWithAction,
 } from "./code-block-handler";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 // Generate deterministic action IDs based on content to prevent conflicts during rapid message updates - fixed
 export function generateDeterministicActionId(
@@ -39,7 +42,7 @@ export function processMarkdownAndBlockkit(content: string): {
       const metadata = parseCodeBlockMetadata(metadataStr);
 
       if (metadata.action) {
-        console.log(
+        logger.info(
           `Found action block - language: ${language}, action: ${metadata.action}, show: ${metadata.show}`
         );
 
@@ -60,7 +63,7 @@ export function processMarkdownAndBlockkit(content: string): {
         // Skip button creation if needed
         if (result.shouldSkipButton) {
           if (result.debugMessage) {
-            console.log(`[DEBUG] ${result.debugMessage}`);
+            logger.debug(`[DEBUG] ${result.debugMessage}`);
           }
           continue;
         }
@@ -69,14 +72,14 @@ export function processMarkdownAndBlockkit(content: string): {
         if (result.button) {
           actionButtons.push(result.button);
           if (result.debugMessage) {
-            console.log(`[DEBUG] ${result.debugMessage}`);
+            logger.debug(`[DEBUG] ${result.debugMessage}`);
           }
         }
       }
 
       blockIndex++; // Increment for each processed block to ensure unique action_ids
     } catch (error) {
-      console.error("Failed to parse code block:", error);
+      logger.error("Failed to parse code block:", error);
     }
   }
 
@@ -128,7 +131,7 @@ export function processMarkdownAndBlockkit(content: string): {
   }
 
   if (actionButtons.length > 0) {
-    console.log(
+    logger.debug(
       `[DEBUG] Adding ${actionButtons.length} action buttons to blocks`
     );
     if (blocks.length > 0) blocks.push({ type: "divider" });
@@ -138,7 +141,7 @@ export function processMarkdownAndBlockkit(content: string): {
     });
   }
 
-  console.log(
+  logger.debug(
     `[DEBUG] processMarkdownAndBlockkit returning - text length: ${text?.length || 0}, blocks count: ${blocks.length}, action buttons: ${actionButtons.length}`
   );
 

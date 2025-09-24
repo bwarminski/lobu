@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Block action handlers for interactive elements

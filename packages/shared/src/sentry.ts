@@ -1,4 +1,7 @@
 import * as Sentry from "@sentry/node";
+import { createLogger } from "./logger";
+
+const logger = createLogger("shared");
 
 /**
  * Initialize Sentry with configuration from environment variables
@@ -20,5 +23,5 @@ export function initSentry() {
     ],
   });
 
-  console.log("✅ Sentry monitoring initialized");
+  logger.info("✅ Sentry monitoring initialized");
 }

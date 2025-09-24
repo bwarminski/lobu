@@ -2,7 +2,9 @@
 
 import { encrypt } from "@peerbot/shared";
 import { getDbPool } from "@peerbot/shared";
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 const ENV_PREFIX = "env:";
 

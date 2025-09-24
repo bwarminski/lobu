@@ -1,5 +1,7 @@
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { generateGitHubAuthUrl } from "../../utils/github-utils";
+
+const logger = createLogger("dispatcher");
 
 export interface RepositoryModalOptions {
   userId: string;

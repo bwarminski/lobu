@@ -6,6 +6,9 @@
 
 import { expect, jest } from "bun:test";
 import { createMockEnvironment } from "./mock-factories";
+import { createLogger } from "../logger";
+
+const logger = createLogger("shared");
 
 /**
  * Test data generators
@@ -269,7 +272,7 @@ export const asyncTestUtils = {
       .map((result) => result.reason);
 
     if (rejected.length > 0) {
-      console.warn(`${rejected.length} tasks failed:`, rejected);
+      logger.warn(`${rejected.length} tasks failed:`, rejected);
     }
 
     if (expectedResults) {
@@ -386,7 +389,7 @@ export class TestEnvironment {
       try {
         callback();
       } catch (error) {
-        console.warn("Cleanup callback failed:", error);
+        logger.warn("Cleanup callback failed:", error);
       }
     });
 

@@ -6,8 +6,10 @@ if (process.env.K8S_SKIP_TLS_VERIFY === "true") {
 }
 
 import type { ClaudeWorker } from "./claude-worker";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import { WorkerQueueConsumer } from "./queue/queue-consumer";
+
+const logger = createLogger("worker");
 
 /**
  * Queue-based persistent Claude worker

@@ -1,5 +1,7 @@
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 // import { getDbPool } from "@peerbot/shared"; // Currently unused
+
+const logger = createLogger("dispatcher");
 import type { GitHubRepositoryManager } from "../../github/repository-manager";
 import type { QueueProducer } from "../../queue/task-queue-producer";
 import type { DispatcherConfig, SlackContext } from "../../types";

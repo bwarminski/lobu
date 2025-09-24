@@ -4,13 +4,15 @@ import { exec } from "node:child_process";
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import type {
   GitRepository,
   WorkspaceInfo,
   WorkspaceSetupConfig,
 } from "./types";
 import { WorkspaceError } from "./types";
+
+const logger = createLogger("worker");
 
 const execAsync = promisify(exec);
 

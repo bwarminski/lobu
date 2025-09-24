@@ -11,6 +11,9 @@ import {
   OrchestratorError,
 } from "../types";
 import { PostgresSecretManager } from "./PostgresSecretManager";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("orchestrator");
 
 export class DockerDeploymentManager extends BaseDeploymentManager {
   private docker: Docker;
@@ -182,7 +185,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       const container = await this.docker.createContainer(createOptions);
       await container.start();
 
-      console.log(`✅ Created and started Docker container: ${deploymentName}`);
+      logger.info(`✅ Created and started Docker container: ${deploymentName}`);
     } catch (error) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,
@@ -203,10 +206,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
       if (replicas === 0 && containerInfo.State.Running) {
         await container.stop();
-        console.log(`Stopped container ${deploymentName}`);
+        logger.info(`Stopped container ${deploymentName}`);
       } else if (replicas === 1 && !containerInfo.State.Running) {
         await container.start();
-        console.log(`Started container ${deploymentName}`);
+        logger.info(`Started container ${deploymentName}`);
       }
     } catch (error) {
       throw new OrchestratorError(
@@ -230,18 +233,18 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       // Stop container if running
       try {
         await container.stop();
-        console.log(`✅ Stopped container: ${deploymentName}`);
+        logger.info(`✅ Stopped container: ${deploymentName}`);
       } catch (_error) {
         // Container might already be stopped
-        console.log(`⚠️  Container ${deploymentName} was not running`);
+        logger.warn(`⚠️  Container ${deploymentName} was not running`);
       }
 
       // Remove container
       await container.remove();
-      console.log(`✅ Removed container: ${deploymentName}`);
+      logger.info(`✅ Removed container: ${deploymentName}`);
     } catch (error: any) {
       if (error.statusCode === 404) {
-        console.log(
+        logger.warn(
           `⚠️  Container ${deploymentName} not found (already deleted)`
         );
       } else {
@@ -256,13 +259,13 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       const timestamp = new Date().toISOString();
 
       // Update container labels (Docker doesn't support runtime label updates, so we log for now)
-      console.log(
+      logger.info(
         `✅ Updated activity timestamp for container: ${deploymentName} at ${timestamp}`
       );
       // Note: Docker doesn't support runtime label updates like K8s annotations
       // This could be implemented by recreating the container with updated labels if needed
     } catch (error) {
-      console.error(
+      logger.error(
         `❌ Failed to update activity for container ${deploymentName}:`,
         error instanceof Error ? error.message : String(error)
       );

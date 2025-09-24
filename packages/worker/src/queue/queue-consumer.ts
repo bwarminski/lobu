@@ -3,8 +3,10 @@
 import * as Sentry from "@sentry/node";
 import PgBoss from "pg-boss";
 import { ClaudeWorker } from "../claude-worker";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
 import type { WorkerConfig } from "../types";
+
+const logger = createLogger("worker");
 
 /**
  * Queue consumer for workers that listen to thread-specific messages

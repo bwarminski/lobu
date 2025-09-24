@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
 import PgBoss from "pg-boss";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("worker");
 
 interface TodoItem {
   id: string;

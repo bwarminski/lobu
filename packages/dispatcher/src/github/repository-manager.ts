@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
 import { Octokit } from "@octokit/rest";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
 import type { GitHubConfig, UserRepository } from "../types";
+
+const logger = createLogger("dispatcher");
 
 // Import from shared package
 import { GitHubRepositoryError, getDbPool } from "@peerbot/shared";

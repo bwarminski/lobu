@@ -1,6 +1,9 @@
 import type * as k8s from "@kubernetes/client-node";
 import { BaseSecretManager } from "../base/BaseSecretManager";
 import { ErrorCode, OrchestratorError } from "../types";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("orchestrator");
 
 export class K8sSecretManager extends BaseSecretManager {
   private coreV1Api?: k8s.CoreV1Api;
@@ -39,17 +42,17 @@ export class K8sSecretManager extends BaseSecretManager {
       ).toString();
 
       if (existingPassword) {
-        console.log(
+        logger.info(
           `Found existing secret for user ${username}, ensuring database user exists`
         );
         // Ensure the database user exists (in case database was recreated)
         try {
           await createPostgresUser(username, existingPassword);
-          console.log(`Ensured database user ${username} exists`);
+          logger.info(`Ensured database user ${username} exists`);
         } catch (error: any) {
           // User might already exist, which is fine
           if (!error.message?.includes("already exists")) {
-            console.error(
+            logger.error(
               `Failed to ensure database user ${username}:`,
               error.message
             );
@@ -60,7 +63,7 @@ export class K8sSecretManager extends BaseSecretManager {
       }
     } catch (_error) {
       // Secret doesn't exist, will create new credentials
-      console.log(
+      logger.info(
         `Secret ${secretName} does not exist, creating new credentials`
       );
     }
@@ -68,7 +71,7 @@ export class K8sSecretManager extends BaseSecretManager {
     // Generate new credentials
     const password = this.generatePassword();
 
-    console.log(`Creating new credentials for user ${username}`);
+    logger.info(`Creating new credentials for user ${username}`);
     await createPostgresUser(username, password);
     await this.storeUserCredentials(username, password);
     return password;
@@ -112,7 +115,7 @@ export class K8sSecretManager extends BaseSecretManager {
         this.config.kubernetes.namespace,
         secret
       );
-      console.log(`✅ Created permanent secret: ${secretName}`);
+      logger.info(`✅ Created permanent secret: ${secretName}`);
     } catch (error) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,

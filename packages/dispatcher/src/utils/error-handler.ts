@@ -1,4 +1,6 @@
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Centralized error handler utility to reduce duplicate error handling code

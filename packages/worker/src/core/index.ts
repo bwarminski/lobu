@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { runClaudeWithProgress } from "./claude-session-executor";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import { createPromptFile } from "./prompt-generation";
 import { SessionManager } from "./session-manager";
 import type {
@@ -10,6 +10,8 @@ import type {
   ProgressCallback,
   SessionContext,
 } from "./types";
+
+const logger = createLogger("worker");
 
 export interface ExecuteClaudeSessionOptions {
   sessionKey: string;

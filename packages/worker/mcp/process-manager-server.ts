@@ -7,6 +7,9 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("worker");
 
 interface ProcessInfo {
   id: string;
@@ -51,7 +54,7 @@ class ProcessManager {
         }
       }
     } catch (error) {
-      console.error("Error loading existing processes:", error);
+      logger.error("Error loading existing processes:", error);
     }
   }
 
@@ -111,9 +114,9 @@ class ProcessManager {
     logStream.write("---\n");
 
     // Log to worker console
-    console.log(`[Process Manager] Starting process ${id}: ${description}`);
-    console.log(`[Process Manager] Command: ${command}`);
-    console.log(`[Process Manager] Working Directory: ${workingDir}`);
+    logger.info(`[Process Manager] Starting process ${id}: ${description}`);
+    logger.info(`[Process Manager] Command: ${command}`);
+    logger.info(`[Process Manager] Working Directory: ${workingDir}`);
 
     const child = spawn("bash", ["-c", command], {
       detached: false,
@@ -149,13 +152,13 @@ class ProcessManager {
       logStream.end();
 
       // Log to worker console
-      console.log(`[Process Manager] Process ${id} exited with code ${code}`);
+      logger.info(`[Process Manager] Process ${id} exited with code ${code}`);
 
       await this.saveProcessInfo(info);
 
       // Kill tunnel if main process dies
       if (info.tunnelProcess?.pid) {
-        console.log(
+        logger.info(
           `[Process Manager] Stopping tunnel for ${id} since main process exited`
         );
         try {
@@ -189,7 +192,7 @@ class ProcessManager {
 
     // Skip if we already have a working tunnel
     if (info.tunnelUrl && info.tunnelProcess) {
-      console.log(
+      logger.info(
         `[MCP Process Manager] Tunnel already exists for ${id}: ${info.tunnelUrl}`
       );
       return;
@@ -199,7 +202,7 @@ class ProcessManager {
     if (retryCount > 0) {
       // Start with 30s, then 60s, then 120s
       const delay = Math.min(30000 * 2 ** (retryCount - 1), 120000);
-      console.error(
+      logger.error(
         `[MCP Process Manager] Cloudflare rate limit detected. Waiting ${delay / 1000}s before retry attempt ${retryCount + 1} for tunnel`
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -215,7 +218,7 @@ class ProcessManager {
     );
 
     // Log to worker console (use stderr so it appears in pod logs)
-    console.error(
+    logger.error(
       `[MCP Process Manager] Starting cloudflared tunnel for process ${id} on port ${port} (attempt ${retryCount + 1})`
     );
 
@@ -230,7 +233,7 @@ class ProcessManager {
 
     // Handle spawn errors
     tunnelChild.on("error", (err) => {
-      console.error(
+      logger.error(
         `[Process Manager] Failed to spawn cloudflared: ${err.message}`
       );
       tunnelLogStream.write(
@@ -249,7 +252,7 @@ class ProcessManager {
         tunnelLogStream.write(
           "Failed to extract tunnel URL within 15 seconds\n"
         );
-        console.error(`Failed to extract tunnel URL for process ${id}`);
+        logger.error(`Failed to extract tunnel URL for process ${id}`);
 
         // Kill the tunnel process if URL extraction fails
         if (info.tunnelProcess) {
@@ -278,7 +281,7 @@ class ProcessManager {
       }
 
       // Log cloudflared output to console for debugging (use stderr so it appears in pod logs)
-      console.error(
+      logger.error(
         `[MCP Process Manager - Cloudflared Output] ${output.trim()}`
       );
 
@@ -291,7 +294,7 @@ class ProcessManager {
         tunnelLogStream.write(
           `\n[MCP] Rate limit detected (429 Too Many Requests)\n`
         );
-        console.error(
+        logger.error(
           `[MCP Process Manager] Cloudflare rate limit detected (429 Too Many Requests)`
         );
       }
@@ -313,10 +316,10 @@ class ProcessManager {
         tunnelLogStream.write(
           `[MCP] Converted to peerbot.ai: ${info.tunnelUrl}\n`
         );
-        console.error(
+        logger.error(
           `[MCP Process Manager - Tunnel ${id}] Established: ${info.tunnelUrl}`
         );
-        console.error(
+        logger.error(
           `[MCP Process Manager - Tunnel ${id}] Original cloudflared URL: ${urlMatch[0]}`
         );
         this.saveProcessInfo(info);
@@ -336,7 +339,7 @@ class ProcessManager {
       tunnelLogStream.end();
 
       // Log exit details for debugging
-      console.error(
+      logger.error(
         `[MCP Process Manager] Cloudflared exited with code ${code}, signal: ${signal}`
       );
 
@@ -349,22 +352,22 @@ class ProcessManager {
         // Use longer delays if rate limited
         if (code !== 0 && !urlExtracted && retryCount < 2) {
           if (rateLimitDetected) {
-            console.error(
+            logger.error(
               `[MCP Process Manager] Cloudflared hit rate limit - will retry with longer backoff (attempt ${retryCount + 2}/3)`
             );
           } else {
-            console.error(
+            logger.error(
               `[MCP Process Manager] Cloudflared failed with exit code ${code} - retrying tunnel (attempt ${retryCount + 2}/3)`
             );
           }
           this.startTunnel(id, port, retryCount + 1);
         } else if (code !== 0 && !urlExtracted) {
           if (rateLimitDetected) {
-            console.error(
+            logger.error(
               `[MCP Process Manager] Cloudflared rate limited after ${retryCount + 1} attempts - consider using alternative tunnel solution`
             );
           } else {
-            console.error(
+            logger.error(
               `[MCP Process Manager] Cloudflared failed after ${retryCount + 1} attempts - tunnel not established`
             );
           }
@@ -375,7 +378,7 @@ class ProcessManager {
     tunnelChild.on("error", (error) => {
       clearTimeout(extractTimeout);
       tunnelLogStream.write(`Tunnel process error: ${error.message}\n`);
-      console.error(
+      logger.error(
         `Failed to start cloudflared tunnel for process ${id}:`,
         error
       );
@@ -524,7 +527,7 @@ server.tool(
         const maxHealthChecks = 60; // 60 attempts, 2 seconds each = 120 seconds total
         const healthCheckInterval = 2000; // 2 seconds between checks
 
-        console.error(
+        logger.error(
           `[MCP Process Manager] Waiting for service on port ${port} to be ready...`
         );
 
@@ -536,7 +539,7 @@ server.tool(
           const currentInfo = manager.getStatus(id) as ProcessInfo | null;
           if (!currentInfo || currentInfo.status !== "running") {
             // Process died, stop health checks immediately
-            console.error(
+            logger.error(
               `[MCP Process Manager] Process ${id} exited with code ${currentInfo?.exitCode}, stopping health checks`
             );
             break;
@@ -556,7 +559,7 @@ server.tool(
               // Any response (even error codes) means the service is running
               if (response.status) {
                 serviceHealthy = true;
-                console.error(
+                logger.error(
                   `[MCP Process Manager] Service on port ${port} is healthy at ${host} (status: ${response.status})`
                 );
                 break;
@@ -567,7 +570,7 @@ server.tool(
                 _error.cause?.code === "ECONNREFUSED" &&
                 healthCheckAttempts === 1
               ) {
-                console.error(
+                logger.error(
                   `[MCP Process Manager] Port ${port} not ready yet (connection refused)`
                 );
               }
@@ -580,7 +583,7 @@ server.tool(
 
           // Service not ready yet
           if (healthCheckAttempts % 5 === 0) {
-            console.error(
+            logger.error(
               `[MCP Process Manager] Service not ready on port ${port} (attempt ${healthCheckAttempts}/${maxHealthChecks})`
             );
           }
@@ -936,7 +939,7 @@ async function main() {
   });
 
   const httpServer = app.listen(port, () => {
-    console.error(`[Process Manager MCP] HTTP server started on port ${port}`);
+    logger.error(`[Process Manager MCP] HTTP server started on port ${port}`);
   });
 
   return {
@@ -962,7 +965,7 @@ export { main as startProcessManagerServer };
 // Only run directly if this file is executed directly
 if (typeof process !== "undefined" && process.argv[1]) {
   main().catch((error) => {
-    console.error("[Process Manager MCP] Fatal error:", error);
+    logger.error("[Process Manager MCP] Fatal error:", error);
     process.exit(1);
   });
 }

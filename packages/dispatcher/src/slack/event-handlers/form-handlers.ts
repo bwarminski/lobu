@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import {
   extractEnvVariables,
   hasEnvVariables,
   storeEnvVariables,
 } from "../utils/env-storage";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Form submission handlers and utilities

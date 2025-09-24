@@ -5,6 +5,9 @@ import {
   type OrchestratorConfig,
   OrchestratorError,
 } from "../types";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("orchestrator");
 
 export class PostgresSecretManager extends BaseSecretManager {
   private dbPool: DatabasePool;
@@ -42,11 +45,11 @@ export class PostgresSecretManager extends BaseSecretManager {
 
       if (result.rows.length > 0 && result.rows[0].password) {
         const existingPassword = result.rows[0].password;
-        console.log(`Found existing credentials for user ${username}`);
+        logger.info(`Found existing credentials for user ${username}`);
         return existingPassword;
       }
     } catch (error) {
-      console.log(
+      logger.error(
         `Error reading existing credentials for ${username}, creating new ones:`,
         error
       );
@@ -55,7 +58,7 @@ export class PostgresSecretManager extends BaseSecretManager {
     // Generate new credentials
     const password = this.generatePassword();
 
-    console.log(`Creating new credentials for user ${username}`);
+    logger.info(`Creating new credentials for user ${username}`);
     await createPostgresUser(username, password);
     await this.storeUserCredentials(username, password);
     return password;
@@ -105,7 +108,7 @@ export class PostgresSecretManager extends BaseSecretManager {
         );
       }
 
-      console.log(
+      logger.info(
         `✅ Stored permanent credentials in database for user: ${username}`
       );
     } catch (error) {

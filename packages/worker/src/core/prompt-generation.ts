@@ -2,8 +2,10 @@
 
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import type { ConversationMessage, SessionContext } from "./types";
+
+const logger = createLogger("worker");
 
 const TEMP_DIR = process.env.RUNNER_TEMP || "/tmp";
 

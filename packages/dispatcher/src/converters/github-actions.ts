@@ -4,7 +4,9 @@ import type { GitHubRepositoryManager } from "../github/repository-manager";
 import { generateGitHubAuthUrl } from "../utils/github-utils";
 import { getUserGitHubInfo } from "../slack/handlers/github-handler";
 import { generateDeterministicActionId } from "./blockkit-processor";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Generate GitHub action buttons for the session branch

@@ -6,11 +6,9 @@ import type { GitHubRepositoryManager } from "../github/repository-manager";
 import { processMarkdownAndBlockkit } from "../converters/blockkit-processor";
 import { generateGitHubActionButtons } from "../converters/github-actions";
 import { convertMarkdownToSlack } from "../converters/markdown-to-slack";
+import { createLogger } from "@peerbot/shared";
 
-
-
-
-import logger from "../logger";
+const logger = createLogger("dispatcher");
 
 interface ThreadResponsePayload {
   messageId: string;
@@ -116,7 +114,7 @@ export class ThreadResponseConsumer {
           ) {
             // This is the actual job object from PgBoss
             data = firstJob.data;
-            console.log(
+            logger.info(
               `📤 AGENT RESPONSE: Processing agent response for user ${data.userId}, thread ${data.threadId || "unknown"}, jobId: ${firstJob.id}`
             );
           } else {
@@ -299,13 +297,13 @@ export class ThreadResponseConsumer {
     oldReaction: string,
     newReaction: string
   ): Promise<void> {
-    console.log(
+    logger.info(
       `🔄 REACTION UPDATE: Changing ${oldReaction} → ${newReaction} on message ${timestamp} in channel ${channel}`
     );
 
     try {
       // Remove old reaction
-      console.log(
+      logger.info(
         `🗑️  REACTION CHANGE: Removing '${oldReaction}' from message ${timestamp}`
       );
       await this.slackClient.reactions.remove({
@@ -313,12 +311,12 @@ export class ThreadResponseConsumer {
         timestamp,
         name: oldReaction,
       });
-      console.log(
+      logger.info(
         `✅ REACTION REMOVED: '${oldReaction}' successfully removed from message ${timestamp}`
       );
     } catch (error) {
       // Ignore - reaction might not exist
-      console.log(
+      logger.warn(
         `⚠️  REACTION REMOVE: '${oldReaction}' reaction might not exist on message ${timestamp}:`,
         error
       );
@@ -330,7 +328,7 @@ export class ThreadResponseConsumer {
 
     try {
       // Add new reaction
-      console.log(
+      logger.info(
         `➕ REACTION CHANGE: Adding '${newReaction}' to message ${timestamp}`
       );
       await this.slackClient.reactions.add({
@@ -338,7 +336,7 @@ export class ThreadResponseConsumer {
         timestamp,
         name: newReaction,
       });
-      console.log(
+      logger.info(
         `✅ REACTION ADDED: '${newReaction}' successfully added to message ${timestamp}`
       );
       logger.info(
@@ -373,7 +371,7 @@ export class ThreadResponseConsumer {
         const parsed = JSON.parse(content);
         if (parsed.blocks && Array.isArray(parsed.blocks)) {
           // Content is already formatted blocks from the worker
-          console.log(
+          logger.debug(
             `[DEBUG] Content is pre-formatted blocks - blocks count: ${parsed.blocks.length}`
           );
           result = {
@@ -385,11 +383,11 @@ export class ThreadResponseConsumer {
         }
       } catch {
         // Not JSON or not blocks format - process as markdown
-        console.log(
+        logger.debug(
           `[DEBUG] Processing content for Slack - content length: ${content?.length || 0}`
         );
         result = processMarkdownAndBlockkit(content);
-        console.log(
+        logger.debug(
           `[DEBUG] processMarkdownAndBlockkit result - blocks: ${result.blocks?.length || 0}, has actions: ${result.blocks?.some((b) => b.type === "actions")}`
         );
       }
@@ -430,11 +428,11 @@ export class ThreadResponseConsumer {
       // Add blocks (always have at least one)
       const MAX_BLOCKS = 50;
       const blocks = result.blocks.slice(0, MAX_BLOCKS);
-      console.log(
+      logger.debug(
         `[DEBUG] Final blocks to send - count: ${blocks.length}, types: ${blocks.map((b) => b.type).join(", ")}`
       );
       if (blocks.some((b) => b.type === "actions")) {
-        console.log(
+        logger.debug(
           `[DEBUG] Actions block elements:`,
           blocks.find((b) => b.type === "actions")?.elements
         );

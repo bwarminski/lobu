@@ -1,4 +1,7 @@
 import { Pool, type PoolClient } from "pg";
+import { createLogger } from "../logger";
+
+const logger = createLogger("shared");
 
 export interface DatabaseConfig {
   connectionString: string;
@@ -45,7 +48,7 @@ export class DatabasePool {
     });
 
     this.pool.on("error", (err) => {
-      console.error("Database pool error:", err);
+      logger.error("Database pool error:", err);
     });
   }
 
@@ -127,7 +130,7 @@ export class DatabasePool {
         errorMessage,
       ]);
     } catch (error) {
-      console.error(`Failed to update job status for ${jobId}:`, error);
+      logger.error(`Failed to update job status for ${jobId}:`, error);
       // Don't throw - job status updates are best effort
     }
   }

@@ -1,7 +1,9 @@
 import { type Request, type Response, Router } from "express";
 import fetch from "node-fetch";
 import { Client as PgClient } from "pg";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 export interface AnthropicProxyConfig {
   enabled: boolean;

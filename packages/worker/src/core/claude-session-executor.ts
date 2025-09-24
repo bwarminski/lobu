@@ -5,12 +5,14 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import type {
   ClaudeExecutionOptions,
   ClaudeExecutionResult,
   ProgressCallback,
 } from "./types";
+
+const logger = createLogger("worker");
 
 const execAsync = promisify(exec);
 
@@ -219,7 +221,7 @@ export async function runClaudeWithProgress(
   }
 
   // Output to console
-  console.log(
+  logger.info(
     `🚀 CLAUDE EXECUTION: Starting Claude agent with prompt file ${config.promptPath} (${promptSize} bytes)`
   );
   logger.info(`Running Claude with prompt from file: ${config.promptPath}`);
@@ -246,7 +248,7 @@ export async function runClaudeWithProgress(
   logger.info(
     `Executing Claude with command: ${claudeCommand} ${claudeArgs.join(" ")}`
   );
-  console.log(`🚀 CLAUDE COMMAND: ${claudeCommand} ${claudeArgs.join(" ")}`);
+  logger.info(`🚀 CLAUDE COMMAND: ${claudeCommand} ${claudeArgs.join(" ")}`);
 
   const claudeProcess = spawn(claudeCommand, claudeArgs, {
     stdio: ["pipe", "pipe", "pipe"],
@@ -281,13 +283,13 @@ export async function runClaudeWithProgress(
 
         // Log agent stream updates with useful context
         if (parsed.type) {
-          console.log(
+          logger.info(
             `🤖 AGENT STREAM: ${parsed.type}${parsed.content ? ` - ${parsed.content.substring(0, 100)}${parsed.content.length > 100 ? "..." : ""}` : ""}`
           );
         } else if (parsed.error) {
-          console.log(`❌ AGENT ERROR: ${parsed.error}`);
+          logger.error(`❌ AGENT ERROR: ${parsed.error}`);
         } else if (parsed.message) {
-          console.log(
+          logger.info(
             `💬 AGENT MESSAGE: ${parsed.message.substring(0, 100)}${parsed.message.length > 100 ? "..." : ""}`
           );
         }
@@ -415,7 +417,7 @@ export async function runClaudeWithProgress(
 
   // Process completion without saving files
   if (exitCode === 0) {
-    console.log(
+    logger.info(
       `✅ CLAUDE EXECUTION: Claude agent completed successfully (exit code: ${exitCode})`
     );
 
@@ -434,7 +436,7 @@ export async function runClaudeWithProgress(
       output,
     };
   } else {
-    console.log(
+    logger.error(
       `❌ CLAUDE EXECUTION: Claude agent failed (exit code: ${exitCode}${errorOutput ? `, stderr: ${errorOutput.substring(0, 100)}...` : ""})`
     );
 

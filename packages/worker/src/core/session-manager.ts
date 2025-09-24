@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 
-import logger from "./logger";
+import { createLogger } from "@peerbot/shared";
 import type {
   ConversationMessage,
   ProgressUpdate,
   SessionContext,
   SessionState,
 } from "./types";
+
+const logger = createLogger("worker");
 
 /**
  * Stateless session manager - Slack is the source of truth for conversation history

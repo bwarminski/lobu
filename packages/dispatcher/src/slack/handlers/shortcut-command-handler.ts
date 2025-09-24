@@ -1,6 +1,8 @@
 import type { App } from "@slack/bolt";
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { getDbPool } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 import type { DispatcherConfig } from "../../types";
 import { encrypt } from "@peerbot/shared";
 import type { MessageHandler } from "./message-handler";

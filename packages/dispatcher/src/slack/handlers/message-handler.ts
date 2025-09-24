@@ -1,6 +1,8 @@
 import { SessionUtils } from "@peerbot/shared";
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { decrypt } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 import type {
   QueueProducer,
   ThreadMessagePayload,

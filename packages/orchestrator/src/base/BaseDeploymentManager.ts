@@ -6,7 +6,9 @@ import {
   OrchestratorError,
 } from "../types";
 import type { BaseSecretManager } from "./BaseSecretManager";
-import { decrypt } from "@peerbot/shared";
+import { decrypt, createLogger } from "@peerbot/shared";
+
+const logger = createLogger("orchestrator");
 
 export interface DeploymentInfo {
   deploymentName: string;
@@ -95,7 +97,7 @@ export abstract class BaseDeploymentManager {
 
       return envVars;
     } catch (error) {
-      console.log(
+      logger.error(
         `Error fetching environment variables for user ${userId}:`,
         error
       );
@@ -136,7 +138,7 @@ export abstract class BaseDeploymentManager {
     const shortUserId = userId.toLowerCase().slice(0, 8); // First 8 chars of user ID
     const deploymentName = `peerbot-worker-${shortUserId}-${shortThreadId}`;
 
-    console.log(
+    logger.info(
       `Worker deployment - threadId: ${threadId}, deploymentName: ${deploymentName}`
     );
 
@@ -165,7 +167,7 @@ export abstract class BaseDeploymentManager {
       // Check if we would exceed max deployments limit
       const maxDeployments = this.config.worker.maxDeployments;
       if (maxDeployments > 0 && deployments.length >= maxDeployments) {
-        console.log(
+        logger.warn(
           `⚠️  Maximum deployments limit reached (${deployments.length}/${maxDeployments}). Running cleanup before creating new deployment.`
         );
         await this.reconcileDeployments();
@@ -304,7 +306,7 @@ export abstract class BaseDeploymentManager {
     // ANTHROPIC_API_KEY will be set by the container command override
     // which uses the database username and password
 
-    console.log(
+    logger.info(
       `🔧 Configured worker to use Anthropic proxy at ${envVars.ANTHROPIC_BASE_URL}`
     );
 
@@ -317,7 +319,7 @@ export abstract class BaseDeploymentManager {
     });
 
     if (Object.keys(userEnvVars).length > 0) {
-      console.log(
+      logger.info(
         `📦 Loaded ${Object.keys(userEnvVars).length} user environment variables for ${userId}`
       );
     }
@@ -351,7 +353,7 @@ export abstract class BaseDeploymentManager {
     try {
       const maxDeployments = this.config.worker.maxDeployments;
 
-      console.log("🔄 Running deployment cleanup...");
+      logger.info("🔄 Running deployment cleanup...");
 
       // Get all worker deployments from the backend
       const activeDeployments = await this.listDeployments();
@@ -385,7 +387,7 @@ export abstract class BaseDeploymentManager {
             await this.deleteWorkerDeployment(deploymentId);
             processedCount++;
           } catch (error) {
-            console.error(
+            logger.error(
               `❌ Failed to delete deployment ${deploymentName}:`,
               error
             );
@@ -396,7 +398,7 @@ export abstract class BaseDeploymentManager {
             await this.scaleDeployment(deploymentName, 0);
             processedCount++;
           } catch (error) {
-            console.error(
+            logger.error(
               `❌ Failed to scale down deployment ${deploymentName}:`,
               error
             );
@@ -417,7 +419,7 @@ export abstract class BaseDeploymentManager {
             await this.deleteWorkerDeployment(deploymentId);
             processedCount++;
           } catch (error) {
-            console.error(
+            logger.error(
               `❌ Failed to remove deployment ${deploymentName}:`,
               error
             );
@@ -426,12 +428,12 @@ export abstract class BaseDeploymentManager {
       }
 
       if (processedCount > 0) {
-        console.log(
+        logger.info(
           `✅ Cleanup completed: processed ${processedCount} deployment(s)`
         );
       }
     } catch (error) {
-      console.error(
+      logger.error(
         "Error during deployment reconciliation:",
         error instanceof Error ? error.message : String(error)
       );

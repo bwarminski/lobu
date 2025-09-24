@@ -1,5 +1,7 @@
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { getDbPool } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 import { ErrorHandler } from "../../utils/error-handler";
 import { decrypt } from "@peerbot/shared";
 import { generateGitHubAuthUrl } from "../../utils/github-utils";

@@ -1,5 +1,7 @@
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import type { App } from "@slack/bolt";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Setup team join event handler for welcome messages

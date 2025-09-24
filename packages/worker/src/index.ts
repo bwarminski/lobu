@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 
-import { initSentry } from "@peerbot/shared";
+import { initSentry, createLogger } from "@peerbot/shared";
 
 // Force rebuild to deploy MCP config fix - timestamp: 1756399400
 
 // Initialize Sentry monitoring
 initSentry();
 
-import logger from "./logger";
+const logger = createLogger("worker");
+
 import { QueuePersistentClaudeWorker } from "./persistent-task-worker";
 import {
   startProcessManager,

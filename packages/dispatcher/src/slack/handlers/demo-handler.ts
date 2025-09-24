@@ -1,5 +1,7 @@
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { getDbPool } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Handle Try Demo action - sets up demo repository for user

@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
 import type { App } from "@slack/bolt";
-import logger from "../../logger";
+import { createLogger } from "@peerbot/shared";
 import { type EventHandlerContext, setupEventHandlers } from "./utils";
+
+const logger = createLogger("dispatcher");
 
 /**
  * File-related event handlers

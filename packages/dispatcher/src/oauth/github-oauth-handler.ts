@@ -3,8 +3,10 @@
 import axios from "axios";
 import type { Request, Response } from "express";
 import { getDbPool } from "@peerbot/shared";
-import logger from "../logger";
+import { createLogger } from "@peerbot/shared";
 import { encrypt, decrypt } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 export class GitHubOAuthHandler {
   private dbPool: any;

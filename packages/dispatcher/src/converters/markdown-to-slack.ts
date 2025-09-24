@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
 import { marked } from "marked";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("dispatcher");
 
 /**
  * Custom renderer for converting markdown to Slack's mrkdwn format
@@ -156,7 +159,7 @@ export function convertMarkdownToSlack(content: string): string {
 
     return processed;
   } catch (error) {
-    console.error("Failed to parse markdown:", error);
+    logger.error("Failed to parse markdown:", error);
     // Fallback to original content if parsing fails
     return content;
   }

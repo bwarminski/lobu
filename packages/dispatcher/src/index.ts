@@ -359,7 +359,8 @@ export class SlackDispatcher {
       logger.info("Bot IDs not configured, calling auth.test via HTTP...");
 
       // Use direct HTTP call instead of Slack Bolt client
-      const response = await fetch("https://slack.com/api/auth.test", {
+      const slackApiUrl = process.env.SLACK_API_URL || "https://slack.com/api";
+      const response = await fetch(`${slackApiUrl}/auth.test`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${config.slack.token}`,

@@ -72,9 +72,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     this.appsV1Api = kc.makeApiClient(k8s.AppsV1Api);
     this.coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
 
-    // Set default request options for both API clients
-    this.appsV1Api.setDefaultAuthentication(kc);
-    this.coreV1Api.setDefaultAuthentication(kc);
+    // API clients are already configured with authentication through makeApiClient
 
     logger.info(
       `🔧 K8s client initialized with 30s timeout for namespace: ${this.config.kubernetes.namespace}`
@@ -87,45 +85,42 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
   async listDeployments(): Promise<DeploymentInfo[]> {
     try {
       const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
-        this.config.kubernetes.namespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        "app.kubernetes.io/component=worker"
+        this.config.kubernetes.namespace
       );
 
       const now = Date.now();
       const idleThresholdMinutes = this.config.worker.idleCleanupMinutes;
 
-      return (k8sDeployments.body.items || []).map((deployment: any) => {
-        const deploymentName = deployment.metadata?.name || "";
-        const deploymentId = deploymentName.replace("peerbot-worker-", "");
+      return ((k8sDeployments as any).body?.items || []).map(
+        (deployment: any) => {
+          const deploymentName = deployment.metadata?.name || "";
+          const deploymentId = deploymentName.replace("peerbot-worker-", "");
 
-        // Get last activity from annotations or fallback to creation time
-        const lastActivityStr =
-          deployment.metadata?.annotations?.["peerbot.io/last-activity"] ||
-          deployment.metadata?.annotations?.["peerbot.io/created"] ||
-          deployment.metadata?.creationTimestamp;
+          // Get last activity from annotations or fallback to creation time
+          const lastActivityStr =
+            deployment.metadata?.annotations?.["peerbot.io/last-activity"] ||
+            deployment.metadata?.annotations?.["peerbot.io/created"] ||
+            deployment.metadata?.creationTimestamp;
 
-        const lastActivity = lastActivityStr
-          ? new Date(lastActivityStr)
-          : new Date();
-        const minutesIdle = (now - lastActivity.getTime()) / (1000 * 60);
-        const daysSinceActivity = minutesIdle / (60 * 24);
-        const replicas = deployment.spec?.replicas || 0;
+          const lastActivity = lastActivityStr
+            ? new Date(lastActivityStr)
+            : new Date();
+          const minutesIdle = (now - lastActivity.getTime()) / (1000 * 60);
+          const daysSinceActivity = minutesIdle / (60 * 24);
+          const replicas = deployment.spec?.replicas || 0;
 
-        return {
-          deploymentName,
-          deploymentId,
-          lastActivity,
-          minutesIdle,
-          daysSinceActivity,
-          replicas,
-          isIdle: minutesIdle >= idleThresholdMinutes,
-          isVeryOld: daysSinceActivity >= 7,
-        };
-      });
+          return {
+            deploymentName,
+            deploymentId,
+            lastActivity,
+            minutesIdle,
+            daysSinceActivity,
+            replicas,
+            isIdle: minutesIdle >= idleThresholdMinutes,
+            isVeryOld: daysSinceActivity >= 7,
+          };
+        }
+      );
     } catch (error) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,
@@ -391,7 +386,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         deployment
       );
       logger.info(
-        `✅ Deployment ${deploymentName} created successfully with status: ${response.response.statusCode}`
+        `✅ Deployment ${deploymentName} created successfully with status: ${(response as any).response?.statusCode || "unknown"}`
       );
     } catch (error: any) {
       // Log detailed error information
@@ -438,7 +433,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         this.config.kubernetes.namespace
       );
 
-      if (deployment.body.spec?.replicas !== replicas) {
+      if ((deployment as any).body?.spec?.replicas !== replicas) {
         // Use a proper JSON patch for scaling
         const patch = [
           {
@@ -447,12 +442,6 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
             value: replicas,
           },
         ];
-
-        const options = {
-          headers: {
-            "Content-Type": "application/json-patch+json",
-          },
-        };
 
         await this.appsV1Api.patchNamespacedDeployment(
           deploymentName,
@@ -463,7 +452,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
           undefined,
           undefined,
           undefined,
-          options
+          { headers: { "Content-Type": "application/json-patch+json" } }
         );
       }
     } catch (error) {
@@ -536,12 +525,6 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         },
       };
 
-      const options = {
-        headers: {
-          "Content-Type": "application/strategic-merge-patch+json",
-        },
-      };
-
       await this.appsV1Api.patchNamespacedDeployment(
         deploymentName,
         this.config.kubernetes.namespace,
@@ -551,7 +534,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         undefined,
         undefined,
         undefined,
-        options
+        { headers: { "Content-Type": "application/json-patch+json" } }
       );
     } catch (error) {
       logger.error(

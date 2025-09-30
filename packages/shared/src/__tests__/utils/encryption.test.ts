@@ -62,7 +62,9 @@ describe("Encryption utilities", () => {
 
   it("should throw error for invalid encrypted format", () => {
     expect(() => decrypt("invalid-format")).toThrow("Invalid encrypted format");
-    expect(() => decrypt("only:one:colon")).toThrow("Invalid encrypted format");
+    expect(() => decrypt("only:one:colon")).toThrow(
+      "Invalid initialization vector"
+    );
     expect(() => decrypt("")).toThrow("Invalid encrypted format");
   });
 

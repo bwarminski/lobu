@@ -37,7 +37,7 @@ export class K8sSecretManager extends BaseSecretManager {
         this.config.kubernetes.namespace
       );
       const existingPassword = Buffer.from(
-        existingSecret.body.data?.PEERBOT_DATABASE_PASSWORD || "",
+        (existingSecret as any).body?.data?.PEERBOT_DATABASE_PASSWORD || "",
         "base64"
       ).toString();
 

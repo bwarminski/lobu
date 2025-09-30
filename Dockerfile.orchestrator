@@ -38,6 +38,9 @@ COPY packages/orchestrator/package.json ./packages/orchestrator/
 # Install all dependencies (workspace will resolve shared)
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install
 
+# Copy tsconfig.json for the build
+COPY tsconfig.json ./
+
 # Copy source code
 COPY packages/shared/ ./packages/shared/
 COPY packages/orchestrator/src ./packages/orchestrator/src

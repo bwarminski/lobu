@@ -218,7 +218,7 @@ export class AnthropicProxy {
       res.status(response.status);
 
       // Forward response headers
-      response.headers.forEach((value, key) => {
+      response.headers.forEach((value: string, key: string) => {
         // Skip certain headers that shouldn't be forwarded
         if (
           !["transfer-encoding", "connection", "upgrade"].includes(

@@ -10,6 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@kubernetes/client-node": "1.3.0",
     "@peerbot/shared": "workspace:*",
     "dockerode": "^4.0.7",
     "dotenv": "^17.2.1",

@@ -5,7 +5,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createLogger } from "@peerbot/shared";
-import type { GitHubModule } from "../../../modules/github";
+import type { GitHubModuleInterface } from "../../../modules/types";
 import type {
   GitRepository,
   WorkspaceInfo,
@@ -121,7 +121,7 @@ export class WorkspaceManager {
       if (process.env.GITHUB_TOKEN && repositoryUrl.includes("github.com")) {
         try {
           const { moduleRegistry } = await import("../../../modules");
-          const githubModule = moduleRegistry.getModule<GitHubModule>("github");
+          const githubModule = moduleRegistry.getModule<GitHubModuleInterface>("github");
           if (githubModule && "init" in githubModule) {
             // GitHub module will handle CLI authentication during its own setup
             logger.info("GitHub module will handle CLI authentication");
@@ -186,9 +186,9 @@ export class WorkspaceManager {
       let authenticatedUrl = repositoryUrl;
       if (this.config.githubToken && repositoryUrl.includes("github.com")) {
         const { moduleRegistry } = await import("../../../modules");
-        const githubModule = moduleRegistry.getModule<GitHubModule>("github");
-        if (githubModule && "addGitHubAuth" in githubModule) {
-          authenticatedUrl = (githubModule as any).addGitHubAuth(
+        const githubModule = moduleRegistry.getModule<GitHubModuleInterface>("github");
+        if (githubModule) {
+          authenticatedUrl = githubModule.addGitHubAuth(
             repositoryUrl,
             this.config.githubToken
           );

@@ -4,12 +4,13 @@ import type {
   WorkerModule,
   OrchestratorModule,
   DispatcherModule,
+  GitHubModuleInterface,
   SessionContext,
   ActionButton,
   ThreadContext,
 } from "../types";
 import { GitHubRepositoryManager } from "./repository-manager";
-import { getUserGitHubInfo } from "./handlers";
+import { getUserGitHubInfo, GitHubOAuthHandler } from "./handlers";
 import { generateGitHubAuthUrl } from "./utils";
 
 // GitHub configuration schema (module-specific)
@@ -45,10 +46,11 @@ export function loadGitHubConfig(): GitHubConfig {
 }
 
 export class GitHubModule
-  implements HomeTabModule, WorkerModule, OrchestratorModule, DispatcherModule
+  implements HomeTabModule, WorkerModule, OrchestratorModule, DispatcherModule, GitHubModuleInterface
 {
   name = "github";
   private repoManager?: GitHubRepositoryManager;
+  private oauthHandler?: GitHubOAuthHandler;
 
   isEnabled(): boolean {
     return !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
@@ -62,6 +64,38 @@ export class GitHubModule
       config,
       process.env.DATABASE_URL
     );
+    this.oauthHandler = new GitHubOAuthHandler(process.env.DATABASE_URL!);
+  }
+
+  registerEndpoints(app: any): void {
+    if (!this.isEnabled() || !this.oauthHandler) {
+      console.warn("GitHub module not enabled or OAuth handler not initialized - skipping endpoint registration");
+      return;
+    }
+
+    if (!app) {
+      throw new Error("Express app is required for endpoint registration");
+    }
+
+    try {
+      // Register OAuth endpoints
+      app.get("/api/github/oauth/authorize", (req: any, res: any) => {
+        this.oauthHandler!.handleAuthorize(req, res);
+      });
+
+      app.get("/api/github/oauth/callback", (req: any, res: any) => {
+        this.oauthHandler!.handleCallback(req, res);
+      });
+
+      app.post("/api/github/oauth/revoke", (req: any, res: any) => {
+        this.oauthHandler!.handleRevoke(req, res);
+      });
+
+      console.info("✅ GitHub OAuth endpoints registered successfully");
+    } catch (error) {
+      console.error("Failed to register GitHub OAuth endpoints:", error);
+      throw error;
+    }
   }
 
   async renderHomeTab(userId: string): Promise<any[]> {

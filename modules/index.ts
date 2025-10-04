@@ -27,6 +27,18 @@ export class ModuleRegistry {
     }
   }
 
+  registerEndpoints(app: any): void {
+    for (const module of this.modules.values()) {
+      if (module.registerEndpoints) {
+        try {
+          module.registerEndpoints(app);
+        } catch (error) {
+          console.error(`Failed to register endpoints for module ${module.name}:`, error);
+        }
+      }
+    }
+  }
+
   private autoRegisterModules(): void {
     // Auto-register GitHub module
     const gitHubModule = new GitHubModule();

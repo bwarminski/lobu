@@ -247,12 +247,15 @@ export class MessageHandler {
         if (cachedRepo && Date.now() - cachedRepo.timestamp < this.CACHE_TTL) {
           repository = cachedRepo.repository;
           logger.info(`Using cached repository for ${username}`);
-        } else {
+        } else if (this.repoManager) {
           repository = await this.repoManager.ensureUserRepository(username);
           this.repositoryCache.set(username, {
             repository,
             timestamp: Date.now(),
           });
+        } else {
+          logger.warn("Repository manager not available - proceeding without repository information");
+          repository = null;
         }
       }
 

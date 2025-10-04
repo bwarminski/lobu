@@ -273,7 +273,7 @@ export class GitHubOAuthHandler {
   }
 
   /**
-   * Handle logout
+   * Handle logout/revoke
    */
   async handleLogout(req: Request, res: Response): Promise<void> {
     try {
@@ -296,6 +296,13 @@ export class GitHubOAuthHandler {
       logger.error("Logout error:", error);
       res.status(500).json({ error: "Failed to logout" });
     }
+  }
+
+  /**
+   * Handle OAuth revoke (alias for logout)
+   */
+  async handleRevoke(req: Request, res: Response): Promise<void> {
+    return this.handleLogout(req, res);
   }
 
   /**

@@ -6,7 +6,6 @@ import { initSentry } from "@peerbot/shared";
 initSentry();
 
 import { moduleRegistry } from "../../../modules";
-import { GitHubModule } from "../../../modules/github";
 
 import { join } from "node:path";
 import { config as dotenvConfig } from "dotenv";
@@ -31,8 +30,6 @@ class PeerbotOrchestrator {
   constructor(config: OrchestratorConfig) {
     this.config = config;
 
-    // Register modules
-    moduleRegistry.register(new GitHubModule());
     this.dbPool = new DatabasePool(config.database);
     this.deploymentManager = this.createDeploymentManager(config);
     this.queueConsumer = new QueueConsumer(config, this.deploymentManager);

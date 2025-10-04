@@ -7,6 +7,9 @@ export interface ModuleInterface {
 
   /** Initialize module - called once at startup */
   init?(): Promise<void>;
+
+  /** Register HTTP endpoints with Express app */
+  registerEndpoints?(app: any): void;
 }
 
 export interface HomeTabModule extends ModuleInterface {
@@ -79,4 +82,21 @@ export interface ThreadContext {
   pullRequestUrl?: string;
   userMappings: Map<string, string>;
   slackClient?: any;
+}
+
+export interface GitHubModuleInterface extends ModuleInterface {
+  /** Add GitHub authentication to repository URL */
+  addGitHubAuth(repositoryUrl: string, token: string): string;
+  
+  /** Generate OAuth URL for user authentication */
+  generateOAuthUrl(userId: string): string;
+  
+  /** Check if GitHub CLI is authenticated */
+  isGitHubCLIAuthenticated(workingDir: string): Promise<boolean>;
+  
+  /** Get repository manager instance */
+  getRepositoryManager(): any;
+  
+  /** Get user GitHub info */
+  getUserInfo(userId: string): Promise<{ token: string | null; username: string | null }>;
 }

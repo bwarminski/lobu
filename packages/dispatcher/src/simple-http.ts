@@ -1,6 +1,7 @@
 import http from "node:http";
 import express from "express";
 import { createLogger } from "@peerbot/shared";
+import { moduleRegistry } from "../../../modules";
 
 const logger = createLogger("http");
 import type { AnthropicProxy } from "./proxy/anthropic-proxy";
@@ -36,6 +37,10 @@ export function setupHealthEndpoints(anthropicProxy?: AnthropicProxy) {
     proxyApp.use("/api/anthropic", anthropicProxy.getRouter());
     logger.info("✅ Anthropic proxy enabled at :8080/api/anthropic");
   }
+
+  // Register module endpoints
+  moduleRegistry.registerEndpoints(proxyApp);
+  logger.info("✅ Module endpoints registered");
 
   // Create HTTP server with Express app
   healthServer = http.createServer(proxyApp);

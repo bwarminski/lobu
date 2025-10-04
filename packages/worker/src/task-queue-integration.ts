@@ -2,7 +2,7 @@
 
 import PgBoss from "pg-boss";
 import { createLogger } from "@peerbot/shared";
-import type { GitHubModule } from "../../../modules/github";
+import type { GitHubModuleInterface } from "../../../modules/types";
 
 const logger = createLogger("worker");
 
@@ -283,11 +283,9 @@ export class QueueIntegration {
           try {
             const { moduleRegistry } = await import("../../../modules");
             const githubModule =
-              moduleRegistry.getModule<GitHubModule>("github");
-            if (githubModule && "isGitHubCLIAuthenticated" in githubModule) {
-              isAuthenticated = await (
-                githubModule as any
-              ).isGitHubCLIAuthenticated(workingDir);
+              moduleRegistry.getModule<GitHubModuleInterface>("github");
+            if (githubModule) {
+              isAuthenticated = await githubModule.isGitHubCLIAuthenticated(workingDir);
               logger.info(
                 `GitHub CLI authentication status: ${isAuthenticated}`
               );
@@ -605,9 +603,9 @@ export class QueueIntegration {
       let authUrl = `${process.env.INGRESS_URL || "http://localhost:8080"}/login`;
       try {
         const { moduleRegistry } = await import("../../../modules");
-        const githubModule = moduleRegistry.getModule<GitHubModule>("github");
-        if (githubModule && "generateOAuthUrl" in githubModule) {
-          authUrl = (githubModule as any).generateOAuthUrl(
+        const githubModule = moduleRegistry.getModule<GitHubModuleInterface>("github");
+        if (githubModule) {
+          authUrl = githubModule.generateOAuthUrl(
             process.env.USER_ID || ""
           );
         }

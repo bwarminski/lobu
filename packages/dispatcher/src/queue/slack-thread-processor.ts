@@ -405,13 +405,22 @@ export class ThreadResponseConsumer {
             slackClient: this.slackClient,
           });
           actionButtons.push(
-            ...moduleButtons.map((btn) => ({
-              type: "button",
-              text: { type: "plain_text", text: btn.text },
-              action_id: btn.action_id,
-              style: btn.style,
-              value: btn.value,
-            }))
+            ...moduleButtons
+              .filter((btn) => {
+                // Validate required button properties
+                if (!btn.text || !btn.action_id) {
+                  logger.warn(`Invalid button from module ${module.name}: missing text or action_id`, btn);
+                  return false;
+                }
+                return true;
+              })
+              .map((btn) => ({
+                type: "button",
+                text: { type: "plain_text", text: btn.text },
+                action_id: btn.action_id,
+                style: btn.style,
+                value: btn.value,
+              }))
           );
         }
       }
@@ -641,13 +650,22 @@ export class ThreadResponseConsumer {
             slackClient: this.slackClient,
           });
           actionButtons.push(
-            ...moduleButtons.map((btn) => ({
-              type: "button",
-              text: { type: "plain_text", text: btn.text },
-              action_id: btn.action_id,
-              style: btn.style,
-              value: btn.value,
-            }))
+            ...moduleButtons
+              .filter((btn) => {
+                // Validate required button properties
+                if (!btn.text || !btn.action_id) {
+                  logger.warn(`Invalid button from module ${module.name}: missing text or action_id`, btn);
+                  return false;
+                }
+                return true;
+              })
+              .map((btn) => ({
+                type: "button",
+                text: { type: "plain_text", text: btn.text },
+                action_id: btn.action_id,
+                style: btn.style,
+                value: btn.value,
+              }))
           );
         }
       }

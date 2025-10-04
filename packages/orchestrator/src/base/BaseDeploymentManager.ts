@@ -254,14 +254,9 @@ export abstract class BaseDeploymentManager {
 
     // Include secrets from process.env for Docker deployments
     if (includeSecrets) {
-      if (process.env.GITHUB_TOKEN) {
-        envVars.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-      }
-      // OAuth token is now always handled by the proxy in dispatcher
-
       // Add module-specific environment variables
       try {
-        envVars = await buildModuleEnvVars(messageData?.userId || "", envVars);
+        envVars = await buildModuleEnvVars(userId, envVars);
       } catch (error) {
         logger.warn("Failed to build module environment variables:", error);
       }

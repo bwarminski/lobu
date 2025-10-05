@@ -3,10 +3,16 @@
 import type { GitHubRepositoryManager } from "./repository-manager";
 import { generateGitHubAuthUrl } from "./utils";
 import { getUserGitHubInfo } from "./handlers";
-import { generateDeterministicActionId } from "../../packages/dispatcher/src/converters/blockkit-processor";
+import { createHash } from "node:crypto";
 import { createLogger } from "@peerbot/shared";
 
 const logger = createLogger("github-module");
+
+// Inline action ID generation to avoid cross-package dependencies
+function generateDeterministicActionId(content: string, prefix: string = "action"): string {
+  const hash = createHash("sha256").update(content).digest("hex").substring(0, 8);
+  return `${prefix}_${hash}`;
+}
 
 /**
  * Generate GitHub action buttons for the session branch

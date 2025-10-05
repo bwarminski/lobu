@@ -5,8 +5,7 @@ const logger = createLogger("dispatcher");
 import type { QueueProducer } from "../../queue/task-queue-producer";
 import type { SlackContext } from "../../types";
 import type { MessageHandler } from "./message-handler";
-import { moduleRegistry } from "../../../../../modules";
-import type { GitHubModule } from "../../../../../modules/github";
+// Dynamic module imports to avoid hardcoded dependencies
 import { handleTryDemo } from "./demo-handler";
 import { openRepositoryModal } from "./repository-modal-utils";
 import {
@@ -36,7 +35,13 @@ export class ActionHandler {
 
     // Try to handle action through modules first
     let handled = false;
-    const dispatcherModules = moduleRegistry.getDispatcherModules();
+    let dispatcherModules: any[] = [];
+    try {
+      const { moduleRegistry } = await import("../../../../../modules");
+      dispatcherModules = moduleRegistry.getDispatcherModules();
+    } catch (error) {
+      logger.warn("Module registry not available, skipping module actions");
+    }
     for (const module of dispatcherModules) {
       if (module.handleAction) {
         const moduleHandled = await module.handleAction(actionId, userId, {
@@ -56,31 +61,38 @@ export class ActionHandler {
       switch (actionId) {
         case "open_repository_modal": {
           // Get GitHub functions from module
-          const gitHubModule = moduleRegistry.getModule<GitHubModule>("github");
-          if (gitHubModule) {
-            const { getUserGitHubInfo } = await import(
-              "../../../../../modules/github/handlers"
-            );
-            await openRepositoryModal({
-              userId,
-              body,
-              client,
-              checkAdminStatus: false,
-              getGitHubUserInfo: getUserGitHubInfo,
-            });
+          try {
+            const { moduleRegistry } = await import("../../../../../modules");
+            const gitHubModule = moduleRegistry.getModule("github");
+            if (gitHubModule) {
+              const { getUserGitHubInfo } = await import(
+                "../../../../../modules/github/handlers"
+              );
+              await openRepositoryModal({
+                userId,
+                body,
+                client,
+                checkAdminStatus: false,
+                getGitHubUserInfo: getUserGitHubInfo,
+              });
+            }
+          } catch (error) {
+            logger.warn("GitHub module not available for repository modal");
           }
           break;
         }
 
         case "open_github_login_modal": {
           // Get GitHub auth URL from module
-          const gitHubModule = moduleRegistry.getModule<GitHubModule>("github");
-          if (gitHubModule) {
-            const { generateGitHubAuthUrl } = await import(
-              "../../../../../modules/github/utils"
-            );
-            const authUrl = generateGitHubAuthUrl(userId);
-            await client.views.open({
+          try {
+            const { moduleRegistry } = await import("../../../../../modules");
+            const gitHubModule = moduleRegistry.getModule("github");
+            if (gitHubModule) {
+              const { generateGitHubAuthUrl } = await import(
+                "../../../../../modules/github/utils"
+              );
+              const authUrl = generateGitHubAuthUrl(userId);
+              await client.views.open({
               trigger_id: body.trigger_id,
               view: {
                 type: "modal",
@@ -151,18 +163,26 @@ export class ActionHandler {
                 },
               },
             });
+            }
+          } catch (error) {
+            logger.warn("GitHub module not available for login modal");
           }
           break;
         }
 
         case "github_connect": {
           // This should be handled by the GitHub module, but fallback for compatibility
-          const gitHubModule = moduleRegistry.getModule<GitHubModule>("github");
-          if (gitHubModule) {
-            const { handleGitHubConnect } = await import(
-              "../../../../../modules/github/handlers"
-            );
-            await handleGitHubConnect(userId, channelId, client);
+          try {
+            const { moduleRegistry } = await import("../../../../../modules");
+            const gitHubModule = moduleRegistry.getModule("github");
+            if (gitHubModule) {
+              const { handleGitHubConnect } = await import(
+                "../../../../../modules/github/handlers"
+              );
+              await handleGitHubConnect(userId, channelId, client);
+            }
+          } catch (error) {
+            logger.warn("GitHub module not available for connection");
           }
           break;
         }
@@ -362,10 +382,16 @@ export class ActionHandler {
       await this.messageHandler.getOrCreateUserMapping(userId, client);
 
       // Get GitHub connection status for demo purposes
-      const gitHubModule = moduleRegistry.getModule<GitHubModule>("github");
-      const githubUser = gitHubModule
-        ? await gitHubModule.getUserInfo(userId)
-        : { token: null, username: null };
+      let githubUser = { token: null, username: null };
+      try {
+        const { moduleRegistry } = await import("../../../../../modules");
+        const gitHubModule = moduleRegistry.getModule("github");
+        if (gitHubModule && 'getUserInfo' in gitHubModule) {
+          githubUser = await (gitHubModule as any).getUserInfo(userId);
+        }
+      } catch (error) {
+        logger.warn("GitHub module not available for home tab");
+      }
       const isGitHubConnected = !!githubUser.token;
 
       const blocks: any[] = [
@@ -379,7 +405,13 @@ export class ActionHandler {
       ];
 
       // Add module-rendered home tab sections
-      const homeTabModules = moduleRegistry.getHomeTabModules();
+      let homeTabModules: any[] = [];
+      try {
+        const { moduleRegistry } = await import("../../../../../modules");
+        homeTabModules = moduleRegistry.getHomeTabModules();
+      } catch (error) {
+        logger.warn("Module registry not available for home tab rendering");
+      }
       for (const module of homeTabModules) {
         try {
           const moduleBlocks = await module.renderHomeTab!(userId);

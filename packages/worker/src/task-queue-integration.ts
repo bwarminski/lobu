@@ -2,7 +2,7 @@
 
 import PgBoss from "pg-boss";
 import { createLogger } from "@peerbot/shared";
-import type { GitHubModuleInterface } from "../../../modules/github";
+// Dynamic module imports - no hardcoded GitHub types
 
 const logger = createLogger("worker");
 
@@ -282,8 +282,7 @@ export class QueueIntegration {
           let isAuthenticated = false;
           try {
             const { moduleRegistry } = await import("../../../modules");
-            const githubModule =
-              moduleRegistry.getModule<GitHubModuleInterface>("github");
+            const githubModule = moduleRegistry.getModule("github");
             if (githubModule) {
               isAuthenticated = await githubModule.isGitHubCLIAuthenticated(workingDir);
               logger.info(
@@ -603,7 +602,7 @@ export class QueueIntegration {
       let authUrl = `${process.env.INGRESS_URL || "http://localhost:8080"}/login`;
       try {
         const { moduleRegistry } = await import("../../../modules");
-        const githubModule = moduleRegistry.getModule<GitHubModuleInterface>("github");
+        const githubModule = moduleRegistry.getModule("github");
         if (githubModule) {
           authUrl = githubModule.generateOAuthUrl(
             process.env.USER_ID || ""

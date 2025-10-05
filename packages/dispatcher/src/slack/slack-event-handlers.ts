@@ -16,8 +16,7 @@ import { setupTeamJoinHandler } from "./handlers/welcome-handler";
 import { MessageHandler } from "./handlers/message-handler";
 import { ActionHandler } from "./handlers/action-handler";
 import { ShortcutCommandHandler } from "./handlers/shortcut-command-handler";
-import { moduleRegistry } from "../../../../modules";
-import type { GitHubModule } from "../../../../modules/github";
+// Dynamic module imports to avoid hardcoded dependencies
 
 /**
  * Queue-based Slack event handlers that route messages to appropriate queues
@@ -33,18 +32,12 @@ export class SlackEventHandlers {
     queueProducer: QueueProducer,
     private config: DispatcherConfig
   ) {
-    // Get repository manager from GitHub module (optional)
-    const githubModule = moduleRegistry.getModule<GitHubModule>("github");
-    const repoManager = githubModule?.getRepositoryManager();
+    // Repository manager will be initialized during setup if GitHub module is available
 
-    if (!repoManager) {
-      logger.warn("GitHub module not available - some features may be limited");
-    }
-
-    // Initialize specialized handlers
+    // Initialize specialized handlers (repository manager will be set during setup)
     this.messageHandler = new MessageHandler(
       queueProducer,
-      repoManager,
+      undefined, // Repository manager will be set during setup if GitHub module available
       config
     );
     this.actionHandler = new ActionHandler(queueProducer, this.messageHandler);
@@ -88,8 +81,15 @@ export class SlackEventHandlers {
       try {
         // Get user's GitHub token
         logger.info(`Fetching GitHub info for user ${userId}`);
-        const gitHubModule = moduleRegistry.getModule<GitHubModule>("github");
-        if (!gitHubModule) {
+        let gitHubModule: any = null;
+        try {
+          const { moduleRegistry } = await import("../../../../modules");
+          gitHubModule = moduleRegistry.getModule("github");
+        } catch (error) {
+          logger.warn("Module registry not available");
+        }
+        
+        if (!gitHubModule || !('getUserInfo' in gitHubModule)) {
           logger.warn("GitHub module not available - returning empty options");
           await ack({ options: [] });
           return;

@@ -27,6 +27,7 @@ Slack event router and communication hub. Entry point for all Slack interactions
 - **One thread = One worker**: All messages in a Slack thread go to same worker deployment
 - Use `targetThreadId` for consistent worker naming: `peerbot-worker-{userId}-{threadId}`
 - Never use message timestamps for worker identification
+- **NEVER use console.log/warn/error** - ALWAYS use logger from `@peerbot/shared`
 
 ## Environment Variables
 - `SLACK_BOT_TOKEN`: Slack API access

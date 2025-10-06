@@ -2,7 +2,6 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -13,6 +12,11 @@
     "noEmit": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["src/**/*", "mcp/**/*"],
+  "include": [
+    "src/**/*",
+    "mcp/**/*",
+    "../../modules/**/*",
+    "../shared/src/**/*"
+  ],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]
 }

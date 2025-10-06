@@ -5,7 +5,6 @@ import type {
   OrchestratorModule,
   DispatcherModule,
 } from "./types";
-import { GitHubModule } from "./github";
 
 export class ModuleRegistry {
   private modules: Map<string, ModuleInterface> = new Map();
@@ -18,7 +17,7 @@ export class ModuleRegistry {
 
   async initAll(): Promise<void> {
     // Auto-register available modules if not already registered
-    this.autoRegisterModules();
+    await this.autoRegisterModules();
 
     for (const module of this.modules.values()) {
       if (module.init) {
@@ -42,11 +41,16 @@ export class ModuleRegistry {
     }
   }
 
-  private autoRegisterModules(): void {
-    // Auto-register GitHub module
-    const gitHubModule = new GitHubModule();
-    if (!this.modules.has(gitHubModule.name)) {
-      this.register(gitHubModule);
+  private async autoRegisterModules(): Promise<void> {
+    // Lazy-load GitHub module to avoid importing dispatcher-specific dependencies
+    try {
+      const { GitHubModule } = await import("./github");
+      const gitHubModule = new GitHubModule();
+      if (!this.modules.has(gitHubModule.name)) {
+        this.register(gitHubModule);
+      }
+    } catch (error) {
+      console.debug("GitHub module not available:", error);
     }
   }
 

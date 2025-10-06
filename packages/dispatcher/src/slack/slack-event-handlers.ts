@@ -32,14 +32,8 @@ export class SlackEventHandlers {
     queueProducer: QueueProducer,
     private config: DispatcherConfig
   ) {
-    // Repository manager will be initialized during setup if GitHub module is available
-
-    // Initialize specialized handlers (repository manager will be set during setup)
-    this.messageHandler = new MessageHandler(
-      queueProducer,
-      undefined, // Repository manager will be set during setup if GitHub module available
-      config
-    );
+    // Initialize specialized handlers
+    this.messageHandler = new MessageHandler(queueProducer, config);
     this.actionHandler = new ActionHandler(queueProducer, this.messageHandler);
     this.shortcutCommandHandler = new ShortcutCommandHandler(
       app,
@@ -434,22 +428,5 @@ export class SlackEventHandlers {
   cleanup(): void {
     logger.info("Cleaning up Slack event handlers");
     this.messageHandler.cleanupExpiredData();
-  }
-
-  /**
-   * Get user mappings (required by ThreadResponseConsumer)
-   */
-  getUserMappings(): Map<string, string> {
-    return this.messageHandler.getUserMappings();
-  }
-
-  /**
-   * Get or create user mapping (required by external components)
-   */
-  async getOrCreateUserMapping(
-    slackUserId: string,
-    client: any
-  ): Promise<string> {
-    return this.messageHandler.getOrCreateUserMapping(slackUserId, client);
   }
 }

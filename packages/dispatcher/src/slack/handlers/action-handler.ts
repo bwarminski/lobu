@@ -98,12 +98,7 @@ export class ActionHandler {
             fromHomeTab
           );
 
-          // Clear cache and update home tab after demo setup
-          const username = await this.messageHandler.getOrCreateUserMapping(
-            userId,
-            client
-          );
-          this.messageHandler.clearCacheForUser(username);
+          // Update home tab after demo setup
           await this.updateAppHome(userId, client);
           break;
         }
@@ -274,8 +269,6 @@ export class ActionHandler {
     );
 
     try {
-      await this.messageHandler.getOrCreateUserMapping(userId, client);
-
       // Get GitHub connection status for demo purposes
       let githubUser = { token: null, username: null };
       try {

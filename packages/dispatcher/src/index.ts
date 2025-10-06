@@ -26,7 +26,6 @@ export class SlackDispatcher {
   private app: App;
   private queueProducer: QueueProducer;
   private threadResponseConsumer?: ThreadResponseConsumer;
-  private eventHandlers?: SlackEventHandlers;
   private anthropicProxy?: AnthropicProxy;
   private config: DispatcherConfig;
 
@@ -144,11 +143,9 @@ export class SlackDispatcher {
       }
 
       // We'll test auth after starting the server
-      logger.info("Starting Slack app with token:", {
-        firstChars: this.config.slack.token?.substring(0, 10),
-        length: this.config.slack.token?.length,
-        signingSecretLength: this.config.slack.signingSecret?.length,
-      });
+      logger.debug(
+        `Starting Slack app in ${this.config.slack.socketMode ? "Socket Mode" : "HTTP Mode"}`
+      );
 
       if (this.config.slack.socketMode === false) {
         // In HTTP mode, start with the port
@@ -385,17 +382,12 @@ export class SlackDispatcher {
 
       // Initialize queue-based event handlers
       logger.info("Initializing queue-based event handlers");
-      this.eventHandlers = new SlackEventHandlers(
-        this.app,
-        this.queueProducer,
-        config
-      );
+      new SlackEventHandlers(this.app, this.queueProducer, config);
 
-      // Now create ThreadResponseConsumer with access to user mappings
+      // Now create ThreadResponseConsumer
       this.threadResponseConsumer = new ThreadResponseConsumer(
         config.queues.connectionString,
-        config.slack.token,
-        this.eventHandlers.getUserMappings()
+        config.slack.token
       );
 
       // Setup health endpoints

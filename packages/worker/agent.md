@@ -29,6 +29,7 @@ Claude Code execution environment. Processes user requests in isolated container
 - **Workspace persistence**: Uses `/workspace` volume for session continuity
 - **Auto-resume**: Claude CLI `--resume` flag maintains conversation context
 - **Thread isolation**: Workers only process messages for their assigned thread
+- **NEVER use console.log/warn/error** - ALWAYS use logger from `@peerbot/shared`
 
 ## Environment Variables  
 - `USER_ID`: Slack user ID for session association

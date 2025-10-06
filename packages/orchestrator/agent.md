@@ -28,6 +28,7 @@ Worker deployment and lifecycle management. Handles Docker/Kubernetes orchestrat
 - **One thread = One worker**: Creates `peerbot-worker-{userId}-{threadId}` deployments
 - Workers get persistent volumes at `/workspace` for session continuity
 - Auto-cleanup idle workers to prevent resource leaks
+- **NEVER use console.log/warn/error** - ALWAYS use logger from `@peerbot/shared`
 
 ## Environment Variables
 - `DATABASE_URL`: PostgreSQL connection

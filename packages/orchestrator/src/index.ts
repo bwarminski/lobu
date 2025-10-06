@@ -468,11 +468,6 @@ async function main() {
     // Create and start orchestrator
     const orchestrator = new PeerbotOrchestrator(config);
     await orchestrator.start();
-
-    // Keep the process alive
-    process.on("SIGUSR1", () => {
-      // const _status = orchestrator.getStatus();
-    });
   } catch (error) {
     logger.error("💥 Failed to start Peerbot Orchestrator:", error);
     process.exit(1);

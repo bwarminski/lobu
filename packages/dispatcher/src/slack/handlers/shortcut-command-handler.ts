@@ -477,13 +477,6 @@ export class ShortcutCommandHandler {
       // Save the selected repository
       await this.saveSelectedRepository(userId, repositoryUrl, channelId);
 
-      // Clear cache for the user
-      const username = await this.messageHandler.getOrCreateUserMapping(
-        userId,
-        client
-      );
-      this.messageHandler.clearCacheForUser(username);
-
       // Send confirmation
       const repoName =
         repositoryUrl.split("/").pop()?.replace(".git", "") || "repository";

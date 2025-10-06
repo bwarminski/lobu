@@ -17,7 +17,5 @@ export * from "./database";
 // Export encryption utilities
 export * from "./utils/encryption";
 
-// Export testing utilities
-export * from "./testing";
 // Export error classes
 export * from "./errors";

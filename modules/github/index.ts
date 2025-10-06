@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createLogger } from "@peerbot/shared";
 import type {
   ModuleInterface,
   HomeTabModule,
@@ -12,6 +13,8 @@ import type {
 import { GitHubRepositoryManager } from "./repository-manager";
 import { getUserGitHubInfo, GitHubOAuthHandler } from "./handlers";
 import { generateGitHubAuthUrl } from "./utils";
+
+const logger = createLogger("github-module");
 
 // GitHub-specific module interface (defined in GitHub module)
 export interface GitHubModuleInterface extends ModuleInterface {
@@ -94,7 +97,7 @@ export class GitHubModule
 
   registerEndpoints(app: any): void {
     if (!this.isEnabled() || !this.oauthHandler) {
-      console.warn(
+      logger.warn(
         "GitHub module not enabled or OAuth handler not initialized - skipping endpoint registration"
       );
       return;
@@ -118,9 +121,9 @@ export class GitHubModule
         this.oauthHandler!.handleRevoke(req, res);
       });
 
-      console.info("✅ GitHub OAuth endpoints registered successfully");
+      logger.info("✅ GitHub OAuth endpoints registered successfully");
     } catch (error) {
-      console.error("Failed to register GitHub OAuth endpoints:", error);
+      logger.error("Failed to register GitHub OAuth endpoints:", error);
       throw error;
     }
   }
@@ -242,7 +245,7 @@ export class GitHubModule
         });
       }
     } catch (error) {
-      console.warn(`Failed to clone repository: ${error}`);
+      logger.warn(`Failed to clone repository: ${error}`);
     }
   }
 
@@ -301,7 +304,7 @@ export class GitHubModule
       }
       return repositoryUrl;
     } catch (error) {
-      console.warn(`Failed to parse repository URL: ${repositoryUrl}`, error);
+      logger.warn(`Failed to parse repository URL: ${repositoryUrl}`, error);
       return repositoryUrl;
     }
   }
@@ -351,7 +354,6 @@ export class GitHubModule
       githubFields.gitBranch,
       githubFields.hasGitChanges,
       githubFields.pullRequestUrl,
-      githubFields.userMappings || new Map(),
       this.repoManager,
       context.slackClient
     );

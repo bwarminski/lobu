@@ -3,6 +3,9 @@ import {
   type SessionContext,
   type ActionButton,
 } from "../../../modules";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("worker");
 
 export async function onSessionStart(
   context: SessionContext
@@ -15,7 +18,7 @@ export async function onSessionStart(
       try {
         updatedContext = await module.onSessionStart(updatedContext);
       } catch (error) {
-        console.error(
+        logger.error(
           `Failed to execute onSessionStart for module ${module.name}:`,
           error
         );
@@ -38,7 +41,7 @@ export async function onSessionEnd(
         const buttons = await module.onSessionEnd(context);
         allButtons.push(...buttons);
       } catch (error) {
-        console.error(
+        logger.error(
           `Failed to execute onSessionEnd for module ${module.name}:`,
           error
         );
@@ -56,7 +59,7 @@ export async function initModuleWorkspace(config: any): Promise<void> {
       try {
         await module.initWorkspace(config);
       } catch (error) {
-        console.error(
+        logger.error(
           `Failed to initialize workspace for module ${module.name}:`,
           error
         );

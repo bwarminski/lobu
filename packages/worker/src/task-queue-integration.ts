@@ -614,7 +614,7 @@ export class QueueIntegration {
           loginButtonText = "🔗 Login with GitHub";
         }
       } catch (moduleError) {
-        console.warn(
+        logger.warn(
           "Failed to get OAuth URL from module, using fallback:",
           moduleError
         );

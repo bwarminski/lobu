@@ -18,19 +18,11 @@ import { getDbPool } from "@peerbot/shared";
 
 export class MessageHandler {
   private activeSessions = new Map<string, ThreadSession>();
-  private userMappings = new Map<string, string>(); // slackUserId -> githubUsername
-  private repositoryCache = new Map<
-    string,
-    { repository: any; timestamp: number }
-  >(); // username -> {repository, timestamp}
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
   private readonly SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours session TTL
-  // private readonly USER_MAPPING_TTL = 60 * 60 * 1000; // 1 hour user mapping TTL - Currently unused
   private lastCleanupTime = Date.now();
 
   constructor(
     private queueProducer: QueueProducer,
-    private repoManager: any, // Made generic since GitHub module is optional
     private config: DispatcherConfig
   ) {
     this.startCachePrewarming();
@@ -206,20 +198,11 @@ export class MessageHandler {
     );
 
     try {
-      // Get user's GitHub username mapping
-      const username = await this.getOrCreateUserMapping(
-        context.userId,
-        client
-      );
-
-      // Check if this is a new session
-      const isNewSession = !context.threadTs;
-
-      // First get a preliminary check for repository without context
+      // Get repository from environment variables (stored via GitHub OAuth flow)
       const preliminaryEnv = await this.getUserEnvironment(
         context.userId,
         context.channelId,
-        undefined // Don't pass repository yet as we need to determine it first
+        undefined
       );
       const overrideRepo = preliminaryEnv.GITHUB_REPOSITORY as
         | string
@@ -227,7 +210,7 @@ export class MessageHandler {
 
       let repository;
       if (overrideRepo) {
-        // User has overridden the repository URL
+        // User has configured a repository URL via environment variable
         const repoUrl = overrideRepo;
         const parts = repoUrl.split("/");
         const repoName = parts[parts.length - 1];
@@ -240,25 +223,12 @@ export class MessageHandler {
           lastUsed: Date.now(),
         };
 
-        logger.info(`Using overridden repository for ${username}: ${repoUrl}`);
+        logger.info(`Using repository for user ${context.userId}: ${repoUrl}`);
       } else {
-        // Normal flow - check cache then fetch
-        const cachedRepo = this.repositoryCache.get(username);
-        if (cachedRepo && Date.now() - cachedRepo.timestamp < this.CACHE_TTL) {
-          repository = cachedRepo.repository;
-          logger.info(`Using cached repository for ${username}`);
-        } else if (this.repoManager) {
-          repository = await this.repoManager.ensureUserRepository(username);
-          this.repositoryCache.set(username, {
-            repository,
-            timestamp: Date.now(),
-          });
-        } else {
-          logger.warn(
-            "Repository manager not available - proceeding without repository information"
-          );
-          repository = null;
-        }
+        logger.info(
+          `No repository configured for user ${context.userId} in channel ${context.channelId}`
+        );
+        repository = null;
       }
 
       const threadTs = normalizedThreadTs;
@@ -270,7 +240,6 @@ export class MessageHandler {
         channelId: context.channelId,
         userId: context.userId,
         threadCreator: context.userId, // Store the thread creator
-        username,
         repositoryUrl: repository?.repositoryUrl || "",
         lastActivity: Date.now(),
         status: "pending",
@@ -299,7 +268,7 @@ export class MessageHandler {
       }
 
       // Determine if this is a new conversation
-      const isNewConversation = !context.threadTs || isNewSession;
+      const isNewConversation = !context.threadTs || !existingSession;
 
       if (isNewConversation) {
         const deploymentPayload: WorkerDeploymentPayload = {
@@ -457,42 +426,6 @@ export class MessageHandler {
   }
 
   /**
-   * Get or create mapping between Slack user ID and GitHub username
-   */
-  async getOrCreateUserMapping(
-    slackUserId: string,
-    client: any
-  ): Promise<string> {
-    // Check cache first (with TTL)
-    const cached = this.userMappings.get(slackUserId);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const userInfo = await client.users.info({ user: slackUserId });
-      const userProfile = userInfo?.user?.profile;
-
-      let username =
-        userProfile?.display_name || userProfile?.real_name || slackUserId;
-      username = username.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-
-      if (!username.match(/^[a-z0-9]/)) {
-        username = `user-${username}`;
-      }
-
-      this.userMappings.set(slackUserId, username);
-      logger.info(`Created user mapping: ${slackUserId} -> ${username}`);
-      return username;
-    } catch (error) {
-      logger.error(`Failed to get user info for ${slackUserId}:`, error);
-      const fallback = `user-${slackUserId.toLowerCase()}`;
-      this.userMappings.set(slackUserId, fallback);
-      return fallback;
-    }
-  }
-
-  /**
    * Start cache prewarming
    */
   private startCachePrewarming(): void {
@@ -522,36 +455,14 @@ export class MessageHandler {
       }
     }
 
-    // Cleanup expired user mappings
-    this.userMappings.clear();
-
-    // Cleanup expired repository cache
-    for (const [key, cached] of this.repositoryCache.entries()) {
-      if (now - cached.timestamp > this.CACHE_TTL) {
-        this.repositoryCache.delete(key);
-      }
-    }
-
     logger.info(
-      `Cleanup completed - Active sessions: ${this.activeSessions.size}, User mappings: ${this.userMappings.size}, Repo cache: ${this.repositoryCache.size}`
+      `Cleanup completed - Active sessions: ${this.activeSessions.size}`
     );
   }
 
   // Getters for accessing private state
   getActiveSessions(): Map<string, ThreadSession> {
     return this.activeSessions;
-  }
-
-  getUserMappings(): Map<string, string> {
-    return this.userMappings;
-  }
-
-  getRepositoryCache(): Map<string, { repository: any; timestamp: number }> {
-    return this.repositoryCache;
-  }
-
-  clearCacheForUser(username: string): void {
-    this.repositoryCache.delete(username);
   }
 
   setShortcutCommandHandler(_handler: any): void {

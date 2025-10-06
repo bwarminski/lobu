@@ -36,17 +36,11 @@ export class ThreadResponseConsumer {
   private pgBoss: PgBoss;
   private slackClient: WebClient;
   private isRunning = false;
-  private userMappings: Map<string, string>; // slackUserId -> githubUsername
   private sessionBotMessages: Map<string, string> = new Map(); // sessionKey -> botMessageTs
 
-  constructor(
-    connectionString: string,
-    slackToken: string,
-    userMappings: Map<string, string>
-  ) {
+  constructor(connectionString: string, slackToken: string) {
     this.pgBoss = new PgBoss(connectionString);
     this.slackClient = new WebClient(slackToken);
-    this.userMappings = userMappings;
   }
 
   /**
@@ -404,7 +398,6 @@ export class ThreadResponseConsumer {
                 gitBranch: data.gitBranch,
                 hasGitChanges: data.hasGitChanges,
                 pullRequestUrl: data.pullRequestUrl,
-                userMappings: this.userMappings,
               },
             },
           });
@@ -656,7 +649,6 @@ export class ThreadResponseConsumer {
                 gitBranch: data.gitBranch,
                 hasGitChanges: data.hasGitChanges,
                 pullRequestUrl: data.pullRequestUrl,
-                userMappings: this.userMappings,
               },
             },
           });

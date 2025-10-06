@@ -46,6 +46,9 @@ COPY packages/shared/ ./packages/shared/
 COPY packages/orchestrator/src ./packages/orchestrator/src
 COPY packages/orchestrator/tsconfig.json ./packages/orchestrator/
 COPY packages/orchestrator/db/ ./packages/orchestrator/db/
+# Copy only the module registry files, not the GitHub module (to avoid unnecessary dependencies)
+COPY modules/index.ts ./modules/
+COPY modules/types.ts ./modules/
 
 # Build shared package first
 WORKDIR /app/packages/shared
@@ -72,4 +75,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Start the orchestrator with bun
 WORKDIR /app/packages/orchestrator
-CMD ["bun", "dist/index.js"]
+CMD ["bun", "dist/packages/orchestrator/src/index.js"]

@@ -51,6 +51,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:${POSTGRESQL_PASSWORD:-password}@postgres:5432/peerbot?sslmode=disable
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-docker}
       DOCKER_HOST: unix:///var/run/docker.sock
       CLAUDE_ALLOWED_TOOLS: ${CLAUDE_ALLOWED_TOOLS}

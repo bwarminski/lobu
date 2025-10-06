@@ -35,6 +35,7 @@ Common utilities and infrastructure for all packages. Foundation for logging, da
 - All packages use shared error types and logging configuration
 - Database access through shared connection pooling
 - Encryption utilities for storing sensitive data (GitHub tokens, API keys)
+- **NEVER use console.log/warn/error** - ALWAYS use the logger created via `createLogger()`
 
 ## Environment Variables
 - `DATABASE_URL`: PostgreSQL connection string

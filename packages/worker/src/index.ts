@@ -2,8 +2,6 @@
 
 import { initSentry, createLogger } from "@peerbot/shared";
 
-// Force rebuild to deploy MCP config fix - timestamp: 1756399400
-
 // Initialize Sentry monitoring
 initSentry();
 
@@ -141,5 +139,3 @@ async function appendTerminationMessage(signal: string): Promise<void> {
 export type { WorkerConfig } from "./types";
 
 main();
-
-// Cache bust Sat Aug 30 18:38:05 BST 2025

@@ -192,4 +192,11 @@ echo "🚀 Executing Claude Worker..."
 if [ "$(pwd)" != "/app/packages/worker" ]; then
     cd /app/packages/worker || { echo "❌ Failed to cd to /app/packages/worker"; exit 1; }
 fi
-exec bun run dist/src/index.js
+
+# In development mode, run from source to avoid path resolution issues with modules
+if [ "${NODE_ENV}" = "development" ]; then
+    echo "📝 Running in development mode from source..."
+    exec bun run src/index.ts
+else
+    exec bun run dist/src/index.js
+fi

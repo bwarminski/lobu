@@ -1,4 +1,7 @@
 import { moduleRegistry } from "../../../modules";
+import { createLogger } from "@peerbot/shared";
+
+const logger = createLogger("orchestrator");
 
 export async function buildModuleEnvVars(
   userId: string,
@@ -12,7 +15,7 @@ export async function buildModuleEnvVars(
       try {
         envVars = await module.buildEnvVars(userId, envVars);
       } catch (error) {
-        console.error(
+        logger.error(
           `Failed to build env vars for module ${module.name}:`,
           error
         );

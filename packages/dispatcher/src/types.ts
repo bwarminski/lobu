@@ -58,7 +58,6 @@ export interface SlackContext {
 export interface WorkerJobRequest {
   sessionKey: string;
   userId: string;
-  username: string;
   channelId: string;
   threadTs?: string;
   userPrompt: string;
@@ -76,7 +75,6 @@ export interface ThreadSession {
   channelId: string;
   userId: string;
   threadCreator?: string; // Track the original thread creator
-  username: string;
   jobName?: string;
   repositoryUrl: string;
   lastActivity: number;

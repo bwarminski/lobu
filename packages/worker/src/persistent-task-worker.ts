@@ -26,9 +26,6 @@ export class QueuePersistentClaudeWorker {
     this.userId = userId;
     this.targetThreadId = targetThreadId;
 
-    // Load initial configuration from environment
-    // this.config = this.loadConfigFromEnv();
-
     // Get deployment name from environment
     const deploymentName = process.env.DEPLOYMENT_NAME;
     if (!deploymentName) {

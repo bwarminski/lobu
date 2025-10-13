@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
-# Install bun for build step
-RUN apk add --no-cache curl bash && \
+# Install bun and docker-cli for build and runtime
+RUN apk add --no-cache curl bash docker-cli && \
     curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
@@ -45,4 +45,4 @@ EXPOSE 3000
 WORKDIR /app
 
 # Use Node.js for runtime (better WebSocket compatibility)
-CMD ["node", "packages/gateway/dist/packages/gateway/src/index.js"]
+CMD ["node", "packages/gateway/dist/gateway/src/index.js"]

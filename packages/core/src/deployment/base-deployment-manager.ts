@@ -100,10 +100,10 @@ export abstract class BaseDeploymentManager {
   }
 
   /**
-   * Get the dispatcher URL for the main service (port 3000)
+   * Get the dispatcher URL for the worker gateway service (port 8080)
    */
   protected getDispatcherUrl(): string {
-    return `http://${this.getDispatcherHost()}:3000`;
+    return `http://${this.getDispatcherHost()}:8080`;
   }
 
   /**

@@ -15,7 +15,7 @@ export async function onSessionStart(
   const moduleContext: ModuleSessionContext = {
     userId: context.userId,
     threadId: context.threadTs || "",
-    systemPrompt: "", // Will be set by modules
+    systemPrompt: context.customInstructions || "",
     workspace: undefined,
   };
 
@@ -33,10 +33,11 @@ export async function onSessionStart(
     }
   }
 
-  // Merge back into original context
+  // Merge back into original context, mapping systemPrompt back to customInstructions
   return {
     ...context,
-    ...updatedContext,
+    customInstructions:
+      updatedContext.systemPrompt || context.customInstructions,
   };
 }
 

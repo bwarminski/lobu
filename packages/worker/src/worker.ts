@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import fs from "node:fs";
-import { join } from "node:path";
 import { createLogger } from "@peerbot/core";
 import * as Sentry from "@sentry/node";
 import { parseClaudeOutput } from "./claude/parser";
@@ -10,6 +9,13 @@ import { GatewayIntegration } from "./gateway/client";
 import type { WorkerConfig } from "./types";
 import type { WorkerExecutor, GatewayIntegrationInterface } from "./interfaces";
 import { WorkspaceManager } from "./workspace";
+import {
+  InstructionBuilder,
+  CoreInstructionProvider,
+  SlackInstructionProvider,
+  ProjectsInstructionProvider,
+  ProcessManagerInstructionProvider,
+} from "./instructions";
 
 const logger = createLogger("worker");
 
@@ -224,18 +230,6 @@ export class ClaudeWorker implements WorkerExecutor {
     return foundDirectories;
   }
 
-  private getMakeTargetsSummary(): string {
-    const root = this.workspaceManager.getCurrentWorkingDirectory();
-    const appDirectories = this.listAppDirectories(root);
-    if (appDirectories.length === 0) return "  - none";
-
-    const lines: string[] = [];
-    for (const dir of appDirectories) {
-      lines.push(`  - ${dir}`);
-    }
-    return lines.join("\n");
-  }
-
   /**
    * Execute the worker job
    */
@@ -289,6 +283,28 @@ export class ClaudeWorker implements WorkerExecutor {
       );
 
       // Prepare session context
+      let customInstructions = await this.generateCustomInstructions();
+
+      // Call module onSessionStart hooks to allow modules to modify system prompt
+      try {
+        const { onSessionStart } = await import("./integrations/modules");
+        const moduleContext = await onSessionStart({
+          platform: "slack" as const,
+          channelId: this.config.channelId,
+          userId: this.config.userId,
+          threadTs: this.config.threadTs,
+          messageTs: this.config.slackResponseTs,
+          workingDirectory: this.workspaceManager.getCurrentWorkingDirectory(),
+          customInstructions,
+        });
+        // Update custom instructions with module modifications
+        if (moduleContext.customInstructions) {
+          customInstructions = moduleContext.customInstructions;
+        }
+      } catch (error) {
+        logger.error("Failed to call onSessionStart hooks:", error);
+      }
+
       const sessionContext = {
         platform: "slack" as const,
         channelId: this.config.channelId,
@@ -297,7 +313,7 @@ export class ClaudeWorker implements WorkerExecutor {
         threadTs: this.config.threadTs,
         messageTs: this.config.slackResponseTs,
         workingDirectory: this.workspaceManager.getCurrentWorkingDirectory(),
-        customInstructions: this.generateCustomInstructions(),
+        customInstructions,
       };
 
       // Execute Claude session
@@ -343,6 +359,16 @@ export class ClaudeWorker implements WorkerExecutor {
                 firstOutputLogged = true;
               }
               if (update.type === "output" && update.data) {
+                // Skip system messages - they should not be sent to Slack
+                if (
+                  typeof update.data === "object" &&
+                  update.data.type === "system"
+                ) {
+                  logger.debug(
+                    `Skipping system message: ${update.data.subtype || "unknown"}`
+                  );
+                  return;
+                }
                 await this.gatewayIntegration.sendContent(update.data);
               }
             },
@@ -374,7 +400,6 @@ export class ClaudeWorker implements WorkerExecutor {
           : "✅ Task completed successfully";
 
         logger.info(`Sending final message via queue: ${finalMessage}...`);
-        await this.gatewayIntegration.sendContent(finalMessage);
         await this.gatewayIntegration.signalDone(finalMessage);
       } else {
         const errorMsg = result.error || "Unknown error";
@@ -398,36 +423,36 @@ export class ClaudeWorker implements WorkerExecutor {
   }
 
   /**
-   * Generate custom instructions for Claude
+   * Generate custom instructions for Claude using modular providers
    */
-  private generateCustomInstructions(): string {
+  private async generateCustomInstructions(): Promise<string> {
     try {
-      const templatePath = join(__dirname, "..", "custom-instructions.md");
-      logger.debug(`[CUSTOM-INSTRUCTIONS] Loading from: ${templatePath}`);
+      const builder = new InstructionBuilder();
 
-      const template = fs.readFileSync(templatePath, "utf-8");
+      // Register all instruction providers
+      builder.registerProvider(new CoreInstructionProvider());
+      builder.registerProvider(new SlackInstructionProvider());
+      builder.registerProvider(new ProjectsInstructionProvider());
+      builder.registerProvider(new ProcessManagerInstructionProvider());
 
-      const processed = template
-        .replace(/{{userId}}/g, this.config.userId)
-        .replace(/{{sessionKey}}/g, this.config.sessionKey)
-        .replace(
-          /{{sessionKeyFormatted}}/g,
-          this.config.sessionKey.replace(/\./g, "-")
-        )
-        .replace(/{{makeTargetsSummary}}/g, this.getMakeTargetsSummary())
-        .replace(
-          /{{workingDirectory}}/g,
+      // Build instructions with context
+      const instructions = await builder.build({
+        userId: this.config.userId,
+        sessionKey: this.config.sessionKey,
+        workingDirectory: this.workspaceManager.getCurrentWorkingDirectory(),
+        availableProjects: this.listAppDirectories(
           this.workspaceManager.getCurrentWorkingDirectory()
-        );
+        ),
+      });
 
-      logger.info(`[CUSTOM-INSTRUCTIONS] \n${processed}`);
-
-      return processed;
-    } catch (error) {
-      logger.error("Failed to read custom instructions template:", error);
-      logger.error(
-        `Template path attempted: ${join(__dirname, "custom-instructions.md")}`
+      logger.info(
+        `[CUSTOM-INSTRUCTIONS] Generated ${instructions.length} characters`
       );
+      logger.debug(`[CUSTOM-INSTRUCTIONS] \n${instructions}`);
+
+      return instructions;
+    } catch (error) {
+      logger.error("Failed to generate custom instructions:", error);
       const fallback = `You are a helpful Claude Code agent for user ${this.config.userId}.`;
       logger.warn(`[CUSTOM-INSTRUCTIONS] Using fallback: ${fallback}`);
       return fallback;

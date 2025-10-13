@@ -1,9 +1,6 @@
 {
   "name": "@peerbot/cli",
   "version": "1.0.6",
-  "bin": {
-    "peerbot": "./bin/peerbot"
-  },
   "workspaces": [
     "packages/gateway",
     "packages/github",

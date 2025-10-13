@@ -136,11 +136,17 @@ export class WorkerConnectionManager {
   }
 
   /**
-   * Cleanup stale connections (>2 minutes without activity)
+   * Cleanup stale connections (>10 minutes without activity)
    */
   private cleanupStaleConnections(): void {
     const now = Date.now();
-    const staleThreshold = 2 * 60 * 1000; // 2 minutes (4 missed pings)
+    // Increase timeout to support long-running Claude sessions
+    // Configurable via WORKER_STALE_TIMEOUT_MINUTES env var (default: 10 minutes)
+    const timeoutMinutes = parseInt(
+      process.env.WORKER_STALE_TIMEOUT_MINUTES || "10",
+      10
+    );
+    const staleThreshold = timeoutMinutes * 60 * 1000;
 
     for (const [deploymentName, connection] of this.connections.entries()) {
       if (now - connection.lastActivity > staleThreshold) {

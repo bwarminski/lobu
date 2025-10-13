@@ -3,7 +3,7 @@
 import type { IModuleRegistry } from "@peerbot/core";
 import {
   createLogger,
-  createMessageQueue,
+  type createMessageQueue,
   type IMessageQueue,
   type IRedisClient,
   RedisClient,
@@ -48,15 +48,15 @@ export class ThreadResponseConsumer {
   private moduleRegistry: IModuleRegistry;
 
   constructor(
-    connectionString: string,
+    queue: ReturnType<typeof createMessageQueue>,
     slackToken: string,
     moduleRegistry: IModuleRegistry
   ) {
-    this.queue = createMessageQueue(connectionString);
+    this.queue = queue;
     this.slackClient = new WebClient(slackToken);
     this.blockBuilder = new SlackBlockBuilder();
     this.moduleRegistry = moduleRegistry;
-    // Get Redis client from queue connection pool
+    // Get Redis client from queue connection pool (queue must be started)
     this.redis = new RedisClient(this.queue.getRedisClient());
   }
 

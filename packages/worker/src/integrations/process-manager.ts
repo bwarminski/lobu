@@ -11,10 +11,6 @@ import { z } from "zod";
 
 const logger = createLogger("worker");
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
 interface ProcessInfo {
   id: string;
   command: string;

@@ -122,25 +122,6 @@ export function createSessionState(
 }
 
 /**
- * Generate session key from context
- */
-export function generateSessionKey(context: SessionContext): string {
-  // Use thread timestamp as the session key (if in a thread)
-  // Otherwise use message timestamp
-  const timestamp = context.threadTs || context.messageTs || "";
-
-  // If we have a thread timestamp, use it directly as the session key
-  // This ensures consistency across all worker executions in the same thread
-  if (context.threadTs) {
-    return context.threadTs;
-  }
-
-  // For non-threaded messages, use message timestamp
-  // This should rarely happen as bot typically creates threads
-  return timestamp || `session-${Date.now()}`;
-}
-
-/**
  * Add a message to the conversation
  * This is a pure function that returns a new conversation array
  */
@@ -275,14 +256,6 @@ export class ClaudeSessionRunner {
    */
   async cleanupSession(sessionKey: string): Promise<void> {
     logger.info(`Cleanup for ${sessionKey} (no-op in stateless mode)`);
-  }
-
-  /**
-   * Check if session exists (always returns false in stateless mode)
-   */
-  async sessionExists(_sessionKey: string): Promise<boolean> {
-    // Always return false since we don't store sessions
-    return false;
   }
 }
 

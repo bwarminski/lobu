@@ -2,7 +2,6 @@ export {
   ActionHandler,
   handleBlockkitForm,
   handleExecutableCodeBlock,
-  handleStopWorker,
 } from "./actions";
 export { handleBlockkitFormSubmission } from "./forms";
 export { MessageHandler } from "./messages";

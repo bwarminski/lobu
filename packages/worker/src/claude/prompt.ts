@@ -83,8 +83,7 @@ function generateEnvironmentSection(context: SessionContext): string {
 
   sections.push("");
   sections.push("Container Information:");
-  sections.push("- This is an ephemeral Kubernetes job container");
-  sections.push("- Maximum execution time: 5 minutes");
+  sections.push("- This is a persistent worker container");
   sections.push("- Progress updates are streamed to Slack in real-time");
 
   return `${sections.join("\n")}\n\n`;
@@ -96,11 +95,11 @@ function generateEnvironmentSection(context: SessionContext): string {
 function generateSlackInstructions(): string {
   return `## Slack Integration
 
-You are responding to a user in Slack through a Kubernetes-based Claude Code system:
+You are responding to a user in Slack through a persistent worker system:
 
 1. **Progress Updates**: Your progress is automatically streamed to Slack
 2. **Thread Context**: This conversation may be part of an ongoing thread
-3. **Timeout**: You have a 5-minute timeout - work efficiently
+3. **Session Continuity**: Your workspace persists across messages in the same thread
 
 Keep responses concise but helpful. Focus on solving the user's specific request.
 

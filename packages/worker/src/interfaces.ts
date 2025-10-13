@@ -42,15 +42,3 @@ export interface GatewayIntegrationInterface {
  * Factory function type for creating worker executors
  */
 export type WorkerExecutorFactory = (config: WorkerConfig) => WorkerExecutor;
-
-/**
- * Error handling utilities
- */
-export interface ErrorHandler {
-  isRepositoryAccessError(error: unknown): boolean;
-  formatErrorMessage(error: unknown): string;
-  handleAuthenticationError(
-    config: WorkerConfig,
-    gateway: GatewayIntegrationInterface
-  ): Promise<void>;
-}

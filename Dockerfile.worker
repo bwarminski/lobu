@@ -73,6 +73,7 @@ COPY tsconfig.json ./
 COPY packages/worker/package.json ./packages/worker/
 COPY packages/core/package.json ./packages/core/
 COPY packages/gateway/package.json ./packages/gateway/
+COPY packages/github/package.json ./packages/github/
 
 # Install all dependencies including devDependencies for building
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install

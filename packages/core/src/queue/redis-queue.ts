@@ -3,6 +3,7 @@
  */
 
 import { type JobsOptions, Queue, type QueueEvents, Worker } from "bullmq";
+import Redis from "ioredis";
 import { createLogger } from "../logger";
 import type {
   IMessageQueue,
@@ -28,12 +29,22 @@ export class RedisQueue implements IMessageQueue {
   private workers: Map<string, Worker> = new Map();
   private queueEvents: Map<string, QueueEvents> = new Map();
   private isConnected = false;
+  private redisClient?: Redis;
 
   constructor(config: RedisQueueConfig) {
     this.config = config;
   }
 
   async start(): Promise<void> {
+    // Create shared Redis client for all queues and workers
+    this.redisClient = new Redis({
+      host: this.config.host,
+      port: this.config.port,
+      password: this.config.password,
+      db: this.config.db,
+      maxRetriesPerRequest: null, // Required by BullMQ
+    });
+
     this.isConnected = true;
     logger.info("✅ Redis queue started successfully");
   }
@@ -75,19 +86,24 @@ export class RedisQueue implements IMessageQueue {
     this.queueEvents.clear();
     this.queues.clear();
 
+    // Close the shared Redis client
+    if (this.redisClient) {
+      await this.redisClient.quit();
+      this.redisClient = undefined;
+    }
+
     logger.info("✅ Redis queue stopped");
   }
 
   async createQueue(queueName: string): Promise<void> {
     if (!this.queues.has(queueName)) {
+      if (!this.redisClient) {
+        throw new Error("Redis client not initialized. Call start() first.");
+      }
+
+      // Pass the shared Redis client to BullMQ
       const queue = new Queue(queueName, {
-        connection: {
-          host: this.config.host,
-          port: this.config.port,
-          password: this.config.password,
-          db: this.config.db,
-          maxRetriesPerRequest: this.config.maxRetriesPerRequest ?? 3,
-        },
+        connection: this.redisClient,
       });
 
       this.queues.set(queueName, queue);
@@ -161,6 +177,10 @@ export class RedisQueue implements IMessageQueue {
 
     // Create worker if it doesn't exist
     if (!this.workers.has(queueName)) {
+      if (!this.redisClient) {
+        throw new Error("Redis client not initialized. Call start() first.");
+      }
+
       const worker = new Worker(
         queueName,
         async (job) => {
@@ -175,13 +195,7 @@ export class RedisQueue implements IMessageQueue {
           await handler(queueJob);
         },
         {
-          connection: {
-            host: this.config.host,
-            port: this.config.port,
-            password: this.config.password,
-            db: this.config.db,
-            maxRetriesPerRequest: this.config.maxRetriesPerRequest ?? 3,
-          },
+          connection: this.redisClient,
           concurrency: 1, // Process one job at a time per worker
         }
       );
@@ -237,15 +251,12 @@ export class RedisQueue implements IMessageQueue {
 
   /**
    * Get underlying Redis client for general-purpose Redis operations
-   * Returns the Redis client from BullMQ's connection pool
+   * Returns the shared IORedis client used by all queues and workers
    */
   getRedisClient(): any {
-    // Get the first queue's Redis connection
-    const firstQueue = this.queues.values().next().value as Queue | undefined;
-    if (!firstQueue) {
-      throw new Error("No queues available - cannot access Redis");
+    if (!this.redisClient) {
+      throw new Error("Redis client not initialized. Call start() first.");
     }
-    // BullMQ queues have a Redis client we can use
-    return (firstQueue as any).client as any;
+    return this.redisClient;
   }
 }

@@ -25,7 +25,6 @@ jobs:
     
     outputs:
       gateway-image: ${{ steps.meta-gateway.outputs.tags }}
-      orchestrator-image: ${{ steps.meta-orchestrator.outputs.tags }}
       worker-image: ${{ steps.meta-worker.outputs.tags }}
       image-tag: ${{ steps.tag.outputs.tag }}
     
@@ -76,31 +75,6 @@ jobs:
           cache-to: |
             type=gha,mode=max
             type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-gateway:buildcache,mode=max
-          platforms: linux/amd64
-
-      - name: Extract metadata for Orchestrator
-        id: meta-orchestrator
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKER_NAMESPACE }}/peerbot-orchestrator
-          tags: |
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.tag.outputs.tag }}
-
-      - name: Build and push Orchestrator
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.orchestrator
-          push: true
-          tags: ${{ steps.meta-orchestrator.outputs.tags }}
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-orchestrator:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.DOCKER_NAMESPACE }}/peerbot-orchestrator:buildcache,mode=max
           platforms: linux/amd64
 
       - name: Extract metadata for Worker

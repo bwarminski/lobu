@@ -16,6 +16,7 @@ export class SlackDispatcher {
   private anthropicProxy?: AnthropicProxy;
   private workerGateway?: WorkerGateway;
   private config: DispatcherConfig;
+  private queue?: ReturnType<typeof createMessageQueue>;
 
   constructor(config: DispatcherConfig) {
     this.config = config;
@@ -111,9 +112,9 @@ export class SlackDispatcher {
       logger.info("✅ Anthropic proxy initialized");
 
       // Initialize Worker Gateway for SSE/HTTP worker communication
-      const queue = createMessageQueue(this.config.queues.connectionString);
-      await queue.start();
-      this.workerGateway = new WorkerGateway(queue);
+      this.queue = createMessageQueue(this.config.queues.connectionString);
+      await this.queue.start();
+      this.workerGateway = new WorkerGateway(this.queue);
       logger.info("✅ Worker gateway initialized");
 
       // Discover and register available modules
@@ -229,30 +230,53 @@ export class SlackDispatcher {
         });
 
         try {
-          // The app.start() in Socket Mode doesn't actually resolve the promise properly
-          // It connects but keeps the promise pending, so we'll handle it differently
-          this.app.start().catch((error) => {
-            // Only log real errors, not timeout issues
-            if (!error?.message?.includes("timeout")) {
-              logger.error("Socket Mode start error:", error);
+          // Start the Socket Mode app
+          // Don't await this as Socket Mode keeps the promise pending indefinitely
+          // We'll use the event handlers to track connection status
+          this.app.start();
+
+          // Set up a race condition between successful connection and timeout
+          const connectionPromise = new Promise<void>((resolve, reject) => {
+            const socketModeClient = (this.app as any).receiver?.client;
+
+            if (!socketModeClient) {
+              reject(new Error("Socket Mode client not found"));
+              return;
+            }
+
+            // Set up a one-time connected handler
+            const connectedHandler = () => {
+              logger.info("✅ Socket Mode connection established!");
+              clearTimeout(timeoutId);
+              resolve();
+            };
+
+            // Set up timeout
+            const timeoutId = setTimeout(() => {
+              socketModeClient.removeListener("connected", connectedHandler);
+              reject(new Error("Socket Mode connection timeout"));
+            }, 10000); // 10 second timeout
+
+            // Check if already connected
+            if (
+              socketModeClient.isConnected?.() ||
+              socketModeClient.stateMachine?.getCurrentState?.() === "connected"
+            ) {
+              connectedHandler();
+            } else {
+              // Wait for connection
+              socketModeClient.once("connected", connectedHandler);
             }
           });
 
-          // Give Socket Mode a moment to connect
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Wait for connection or timeout
+          await connectionPromise.catch((error) => {
+            logger.warn("Socket Mode connection warning:", error.message);
+            // Don't throw here - the client might still connect
+          });
 
-          // Check if we're connected via the Socket Mode client
-          const receiver = (this.app as any).receiver;
-          if (
-            receiver?.client?.isConnected?.() ||
-            receiver?.client?.stateMachine?.getCurrentState?.() === "connected"
-          ) {
-            logger.info("✅ Socket Mode connection established!");
-          } else {
-            // Wait a bit more and check again
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-            logger.info("✅ Socket Mode connection established!");
-          }
+          // Give it a moment to stabilize
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         } catch (socketError) {
           logger.error("❌ Failed to start Socket Mode:", socketError);
           throw socketError;
@@ -395,21 +419,17 @@ export class SlackDispatcher {
 
       // Now that bot IDs are set, initialize event handlers
       logger.info("Initializing queue-based event handlers");
-      const moduleRegistryPath =
-        process.env.NODE_ENV === "test"
-          ? "../../modules/test-registry"
-          : "../../modules";
-      const { moduleRegistry } = await import(moduleRegistryPath);
       new SlackEventHandlers(
         this.app,
         this.queueProducer,
         config,
-        moduleRegistry
+        moduleRegistry,
+        this.queue!
       );
 
-      // Create ThreadResponseConsumer
+      // Create ThreadResponseConsumer with the started queue
       this.threadResponseConsumer = new ThreadResponseConsumer(
-        config.queues.connectionString,
+        this.queue!,
         config.slack.token,
         moduleRegistry
       );

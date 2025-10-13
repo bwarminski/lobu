@@ -354,7 +354,7 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const responseUrl = `${this.dispatcherUrl}/worker/response`;
-        const payload = this.jobId ? { _jobId: this.jobId, ...data } : data;
+        const payload = this.jobId ? { jobId: this.jobId, ...data } : data;
 
         const response = await fetch(responseUrl, {
           method: "POST",

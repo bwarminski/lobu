@@ -290,6 +290,6 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
   protected getDispatcherHost(): string {
     // Use the Docker Compose service name for reliable network resolution
-    return "dispatcher";
+    return "gateway";
   }
 }

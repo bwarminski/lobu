@@ -89,6 +89,16 @@ class SlackRenderer extends marked.Renderer {
  * Convert markdown to Slack's mrkdwn format using marked with custom renderer
  */
 export function convertMarkdownToSlack(content: string): string {
+  // Defensive type check - ensure content is a string
+  if (typeof content !== "string") {
+    logger.warn(
+      `convertMarkdownToSlack received non-string content (type: ${typeof content}), converting to string`
+    );
+    // If it's an object, stringify it; otherwise convert to string
+    content =
+      typeof content === "object" ? JSON.stringify(content) : String(content);
+  }
+
   const renderer = new SlackRenderer();
 
   // First, handle raw triple backtick code blocks that might not be properly formatted

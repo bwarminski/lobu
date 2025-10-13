@@ -112,7 +112,7 @@ async function prepareRunConfig(
 
   // Generate MCP config dynamically
   let mcpConfigPath: string | undefined;
-  const mcpConfig = getMCPConfigForClaude();
+  const mcpConfig = await getMCPConfigForClaude();
   if (mcpConfig) {
     const tempDir = process.env.RUNNER_TEMP || "/tmp";
     mcpConfigPath = join(tempDir, `mcp-config-${Date.now()}.json`);

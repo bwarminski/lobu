@@ -18,13 +18,10 @@ help:
 
 # Start local development with Docker Compose in foreground
 dev:
-	@if [ ! -f .env ]; then \
-		echo "❌ .env file not found!"; \
-		echo ""; \
-		echo "Please run setup first:"; \
-		echo "  make setup"; \
-		echo ""; \
-		exit 1; \
+	@if [ -f .env ]; then \
+		echo "ℹ️  Loading environment overrides from .env"; \
+	else \
+		echo "ℹ️  No .env file detected; relying on current environment."; \
 	fi
 	@echo "🚀 Starting local development mode with Docker Compose..."
 	@echo "   This will:"

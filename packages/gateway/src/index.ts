@@ -6,6 +6,9 @@ import { initSentry } from "@peerbot/core";
 initSentry();
 
 import http from "node:http";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { Command } from "commander";
 import { moduleRegistry } from "@peerbot/core";
 import { createLogger, type OrchestratorConfig } from "@peerbot/core";
 import { LogLevel } from "@slack/bolt";
@@ -19,6 +22,7 @@ import { Orchestrator } from "./orchestration";
 import type { AnthropicProxy } from "./proxy/anthropic-proxy";
 import { SlackDispatcher } from "./slack";
 import type { DispatcherConfig } from "./types";
+import type { McpProxy } from "./mcp/proxy";
 
 let healthServer: http.Server | null = null;
 
@@ -27,7 +31,8 @@ let healthServer: http.Server | null = null;
  */
 function setupHealthEndpoints(
   anthropicProxy?: AnthropicProxy,
-  workerGateway?: WorkerGateway
+  workerGateway?: WorkerGateway,
+  mcpProxy?: McpProxy
 ) {
   if (healthServer) return;
 
@@ -63,6 +68,11 @@ function setupHealthEndpoints(
     logger.info("✅ Worker gateway routes enabled at :8080/worker/*");
   }
 
+  if (mcpProxy) {
+    mcpProxy.setupRoutes(proxyApp);
+    logger.info("✅ MCP proxy routes enabled at :8080/mcp/*");
+  }
+
   // Register module endpoints
   moduleRegistry.registerEndpoints(proxyApp);
   logger.info("✅ Module endpoints registered");
@@ -82,13 +92,38 @@ function setupHealthEndpoints(
 /**
  * Main entry point
  */
-async function main() {
+type StartOptions = {
+  env?: string;
+};
+
+class MissingRequiredEnvError extends Error {
+  constructor(public envName: string | string[]) {
+    const message = Array.isArray(envName)
+      ? `Missing one of the required environment variables: ${envName.join(", ")}`
+      : `Missing required environment variable: ${envName}`;
+    super(message);
+    this.name = "MissingRequiredEnvError";
+  }
+}
+
+async function startGateway({ env }: StartOptions = {}) {
   try {
-    // Load environment variables from .env file (searches up from cwd)
-    // In Docker/K8s, env vars are injected by container runtime
     if (process.env.NODE_ENV !== "production") {
-      dotenvConfig();
+      const envProvided = Boolean(env);
+      const envPath = envProvided
+        ? path.resolve(process.cwd(), env!)
+        : path.resolve(process.cwd(), ".env");
+
+      if (existsSync(envPath)) {
+        dotenvConfig({ path: envPath });
+        logger.debug(`Loaded environment variables from ${envPath}`);
+      } else if (envProvided) {
+        logger.warn(`Specified env file ${envPath} was not found; continuing without it.`);
+      } else {
+        logger.debug("No .env file found; relying on process environment.");
+      }
     }
+
     logger.info("🚀 Starting Claude Code Slack Dispatcher");
 
     // Get bot token from environment
@@ -101,9 +136,19 @@ async function main() {
       signingSecret: `${process.env.SLACK_SIGNING_SECRET?.substring(0, 10)}...`,
     });
 
+    const connectionString =
+      process.env.QUEUE_URL || process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new MissingRequiredEnvError(["QUEUE_URL", "DATABASE_URL"]);
+    }
+
+    if (!botToken) {
+      throw new MissingRequiredEnvError("SLACK_BOT_TOKEN");
+    }
+
     const config: DispatcherConfig = {
       slack: {
-        token: botToken!,
+        token: botToken,
         appToken: process.env.SLACK_APP_TOKEN,
         signingSecret: process.env.SLACK_SIGNING_SECRET,
         socketMode: process.env.SLACK_HTTP_MODE !== "true",
@@ -125,7 +170,7 @@ async function main() {
       logLevel: (process.env.LOG_LEVEL as any) || LogLevel.INFO,
       // Queue configuration (required)
       queues: {
-        connectionString: process.env.QUEUE_URL || process.env.DATABASE_URL!,
+        connectionString,
         directMessage: process.env.QUEUE_DIRECT_MESSAGE || "direct_message",
         messageQueue: process.env.QUEUE_MESSAGE_QUEUE || "message_queue",
         retryLimit: parseInt(process.env.PGBOSS_RETRY_LIMIT || "3", 10),
@@ -149,13 +194,6 @@ async function main() {
     });
 
     // Validate required configuration
-    if (!config.slack.token) {
-      throw new Error("SLACK_BOT_TOKEN is required");
-    }
-    if (!config.queues.connectionString) {
-      throw new Error("QUEUE_URL is required");
-    }
-
     // Create orchestrator configuration
     const orchestratorConfig: OrchestratorConfig = {
       queues: {
@@ -218,7 +256,8 @@ async function main() {
     // Setup health endpoints on port 8080
     setupHealthEndpoints(
       dispatcher.getAnthropicProxy(),
-      dispatcher.getWorkerGateway()
+      dispatcher.getWorkerGateway(),
+      dispatcher.getMcpProxy()
     );
 
     // Setup graceful shutdown for orchestrator
@@ -237,12 +276,28 @@ async function main() {
       logger.info("Health check:", JSON.stringify(status, null, 2));
     });
   } catch (error) {
-    logger.error("❌ Failed to start Slack Dispatcher:", error);
+    if (error instanceof MissingRequiredEnvError) {
+      logger.error(error.message);
+    } else {
+      logger.error("❌ Failed to start Slack Dispatcher:", error);
+    }
     process.exit(1);
   }
 }
 
-// Start the application
-main();
+const program = new Command();
+
+program
+  .name("peerbot-gateway")
+  .description("Peerbot gateway service")
+  .option("--env <path>", "Path to environment file")
+  .action(async (options: StartOptions) => {
+    await startGateway(options);
+  });
+
+program.parseAsync(process.argv).catch((error) => {
+  logger.error("❌ Failed to start Slack Dispatcher:", error);
+  process.exit(1);
+});
 
 export type { DispatcherConfig } from "./types";

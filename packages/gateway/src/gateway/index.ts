@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 
-import type { IMessageQueue } from "@peerbot/core";
+import type { IMessageQueue, WorkerTokenData } from "@peerbot/core";
 import { createLogger, verifyWorkerToken } from "@peerbot/core";
 import type { Request, Response } from "express";
 import { WorkerConnectionManager } from "./connection-manager";
 import { WorkerJobRouter } from "./job-router";
+import { McpConfigService } from "../mcp/config-service";
 
 const logger = createLogger("worker-gateway");
 
@@ -17,11 +18,13 @@ export class WorkerGateway {
   private connectionManager: WorkerConnectionManager;
   private jobRouter: WorkerJobRouter;
   private queue: IMessageQueue;
+  private mcpConfigService?: McpConfigService;
 
-  constructor(queue: IMessageQueue) {
+  constructor(queue: IMessageQueue, mcpConfigService?: McpConfigService) {
     this.queue = queue;
     this.connectionManager = new WorkerConnectionManager();
     this.jobRouter = new WorkerJobRouter(queue, this.connectionManager);
+    this.mcpConfigService = mcpConfigService;
   }
 
   /**
@@ -38,6 +41,12 @@ export class WorkerGateway {
       this.handleWorkerResponse(req, res)
     );
 
+    if (this.mcpConfigService) {
+      app.get("/worker/mcp/config", (req: Request, res: Response) =>
+        this.handleMcpConfigRequest(req, res)
+      );
+    }
+
     logger.info("Worker gateway routes registered");
   }
 
@@ -45,26 +54,12 @@ export class WorkerGateway {
    * Handle SSE connection from worker
    */
   private async handleStreamConnection(req: Request, res: Response) {
-    const authHeader = req.headers.authorization;
-
-    // Verify worker token
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res
-        .status(401)
-        .json({ error: "Missing or invalid authorization header" });
+    const auth = this.authenticateWorker(req, res);
+    if (!auth) {
       return;
     }
 
-    const token = authHeader.substring(7);
-    const tokenData = verifyWorkerToken(token);
-
-    if (!tokenData) {
-      logger.warn("Invalid token");
-      res.status(401).json({ error: "Invalid token" });
-      return;
-    }
-
-    const { deploymentName, userId, threadId } = tokenData;
+    const { deploymentName, userId, threadId } = auth.tokenData;
 
     // Setup SSE
     res.setHeader("Content-Type", "text/event-stream");
@@ -93,25 +88,12 @@ export class WorkerGateway {
    * Handle HTTP response from worker
    */
   private async handleWorkerResponse(req: Request, res: Response) {
-    const authHeader = req.headers.authorization;
-
-    // Verify worker token
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res
-        .status(401)
-        .json({ error: "Missing or invalid authorization header" });
+    const auth = this.authenticateWorker(req, res);
+    if (!auth) {
       return;
     }
 
-    const token = authHeader.substring(7);
-    const tokenData = verifyWorkerToken(token);
-
-    if (!tokenData) {
-      res.status(401).json({ error: "Invalid token" });
-      return;
-    }
-
-    const { deploymentName } = tokenData;
+    const { deploymentName } = auth.tokenData;
 
     // Update connection activity
     this.connectionManager.touchConnection(deploymentName);
@@ -132,6 +114,68 @@ export class WorkerGateway {
       logger.error(`Error handling worker response: ${error}`);
       res.status(500).json({ error: "Failed to process response" });
     }
+  }
+
+  private async handleMcpConfigRequest(req: Request, res: Response) {
+    if (!this.mcpConfigService) {
+      res.status(503).json({ error: "mcp_config_unavailable" });
+      return;
+    }
+
+    const auth = this.authenticateWorker(req, res);
+    if (!auth) {
+      return;
+    }
+
+    try {
+      const baseUrl = this.getRequestBaseUrl(req);
+      const config = await this.mcpConfigService.getWorkerConfig({
+        baseUrl,
+        workerToken: auth.token,
+      });
+      res.json(config);
+    } catch (error) {
+      logger.error("Failed to generate MCP config", { error });
+      res.status(500).json({ error: "mcp_config_error" });
+    }
+  }
+
+  private authenticateWorker(
+    req: Request,
+    res: Response
+  ): { tokenData: WorkerTokenData; token: string } | null {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      res
+        .status(401)
+        .json({ error: "Missing or invalid authorization header" });
+      return null;
+    }
+
+    const token = authHeader.substring(7);
+    const tokenData = verifyWorkerToken(token);
+
+    if (!tokenData) {
+      logger.warn("Invalid token");
+      res.status(401).json({ error: "Invalid token" });
+      return null;
+    }
+
+    return { tokenData, token };
+  }
+
+  private getRequestBaseUrl(req: Request): string {
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const protocolCandidate = Array.isArray(forwardedProto)
+      ? forwardedProto[0]
+      : forwardedProto?.split(",")[0];
+    const protocol = (protocolCandidate || req.protocol || "http").trim();
+    const host = req.get("host");
+    if (host) {
+      return `${protocol}://${host}`;
+    }
+    return process.env.PEERBOT_PUBLIC_GATEWAY_URL || `${protocol}://localhost:8080`;
   }
 
   /**

@@ -128,6 +128,194 @@ Type \`welcome\` for more information about getting started.`;
 const errorHandler = new WorkerErrorHandler();
 
 // ============================================================================
+// PROGRESS PROCESSOR
+// ============================================================================
+
+interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm: string;
+}
+
+/**
+ * Processes Claude CLI streaming updates and extracts user-friendly content
+ * Implements chronological display with task progress and mixed text/tool output
+ */
+class ProgressProcessor {
+  private currentTodos: TodoItem[] = [];
+  private chronologicalOutput: string = "";
+
+  /**
+   * Process streaming update and return formatted content for Slack
+   * Returns null if the update should be skipped
+   */
+  processUpdate(data: any): string | null {
+    try {
+      // Handle both string and object data
+      let dataToCheck: string;
+
+      if (typeof data === "string" && data.trim()) {
+        dataToCheck = data;
+      } else if (typeof data === "object") {
+        dataToCheck = JSON.stringify(data);
+      } else {
+        return null;
+      }
+
+      // Priority 1: TodoWrite updates (full todo list refresh)
+      const todoData = this.extractTodoList(dataToCheck);
+      if (todoData) {
+        this.currentTodos = todoData;
+        return this.formatFullUpdate();
+      }
+
+      // Priority 2: Tool execution tracking (append to chronological output)
+      const toolExecution = this.extractToolExecution(dataToCheck);
+      if (toolExecution) {
+        logger.info(`🔧 Detected tool execution: ${toolExecution}`);
+        this.chronologicalOutput += `${toolExecution}\n`;
+        return this.formatFullUpdate();
+      }
+
+      // Priority 3: Regular text streaming (append to chronological output)
+      if (typeof data === "string" && data.trim()) {
+        this.chronologicalOutput += `${data}\n`;
+        return this.formatFullUpdate();
+      } else if (typeof data === "object" && data.content) {
+        this.chronologicalOutput += `${data.content}\n`;
+        return this.formatFullUpdate();
+      }
+
+      return null;
+    } catch (error) {
+      logger.error("Failed to process progress update:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract todo list from Claude's JSON output
+   */
+  private extractTodoList(data: string): TodoItem[] | null {
+    try {
+      const lines = data.split("\n");
+      for (const line of lines) {
+        if (line.trim().startsWith("{")) {
+          const parsed = JSON.parse(line);
+
+          // Check if this is a tool_use for TodoWrite
+          if (parsed.type === "assistant" && parsed.message?.content) {
+            for (const content of parsed.message.content) {
+              if (
+                content.type === "tool_use" &&
+                content.name === "TodoWrite" &&
+                content.input?.todos
+              ) {
+                return content.input.todos;
+              }
+            }
+          }
+        }
+      }
+    } catch (_error) {
+      // Not JSON or parsing failed
+    }
+    return null;
+  }
+
+  /**
+   * Extract tool execution details from Claude's JSON output
+   */
+  private extractToolExecution(data: string): string | null {
+    try {
+      const lines = data.split("\n");
+      for (const line of lines) {
+        if (line.trim().startsWith("{")) {
+          const parsed = JSON.parse(line);
+
+          // Detect tool usage
+          if (parsed.type === "assistant" && parsed.message?.content) {
+            for (const content of parsed.message.content) {
+              if (content.type === "tool_use") {
+                return this.formatToolExecution(content);
+              }
+            }
+          }
+        }
+      }
+    } catch (_e) {
+      // Silently continue - not all lines are valid JSON
+    }
+    return null;
+  }
+
+  /**
+   * Format tool execution for user-friendly display in bullet lists
+   */
+  private formatToolExecution(toolUse: any): string {
+    const toolName = toolUse.name;
+    const params = toolUse.input || {};
+
+    switch (toolName) {
+      case "Write":
+        return `✏️ **Writing** \`${params.file_path}\``;
+      case "Edit":
+        return `✏️ **Editing** \`${params.file_path}\``;
+      case "Bash": {
+        const command = params.command || params.description || "command";
+        return `👾 **Running** \`${command.length > 50 ? `${command.substring(0, 50)}...` : command}\``;
+      }
+      case "Read":
+        return `📖 **Reading** \`${params.file_path}\``;
+      case "Grep":
+        return `🔍 **Searching** \`${params.pattern}\``;
+      case "Glob":
+        return `🔍 **Finding** \`${params.pattern}\``;
+      case "TodoWrite":
+        return "📝 Updating task list";
+      case "WebFetch":
+        return `🌐 **Fetching** \`${params.url}\``;
+      case "WebSearch":
+        return `🔎 **Searching web** \`${params.query}\``;
+      default:
+        return `🔧 **Using** ${toolName}`;
+    }
+  }
+
+  /**
+   * Format full update with tasks and chronological output
+   */
+  private formatFullUpdate(): string {
+    const sections: string[] = [];
+
+    // Section 1: Task Progress (if todos exist)
+    if (this.currentTodos.length > 0) {
+      const todoLines = this.currentTodos.map((todo) => {
+        const checkbox = todo.status === "completed" ? "☑️" : "☐";
+        if (todo.status === "in_progress") {
+          return `🪚 *${todo.activeForm}*`;
+        }
+        return `${checkbox} ${todo.content}`;
+      });
+      sections.push(`📝 **Task Progress**\n${todoLines.join("\n")}`);
+    }
+
+    // Section 2: Chronological output (text and tools mixed in order)
+    if (this.chronologicalOutput.trim()) {
+      const divider = this.currentTodos.length > 0 ? "━━━━━━━━━━━━━━" : "";
+      sections.push(
+        divider
+          ? `${divider}\n${this.chronologicalOutput.trim()}`
+          : this.chronologicalOutput.trim()
+      );
+    }
+
+    // Join all sections
+    return sections.filter((s) => s).join("\n");
+  }
+}
+
+// ============================================================================
 // CLAUDE WORKER
 // ============================================================================
 
@@ -136,6 +324,7 @@ export class ClaudeWorker implements WorkerExecutor {
   private workspaceManager: WorkspaceManager;
   public gatewayIntegration: GatewayIntegration;
   private config: WorkerConfig;
+  private progressProcessor: ProgressProcessor;
 
   constructor(config: WorkerConfig) {
     this.config = config;
@@ -143,6 +332,7 @@ export class ClaudeWorker implements WorkerExecutor {
     // Initialize components
     this.sessionRunner = new ClaudeSessionRunner();
     this.workspaceManager = new WorkspaceManager(config.workspace);
+    this.progressProcessor = new ProgressProcessor();
 
     // Verify required environment variables
     const dispatcherUrl = process.env.DISPATCHER_URL;
@@ -345,6 +535,10 @@ export class ClaudeWorker implements WorkerExecutor {
             context: sessionContext,
             options: {
               ...JSON.parse(this.config.claudeOptions),
+              // Pass custom instructions as system prompt for higher priority
+              ...(customInstructions
+                ? { appendSystemPrompt: customInstructions }
+                : {}),
               ...(this.config.resumeSessionId
                 ? { resumeSessionId: this.config.resumeSessionId }
                 : this.config.sessionId
@@ -369,7 +563,16 @@ export class ClaudeWorker implements WorkerExecutor {
                   );
                   return;
                 }
-                await this.gatewayIntegration.sendContent(update.data);
+
+                // Process the update to extract user-friendly content
+                const formattedContent = this.progressProcessor.processUpdate(
+                  update.data
+                );
+
+                // Only send if we have formatted content (skip internal events)
+                if (formattedContent) {
+                  await this.gatewayIntegration.sendContent(formattedContent);
+                }
               }
             },
           });
@@ -403,10 +606,25 @@ export class ClaudeWorker implements WorkerExecutor {
         await this.gatewayIntegration.signalDone(finalMessage);
       } else {
         const errorMsg = result.error || "Unknown error";
-        await this.gatewayIntegration.sendContent(
-          `❌ Session failed: ${errorMsg}`
-        );
-        await this.gatewayIntegration.signalError(new Error(errorMsg));
+
+        // Check if this is a timeout (exit code 124)
+        // Timeouts will be retried automatically, so don't signal error (no ❌ emoji)
+        const isTimeout = result.exitCode === 124;
+
+        if (isTimeout) {
+          logger.info(
+            `Session timed out (exit code 124) - will be retried automatically, not showing error to user`
+          );
+          // Don't send error content or signal error for timeouts (no ❌ emoji)
+          // But still throw an error so pg-boss retries the job
+          throw new Error("SESSION_TIMEOUT");
+        } else {
+          // For non-timeout errors, show the error to the user
+          await this.gatewayIntegration.sendContent(
+            `❌ Session failed: ${errorMsg}`
+          );
+          await this.gatewayIntegration.signalError(new Error(errorMsg));
+        }
       }
 
       logger.info(

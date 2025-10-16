@@ -1,11 +1,9 @@
 #!/usr/bin/env bun
 
-import { exec, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
 import { stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { createLogger } from "@peerbot/core";
 import { getMCPConfigForClaude } from "../utils/mcp-config";
 import type {
@@ -15,10 +13,6 @@ import type {
 } from "./executor";
 
 const logger = createLogger("worker");
-
-const execAsync = promisify(exec);
-
-const PIPE_PATH = `${process.env.RUNNER_TEMP || "/tmp"}/claude_prompt_pipe`;
 
 const BASE_ARGS = [
   "--verbose",
@@ -71,8 +65,8 @@ async function prepareRunConfig(
 }> {
   const claudeArgs = [...BASE_ARGS];
 
-  // Add pipe path for reading prompt
-  claudeArgs.push("-p", PIPE_PATH);
+  // Enable print mode for non-interactive execution
+  claudeArgs.push("-p");
 
   // Session management: use --continue for resuming, --session-id for new sessions
   if (options.resumeSessionId === "continue") {
@@ -161,16 +155,6 @@ export async function runClaudeWithProgress(
 ): Promise<ClaudeExecutionResult> {
   const config = await prepareRunConfig(promptPath, options);
 
-  // Create a named pipe
-  try {
-    await unlink(PIPE_PATH);
-  } catch (_e) {
-    // Ignore if file doesn't exist
-  }
-
-  // Create the named pipe
-  await execAsync(`mkfifo "${PIPE_PATH}"`);
-
   // Log prompt file size
   let promptSize = "unknown";
   try {
@@ -194,18 +178,6 @@ export async function runClaudeWithProgress(
   );
   logger.info(`Running Claude with prompt from file: ${config.promptPath}`);
 
-  // Start sending prompt to pipe in background
-  const catProcess = spawn("cat", [config.promptPath], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  const pipeStream = createWriteStream(PIPE_PATH);
-  catProcess.stdout.pipe(pipeStream);
-
-  catProcess.on("error", (error) => {
-    logger.error("Error reading prompt file:", error);
-    pipeStream.destroy();
-  });
-
   // Use claude command directly - it's installed globally via npm
   const claudeCommand = process.env.CLAUDE_COMMAND || "claude";
 
@@ -227,10 +199,21 @@ export async function runClaudeWithProgress(
     },
   });
 
+  // Pipe prompt file to Claude's stdin
+  const catProcess = spawn("cat", [config.promptPath], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  catProcess.stdout.pipe(claudeProcess.stdin);
+
+  // Handle cat process errors
+  catProcess.on("error", (error) => {
+    logger.error("Error reading prompt file:", error);
+    claudeProcess.kill("SIGTERM");
+  });
+
   // Handle Claude process errors
   claudeProcess.on("error", (error) => {
     logger.error("Error spawning Claude process:", error);
-    pipeStream.destroy();
   });
 
   // Capture output for parsing execution metrics
@@ -299,16 +282,6 @@ export async function runClaudeWithProgress(
     logger.error("Error reading Claude stderr:", error);
   });
 
-  // Pipe from named pipe to Claude
-  const pipeProcess = spawn("cat", [PIPE_PATH]);
-  pipeProcess.stdout.pipe(claudeProcess.stdin);
-
-  // Handle pipe process errors
-  pipeProcess.on("error", (error) => {
-    logger.error("Error reading from named pipe:", error);
-    claudeProcess.kill("SIGTERM");
-  });
-
   // Wait for Claude to finish with timeout
   let timeoutMs = 10 * 60 * 1000; // Default 10 minutes
   if (options.timeoutMinutes) {
@@ -369,18 +342,6 @@ export async function runClaudeWithProgress(
     catProcess.kill("SIGTERM");
   } catch (_e) {
     // Process may already be dead
-  }
-  try {
-    pipeProcess.kill("SIGTERM");
-  } catch (_e) {
-    // Process may already be dead
-  }
-
-  // Clean up pipe file
-  try {
-    await unlink(PIPE_PATH);
-  } catch (_e) {
-    // Ignore errors during cleanup
   }
 
   // Clean up MCP config file if it was created

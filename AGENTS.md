@@ -4,6 +4,7 @@
 - TypeScript sources under `packages/*/src`. Tests live in `packages/*/src/__tests__` and `packages/shared/tests`.
 - **ALWAYS prefer `bun` commands over `npm`**
 - When fixing unused parameter errors, remove the parameter entirely if possible rather than prefixing with underscore
+- Worker prompt delivery: Claude CLI reads prompts from stdin via direct pipe from prompt file (no named pipes used)
 
 ## Instructions
 - You MUST only do what has been asked; nothing more, nothing less.
@@ -47,6 +48,103 @@ Worker pods now use persistent volumes for data storage:
 1. **Persistent Volumes**: Each worker pod mounts a persistent volume at `/workspace` to preserve data across pod restarts
 2. **Auto-Resume**: The worker automatically resumes conversations using Claude CLI's built-in `--resume` functionality when continuing a thread in the same persistent volume
 3. **Data Persistence**: All workspace data is preserved in the persistent volume, eliminating the need for conversation file syncing
+
+## MCP OAuth Authentication
+
+MCP (Model Context Protocol) servers can be authenticated via OAuth. Users authenticate through the Slack home tab.
+
+### Configuration
+
+1. **Set public gateway URL** (required for OAuth callbacks):
+```bash
+# For Tailscale users:
+PEERBOT_PUBLIC_GATEWAY_URL=https://buraks-macbook-pro.brill-kanyu.ts.net
+
+# For other deployments:
+PEERBOT_PUBLIC_GATEWAY_URL=https://your-domain.com
+```
+
+2. **Configure OAuth callback URL** in your OAuth provider:
+```
+https://buraks-macbook-pro.brill-kanyu.ts.net/mcp/oauth/callback
+```
+
+3. **Configure MCP servers** with OAuth (two options):
+
+**Option A: Full OAuth2 Configuration (Recommended)**
+```json
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://github-mcp.example.com",
+      "oauth": {
+        "authUrl": "https://github.com/login/oauth/authorize",
+        "tokenUrl": "https://github.com/login/oauth/access_token",
+        "clientId": "YOUR_GITHUB_CLIENT_ID",
+        "clientSecretEnv": "GITHUB_CLIENT_SECRET",
+        "scopes": ["repo", "read:user"],
+        "grantType": "authorization_code",
+        "responseType": "code"
+      }
+    },
+    "google": {
+      "url": "https://google-mcp.example.com",
+      "oauth": {
+        "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+        "tokenUrl": "https://oauth2.googleapis.com/token",
+        "clientId": "YOUR_GOOGLE_CLIENT_ID",
+        "clientSecretEnv": "GOOGLE_CLIENT_SECRET",
+        "scopes": ["https://www.googleapis.com/auth/userinfo.profile"]
+      }
+    }
+  }
+}
+```
+
+**Option B: Simple Login URL (Basic)**
+```json
+{
+  "mcpServers": {
+    "custom": {
+      "url": "https://custom-mcp.example.com",
+      "loginUrl": "https://custom-mcp.example.com/oauth/authorize?client_id=YOUR_CLIENT_ID"
+    }
+  }
+}
+```
+
+4. **Set client secrets in environment variables**:
+```bash
+export GITHUB_CLIENT_SECRET=your_github_client_secret
+export GOOGLE_CLIENT_SECRET=your_google_client_secret
+```
+
+### User Authentication Flow
+
+1. User opens Slack app home tab
+2. Sees "Login" button for unauthenticated MCPs
+3. Clicks "Login" → receives DM with OAuth link
+4. Completes OAuth on MCP provider's site
+5. Redirected back to callback → credentials stored
+6. Home tab updates to show "Connected" with logout button
+
+### Credential Storage
+
+- Stored in Redis: `mcp:credential:{userId}:{mcpId}`
+- Contains: accessToken, tokenType, expiresAt, refreshToken, metadata
+- OAuth state stored temporarily (5 min TTL) for CSRF protection
+
+### Edge Cases
+
+**Active conversations when user logs out:**
+- Worker receives 401 from MCP proxy
+- Shows message: "Authentication required. Visit Home tab to reconnect."
+- Worker continues running - user can still use non-MCP features
+
+**Token expiration during conversation:**
+- MCP proxy checks expiry before proxying
+- Attempts automatic refresh if refreshToken exists
+- If refresh fails, shows reauthentication message
 
 ## Testing with slack-qa-bot.js
 

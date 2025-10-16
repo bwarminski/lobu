@@ -5,13 +5,6 @@ import { z } from "zod";
  * Handles environment variables consistently across all packages
  */
 
-// Database configuration schema
-export const DatabaseConfigSchema = z.object({
-  connectionString: z.string().min(1, "Database connection string is required"),
-  ssl: z.boolean().optional().default(false),
-  maxConnections: z.number().optional().default(10),
-});
-
 // Slack configuration schema
 export const SlackConfigSchema = z.object({
   botToken: z.string().min(1, "Slack bot token is required"),
@@ -29,13 +22,6 @@ export const ClaudeConfigSchema = z.object({
   apiKey: z.string().optional(),
   model: z.string().optional().default("claude-3-sonnet-20240229"),
   maxTokens: z.number().optional().default(4096),
-});
-
-// Queue configuration schema
-export const QueueConfigSchema = z.object({
-  connectionString: z.string().min(1, "Queue connection string is required"),
-  jobTimeoutMs: z.number().optional().default(300000), // 5 minutes
-  retryLimit: z.number().optional().default(3),
 });
 
 // Kubernetes configuration schema
@@ -64,37 +50,9 @@ export const KubernetesConfigSchema = z.object({
     .optional(),
 });
 
-// Complete application configuration schema
-export const AppConfigSchema = z.object({
-  database: DatabaseConfigSchema,
-  slack: SlackConfigSchema,
-  claude: ClaudeConfigSchema.optional(),
-  queue: QueueConfigSchema,
-  kubernetes: KubernetesConfigSchema.optional(),
-});
-
-export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
 export type SlackConfig = z.infer<typeof SlackConfigSchema>;
 export type ClaudeConfig = z.infer<typeof ClaudeConfigSchema>;
-export type QueueConfig = z.infer<typeof QueueConfigSchema>;
 export type KubernetesConfig = z.infer<typeof KubernetesConfigSchema>;
-export type AppConfig = z.infer<typeof AppConfigSchema>;
-
-/**
- * Loads database configuration from environment variables
- */
-export function loadDatabaseConfig(): DatabaseConfig {
-  const config = {
-    connectionString:
-      process.env.DATABASE_URL || process.env.POSTGRES_URL || "",
-    ssl: process.env.DATABASE_SSL === "true",
-    maxConnections: process.env.DATABASE_MAX_CONNECTIONS
-      ? parseInt(process.env.DATABASE_MAX_CONNECTIONS, 10)
-      : undefined,
-  };
-
-  return DatabaseConfigSchema.parse(config);
-}
 
 /**
  * Loads Slack configuration from environment variables
@@ -125,24 +83,6 @@ export function loadClaudeConfig(): ClaudeConfig {
 }
 
 /**
- * Loads queue configuration from environment variables
- */
-export function loadQueueConfig(): QueueConfig {
-  const config = {
-    connectionString:
-      process.env.DATABASE_URL || process.env.POSTGRES_URL || "",
-    jobTimeoutMs: process.env.JOB_TIMEOUT_MS
-      ? parseInt(process.env.JOB_TIMEOUT_MS, 10)
-      : undefined,
-    retryLimit: process.env.JOB_RETRY_LIMIT
-      ? parseInt(process.env.JOB_RETRY_LIMIT, 10)
-      : undefined,
-  };
-
-  return QueueConfigSchema.parse(config);
-}
-
-/**
  * Loads Kubernetes configuration from environment variables
  */
 export function loadKubernetesConfig(): KubernetesConfig {
@@ -160,19 +100,6 @@ export function loadKubernetesConfig(): KubernetesConfig {
         memory: process.env.WORKER_MEMORY_LIMIT,
       },
     },
-  });
-}
-
-/**
- * Loads complete application configuration from environment variables
- */
-export function loadConfig(): AppConfig {
-  return AppConfigSchema.parse({
-    database: loadDatabaseConfig(),
-    slack: loadSlackConfig(),
-    claude: loadClaudeConfig(),
-    queue: loadQueueConfig(),
-    kubernetes: loadKubernetesConfig(),
   });
 }
 

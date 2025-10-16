@@ -2,8 +2,8 @@
 
 import { initSentry } from "@peerbot/core";
 
-// Initialize Sentry monitoring
-initSentry();
+// Initialize Sentry monitoring (fire and forget - won't block startup)
+initSentry().catch(console.error);
 
 import http from "node:http";
 import { existsSync } from "node:fs";
@@ -118,7 +118,9 @@ async function startGateway({ env }: StartOptions = {}) {
         dotenvConfig({ path: envPath });
         logger.debug(`Loaded environment variables from ${envPath}`);
       } else if (envProvided) {
-        logger.warn(`Specified env file ${envPath} was not found; continuing without it.`);
+        logger.warn(
+          `Specified env file ${envPath} was not found; continuing without it.`
+        );
       } else {
         logger.debug("No .env file found; relying on process environment.");
       }
@@ -136,10 +138,9 @@ async function startGateway({ env }: StartOptions = {}) {
       signingSecret: `${process.env.SLACK_SIGNING_SECRET?.substring(0, 10)}...`,
     });
 
-    const connectionString =
-      process.env.QUEUE_URL || process.env.DATABASE_URL;
+    const connectionString = process.env.QUEUE_URL;
     if (!connectionString) {
-      throw new MissingRequiredEnvError(["QUEUE_URL", "DATABASE_URL"]);
+      throw new MissingRequiredEnvError("QUEUE_URL");
     }
 
     if (!botToken) {
@@ -295,7 +296,7 @@ program
     await startGateway(options);
   });
 
-program.parseAsync(process.argv).catch((error) => {
+program.parseAsync(process.argv).catch((error: any) => {
   logger.error("❌ Failed to start Slack Dispatcher:", error);
   process.exit(1);
 });

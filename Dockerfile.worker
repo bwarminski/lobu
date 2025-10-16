@@ -82,15 +82,21 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install
 COPY packages/ ./packages/
 COPY scripts/ ./scripts/
 
-# For production mode, build during image creation
-# For dev mode, we'll build at startup to allow for live code changes
+# Build core package in all modes (required for worker imports)
+# Core must be built since worker imports from it via package.json main field
+RUN echo "Building @peerbot/core package..."; \
+    cd /app/packages/core && bun run build && \
+    # Create symlink so built core can resolve its dependencies from root node_modules \
+    ln -sf /app/node_modules /app/packages/core/node_modules
+
+# For production mode, also build worker during image creation
+# For dev mode, worker runs from source but still needs core built
 RUN if [ "$NODE_ENV" != "development" ]; then \
-        echo "Building for production..."; \
-        cd /app/packages/core && bun run build; \
+        echo "Building worker for production..."; \
         cd /app/packages/worker && bun run build; \
         ls -la /app/packages/worker/dist/ || echo "No dist directory found"; \
     else \
-        echo "Setting up for development mode..."; \
+        echo "Development mode: worker will run from source"; \
     fi
 
 WORKDIR /app

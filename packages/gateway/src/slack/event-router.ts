@@ -363,6 +363,47 @@ export class SlackEventHandlers {
         );
       }
     );
+
+    // Register handler for MCP input modal submissions
+    this.app.view(/^mcp_input_modal_/, async ({ ack, body, view, client }) => {
+      await ack();
+
+      const userId = body.user.id;
+      const viewId = view.id;
+      const callbackId = view.callback_id;
+      const privateMetadata = view.private_metadata || "{}";
+      const values = view.state.values;
+
+      logger.info(
+        `MCP input modal submission from user ${userId} for ${callbackId}`
+      );
+
+      // Delegate to modules that handle view submissions
+      const dispatcherModules = this.moduleRegistry.getDispatcherModules();
+      for (const module of dispatcherModules) {
+        if (module.handleViewSubmission) {
+          try {
+            await module.handleViewSubmission(
+              viewId,
+              userId,
+              values,
+              privateMetadata
+            );
+            logger.info(
+              `Module ${module.name} handled view submission ${callbackId}`
+            );
+          } catch (error) {
+            logger.error(
+              `Module ${module.name} failed to handle view submission:`,
+              error
+            );
+          }
+        }
+      }
+
+      // Update app home after successful submission
+      await this.actionHandler.updateAppHome(userId, client);
+    });
   }
 
   /**

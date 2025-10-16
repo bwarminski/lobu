@@ -59,8 +59,6 @@ export class GitHubModule extends BaseModule<GitHubModuleData> {
     return true;
   }
 
-  // Home tab removed - GitHub auth handled by MCP
-
   /**
    * Initialize git workspace - handles cloning, updating, and configuration
    * Reads repository URL from GITHUB_REPOSITORY environment variable

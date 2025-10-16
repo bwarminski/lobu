@@ -2,8 +2,8 @@
 
 import { createLogger, initSentry } from "@peerbot/core";
 
-// Initialize Sentry monitoring
-initSentry();
+// Initialize Sentry monitoring (fire and forget - won't block startup)
+initSentry().catch(console.error);
 
 import { moduleRegistry } from "@peerbot/core";
 

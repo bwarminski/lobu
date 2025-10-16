@@ -124,12 +124,8 @@ export async function createPromptFile(
   // Add Slack integration instructions
   promptParts.push(generateSlackInstructions());
 
-  // Add custom instructions if provided
-  if (context.customInstructions) {
-    promptParts.push("## Custom Instructions\n\n");
-    promptParts.push(context.customInstructions);
-    promptParts.push("\n\n");
-  }
+  // Note: Custom instructions are now passed via --append-system-prompt flag
+  // instead of being included in the prompt file for higher priority
 
   // Add conversation history if exists
   if (conversation.length > 0) {

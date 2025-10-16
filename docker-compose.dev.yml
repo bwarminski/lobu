@@ -18,6 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.gateway
+    restart: unless-stopped  # Auto-restart on failure, but not if manually stopped
     environment:
       NODE_ENV: development
       AGENT_DEFAULT_MODEL: ${AGENT_DEFAULT_MODEL}
@@ -31,18 +32,12 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       HOST_PROJECT_PATH: ${PWD}
     volumes:
-      # Mount source code for hot reload
-      - ./packages:/app/packages:cached
-      - ./tsconfig.json:/app/tsconfig.json:cached
-      - ./package.json:/app/package.json:cached
-      # Use named volume for node_modules to avoid conflicts
-      - gateway_node_modules:/app/node_modules
       # Mount Docker socket for Docker mode
       - /var/run/docker.sock:/var/run/docker.sock
       # Persistent env storage
       - env_storage:/app/.peerbot/env
-    working_dir: /app/packages/gateway
-    command: bun run dev
+    working_dir: /app
+    command: bun /app/packages/gateway/src/index.ts
     ports:
       - "3000:3000"
       - "8080:8080"  # OAuth and health endpoints
@@ -66,6 +61,5 @@ networks:
     driver: bridge
 
 volumes:
-  gateway_node_modules:
   redis_data:
   env_storage:

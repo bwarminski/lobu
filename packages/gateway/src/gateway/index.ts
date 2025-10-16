@@ -5,7 +5,7 @@ import { createLogger, verifyWorkerToken } from "@peerbot/core";
 import type { Request, Response } from "express";
 import { WorkerConnectionManager } from "./connection-manager";
 import { WorkerJobRouter } from "./job-router";
-import { McpConfigService } from "../mcp/config-service";
+import type { McpConfigService } from "../mcp/config-service";
 
 const logger = createLogger("worker-gateway");
 
@@ -175,7 +175,9 @@ export class WorkerGateway {
     if (host) {
       return `${protocol}://${host}`;
     }
-    return process.env.PEERBOT_PUBLIC_GATEWAY_URL || `${protocol}://localhost:8080`;
+    return (
+      process.env.PEERBOT_PUBLIC_GATEWAY_URL || `${protocol}://localhost:8080`
+    );
   }
 
   /**

@@ -1,4 +1,8 @@
-import { RedisClient, type IMessageQueue, type IRedisClient } from "@peerbot/core";
+import {
+  RedisClient,
+  type IMessageQueue,
+  type IRedisClient,
+} from "@peerbot/core";
 import { createLogger } from "@peerbot/core";
 
 const logger = createLogger("mcp-credentials");
@@ -19,7 +23,10 @@ export class McpCredentialStore {
     this.redis = new RedisClient(queue.getRedisClient());
   }
 
-  async get(userId: string, mcpId: string): Promise<McpCredentialRecord | null> {
+  async get(
+    userId: string,
+    mcpId: string
+  ): Promise<McpCredentialRecord | null> {
     const key = this.buildKey(userId, mcpId);
     try {
       const value = await this.redis.get(key);

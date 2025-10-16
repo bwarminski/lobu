@@ -79,6 +79,14 @@ export interface DispatcherModule<TModuleData = unknown>
     userId: string,
     context: any
   ): Promise<boolean>;
+
+  /** Handle view submission (modal submitted). Optional. */
+  handleViewSubmission?(
+    viewId: string,
+    userId: string,
+    values: any,
+    privateMetadata: string
+  ): Promise<void>;
 }
 
 export interface ModuleSessionContext {

@@ -162,6 +162,29 @@ echo "  - Recovery: ${RECOVERY_MODE:-false}"
 # Make scripts executable
 chmod +x /app/scripts/*.sh 2>/dev/null || true
 
+# In development mode, ensure core package can find its dependencies
+# The packages/ dir is mounted as a volume which may contain node_modules from host
+if [ "${NODE_ENV}" = "development" ]; then
+    # Remove any existing node_modules that aren't symlinks
+    if [ -e "/app/packages/core/node_modules" ] && [ ! -L "/app/packages/core/node_modules" ]; then
+        echo "🗑️  Removing host node_modules from /app/packages/core/"
+        rm -rf /app/packages/core/node_modules
+    fi
+    if [ ! -e "/app/packages/core/node_modules" ]; then
+        echo "🔗 Creating symlink for core package dependencies..."
+        ln -sf /app/node_modules /app/packages/core/node_modules
+        echo "✅ Symlink created: /app/packages/core/node_modules -> /app/node_modules"
+    fi
+
+    # Also for worker package if needed
+    if [ -e "/app/packages/worker/node_modules" ] && [ ! -L "/app/packages/worker/node_modules" ]; then
+        rm -rf /app/packages/worker/node_modules
+    fi
+    if [ ! -e "/app/packages/worker/node_modules" ]; then
+        ln -sf /app/node_modules /app/packages/worker/node_modules
+    fi
+fi
+
 # Start the worker process
 echo "🚀 Executing Claude Worker..."
 # Check if we're already in the worker directory

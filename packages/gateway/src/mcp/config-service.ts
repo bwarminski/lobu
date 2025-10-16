@@ -7,15 +7,33 @@ import { z } from "zod";
 const logger = createLogger("mcp-config-service");
 
 const McpServersSchema = z.object({
-  mcpServers: z.record(z.any()),
+  mcpServers: z.record(z.string(), z.any()),
 });
 
 type RawMcpConfig = z.infer<typeof McpServersSchema>;
 
+export interface OAuth2Config {
+  authUrl: string;
+  tokenUrl: string;
+  clientId: string;
+  clientSecret: string; // Supports ${env:VAR_NAME} substitution
+  scopes?: string[];
+  grantType?: string;
+  responseType?: string;
+}
+
+export interface McpInput {
+  type: "promptString";
+  id: string;
+  description: string;
+}
+
 export interface HttpMcpServerConfig {
   id: string;
   upstreamUrl: string;
-  loginUrl?: string;
+  oauth?: OAuth2Config;
+  inputs?: McpInput[];
+  headers?: Record<string, string>;
 }
 
 export interface WorkerMcpConfig {
@@ -28,9 +46,7 @@ interface LoadedConfig {
   mtimeMs: number;
 }
 
-type ConfigSource =
-  | { type: "file"; path: string }
-  | { type: "http"; url: URL };
+type ConfigSource = { type: "file"; path: string } | { type: "http"; url: URL };
 
 export interface McpConfigServiceOptions {
   configUrl?: string;
@@ -99,12 +115,11 @@ export class McpConfigService {
       return this.cache;
     }
 
-    const fallback =
-      this.cache ?? {
-        rawServers: {},
-        httpServers: new Map(),
-        mtimeMs: 0,
-      };
+    const fallback = this.cache ?? {
+      rawServers: {},
+      httpServers: new Map(),
+      mtimeMs: 0,
+    };
 
     try {
       if (this.source.type === "file") {
@@ -113,7 +128,7 @@ export class McpConfigService {
         return this.parseAndCache(fileContents, fileStat.mtimeMs);
       }
 
-      const response = await fetch(this.source.url, { cache: "no-store" });
+      const response = await fetch(this.source.url);
       if (!response.ok) {
         logger.error("Failed to fetch MCP config from remote URL", {
           url: this.source.url.toString(),
@@ -211,8 +226,30 @@ function normalizeConfig(config: RawMcpConfig) {
       httpServers.set(id, {
         id,
         upstreamUrl: cloned.url,
-        loginUrl:
-          typeof cloned.loginUrl === "string" ? cloned.loginUrl : undefined,
+        oauth:
+          cloned.oauth && typeof cloned.oauth === "object"
+            ? {
+                authUrl: cloned.oauth.authUrl,
+                tokenUrl: cloned.oauth.tokenUrl,
+                clientId: cloned.oauth.clientId,
+                clientSecret: cloned.oauth.clientSecret,
+                scopes: cloned.oauth.scopes,
+                grantType: cloned.oauth.grantType || "authorization_code",
+                responseType: cloned.oauth.responseType || "code",
+              }
+            : undefined,
+        inputs: Array.isArray(cloned.inputs)
+          ? cloned.inputs.filter(
+              (input: any) =>
+                input &&
+                typeof input === "object" &&
+                input.type === "promptString"
+            )
+          : undefined,
+        headers:
+          cloned.headers && typeof cloned.headers === "object"
+            ? cloned.headers
+            : undefined,
       });
     }
   }
@@ -225,7 +262,10 @@ function cloneConfig(config: any) {
 }
 
 function buildProxyUrl(baseUrl: string, id: string) {
-  const url = new URL(`/mcp/${encodeURIComponent(id)}`, ensureTrailingSlash(baseUrl));
+  const url = new URL(
+    `/mcp/${encodeURIComponent(id)}`,
+    ensureTrailingSlash(baseUrl)
+  );
   return url.toString();
 }
 
@@ -256,6 +296,6 @@ function mergeHeaders(
     }
   }
 
-  normalized["Authorization"] = `Bearer ${workerToken}`;
+  normalized.Authorization = `Bearer ${workerToken}`;
   return normalized;
 }

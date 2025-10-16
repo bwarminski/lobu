@@ -3,7 +3,6 @@
 import fs from "node:fs";
 import { createLogger } from "@peerbot/core";
 import * as Sentry from "@sentry/node";
-import { parseClaudeOutput } from "./claude/parser";
 import { ClaudeSessionRunner } from "./claude/executor";
 import { GatewayIntegration } from "./gateway/client";
 import type { WorkerConfig } from "./types";
@@ -170,7 +169,11 @@ class ProgressProcessor {
       }
 
       // Priority 2: Extract text and tool uses from assistant messages
-      if (typeof data === "object" && data.type === "assistant" && data.message?.content) {
+      if (
+        typeof data === "object" &&
+        data.type === "assistant" &&
+        data.message?.content
+      ) {
         let hasUpdate = false;
 
         for (const contentItem of data.message.content) {
@@ -276,27 +279,27 @@ class ProgressProcessor {
 
     switch (toolName) {
       case "Write":
-        return `✏️ **Writing** \`${params.file_path}\``;
+        return `└ ✏️ **Writing** \`${params.file_path}\``;
       case "Edit":
-        return `✏️ **Editing** \`${params.file_path}\``;
+        return `└ ✏️ **Editing** \`${params.file_path}\``;
       case "Bash": {
         const command = params.command || params.description || "command";
-        return `👾 **Running** \`${command.length > 50 ? `${command.substring(0, 50)}...` : command}\``;
+        return `└ 👾 **Running** \`${command.length > 50 ? `${command.substring(0, 50)}...` : command}\``;
       }
       case "Read":
-        return `📖 **Reading** \`${params.file_path}\``;
+        return `└ 📖 **Reading** \`${params.file_path}\``;
       case "Grep":
-        return `🔍 **Searching** \`${params.pattern}\``;
+        return `└ 🔍 **Searching** \`${params.pattern}\``;
       case "Glob":
-        return `🔍 **Finding** \`${params.pattern}\``;
+        return `└ 🔍 **Finding** \`${params.pattern}\``;
       case "TodoWrite":
-        return "📝 Updating task list";
+        return "└ 📝 Updating task list";
       case "WebFetch":
-        return `🌐 **Fetching** \`${params.url}\``;
+        return `└ 🌐 **Fetching** \`${params.url}\``;
       case "WebSearch":
-        return `🔎 **Searching web** \`${params.query}\``;
+        return `└ 🔎 **Searching web** \`${params.query}\``;
       default:
-        return `🔧 **Using** ${toolName}`;
+        return `└ 🔧 **Using** ${toolName}`;
     }
   }
 
@@ -597,14 +600,6 @@ export class ClaudeWorker implements WorkerExecutor {
         }
       );
 
-      // Handle final result
-      logger.info("=== FINAL RESULT DEBUG ===");
-      logger.info("result.success:", result.success);
-      logger.info("result.output exists:", !!result.output);
-      logger.info("result.output length:", result.output?.length);
-      logger.info("result.output sample:", result.output?.substring(0, 300));
-      logger.info("About to update Slack...");
-
       // Collect module data before sending final response
       const { collectModuleData } = await import("./integrations/modules");
       const moduleData = await collectModuleData({
@@ -615,16 +610,15 @@ export class ClaudeWorker implements WorkerExecutor {
       this.gatewayIntegration.setModuleData(moduleData);
 
       if (result.success) {
-        // Extract final summary from Claude's output
-        const finalSummary = this.formatClaudeResponse(result.output);
-
-        // Get complete output including chronological history + final summary
-        const completeMessage = this.progressProcessor.getFinalOutput(finalSummary);
+        // Get complete output from chronological history (no need for final summary - all text is already captured)
+        const completeMessage = this.progressProcessor.getFinalOutput();
         const finalMessage = completeMessage?.trim()
           ? completeMessage
           : "✅ Task completed successfully";
 
-        logger.info(`Sending final message via queue: ${finalMessage.substring(0, 200)}...`);
+        logger.info(
+          `Sending final message via queue: ${finalMessage.substring(0, 200)}...`
+        );
         await this.gatewayIntegration.signalDone(finalMessage);
       } else {
         const errorMsg = result.error || "Unknown error";
@@ -697,23 +691,6 @@ export class ClaudeWorker implements WorkerExecutor {
       logger.warn(`[CUSTOM-INSTRUCTIONS] Using fallback: ${fallback}`);
       return fallback;
     }
-  }
-
-  private formatClaudeResponse(output: string | undefined): string {
-    logger.info("=== formatClaudeResponse DEBUG ===");
-    logger.info(`output exists? ${!!output}`);
-    logger.info(`output length: ${output?.length}`);
-    logger.info(`output first 200 chars: ${output?.substring(0, 200)}`);
-
-    if (!output) {
-      return "";
-    }
-
-    const parsed = parseClaudeOutput(output);
-    logger.info(`parsed response: ${parsed}`);
-    logger.info(`parsed length: ${parsed.length}`);
-
-    return parsed || "";
   }
 
   /**

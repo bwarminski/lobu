@@ -12,6 +12,11 @@ export class CoreInstructionProvider implements InstructionProvider {
 - Working directory: ${context.workingDirectory}
 - Always use \`pwd\` first to verify you're in the correct directory
 - To remember something, add it to CLAUDE.md file in the relevant directory.
-- Always prefer numbered lists over bullet points.`;
+- Always prefer numbered lists over bullet points.
+
+## Task Management
+- For complex multi-step tasks (3+ steps), ALWAYS use the TodoWrite tool to create a task list
+- Update the todo list as you complete each task to show progress
+- When user explicitly asks to "create todos" or "make a todo list", use TodoWrite immediately`;
   }
 }

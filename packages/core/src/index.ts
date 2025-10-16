@@ -1,6 +1,5 @@
 // Export shared types
 
-export * from "./config";
 // Export deployment management
 export * from "./deployment/base-deployment-manager";
 // Export error classes

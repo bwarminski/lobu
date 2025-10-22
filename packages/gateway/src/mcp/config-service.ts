@@ -3,6 +3,10 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import type {
+  McpOAuthDiscoveryService,
+  DiscoveredOAuthMetadata,
+} from "./oauth-discovery";
 
 const logger = createLogger("mcp-config-service");
 
@@ -44,6 +48,7 @@ interface LoadedConfig {
   rawServers: Record<string, any>;
   httpServers: Map<string, HttpMcpServerConfig>;
   mtimeMs: number;
+  discoveredOAuth?: Map<string, DiscoveredOAuthMetadata>;
 }
 
 type ConfigSource = { type: "file"; path: string } | { type: "http"; url: URL };
@@ -51,11 +56,14 @@ type ConfigSource = { type: "file"; path: string } | { type: "http"; url: URL };
 export interface McpConfigServiceOptions {
   configUrl?: string;
   configPath?: string;
+  discoveryService?: McpOAuthDiscoveryService;
 }
 
 export class McpConfigService {
   private source?: ConfigSource;
   private cache?: LoadedConfig;
+  private discoveryService?: McpOAuthDiscoveryService;
+  private discoveryEnriched = false;
 
   constructor(options: McpConfigServiceOptions = {}) {
     const rawLocation =
@@ -69,6 +77,7 @@ export class McpConfigService {
     }
 
     this.source = this.resolveConfigSource(rawLocation);
+    this.discoveryService = options.discoveryService;
   }
 
   /**
@@ -109,6 +118,100 @@ export class McpConfigService {
   async getAllHttpServers(): Promise<Map<string, HttpMcpServerConfig>> {
     const config = await this.loadConfig();
     return config.httpServers;
+  }
+
+  /**
+   * Get discovered OAuth metadata for a specific MCP server
+   */
+  async getDiscoveredOAuth(
+    id: string
+  ): Promise<DiscoveredOAuthMetadata | undefined> {
+    const config = await this.loadConfig();
+    return config.discoveredOAuth?.get(id);
+  }
+
+  /**
+   * Get all discovered OAuth metadata
+   */
+  async getAllDiscoveredOAuth(): Promise<Map<string, DiscoveredOAuthMetadata>> {
+    const config = await this.loadConfig();
+    return config.discoveredOAuth || new Map();
+  }
+
+  /**
+   * Enrich config with OAuth discovery for all HTTP MCPs
+   * Should be called once during gateway initialization
+   */
+  async enrichWithDiscovery(): Promise<void> {
+    if (this.discoveryEnriched || !this.discoveryService) {
+      return;
+    }
+
+    logger.info("Starting OAuth discovery for all MCP servers...");
+
+    const config = await this.loadConfig();
+    const discoveredOAuth = new Map<string, DiscoveredOAuthMetadata>();
+    const discoveryPromises: Promise<void>[] = [];
+
+    // Discover OAuth for each HTTP MCP that doesn't have static OAuth config
+    for (const [id, serverConfig] of config.httpServers) {
+      // Skip if OAuth is already configured statically
+      if (serverConfig.oauth) {
+        logger.debug(
+          `Skipping discovery for ${id} - static OAuth config exists`
+        );
+        continue;
+      }
+
+      // Skip if inputs are configured (different auth method)
+      if (serverConfig.inputs && serverConfig.inputs.length > 0) {
+        logger.debug(
+          `Skipping discovery for ${id} - input-based auth configured`
+        );
+        continue;
+      }
+
+      // Attempt discovery
+      const discoveryPromise = this.discoveryService
+        .discoverOAuthMetadata(id, serverConfig.upstreamUrl)
+        .then((discovered) => {
+          if (discovered) {
+            discoveredOAuth.set(id, discovered);
+            logger.info(
+              `Discovered OAuth for ${id}: ${discovered.metadata.issuer}`
+            );
+          }
+        })
+        .catch((error) => {
+          logger.error(`Failed to discover OAuth for ${id}`, { error });
+        });
+
+      discoveryPromises.push(discoveryPromise);
+    }
+
+    // Wait for all discovery attempts to complete
+    await Promise.allSettled(discoveryPromises);
+
+    // Update cache with discovered OAuth
+    if (this.cache) {
+      this.cache.discoveredOAuth = discoveredOAuth;
+    }
+
+    this.discoveryEnriched = true;
+    logger.info(
+      `OAuth discovery completed. Discovered: ${discoveredOAuth.size} servers`
+    );
+  }
+
+  /**
+   * Clear discovery cache and re-discover
+   */
+  async refreshDiscovery(): Promise<void> {
+    this.discoveryEnriched = false;
+    if (this.cache) {
+      this.cache.discoveredOAuth = undefined;
+    }
+    await this.enrichWithDiscovery();
   }
 
   private async loadConfig(): Promise<LoadedConfig> {

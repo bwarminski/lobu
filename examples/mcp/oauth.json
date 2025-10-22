@@ -1,10 +1,12 @@
 {
-  "sentry": {
-    "type": "http",
-    "url": "https://mcp.sentry.dev/mcp"
-  },
-  "github": {
-    "type": "http",
-    "url": "https://api.githubcopilot.com/mcp/"
+  "mcpServers": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp"
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    }
   }
 }

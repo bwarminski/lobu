@@ -12,7 +12,7 @@ interface McpStatus {
   id: string;
   name: string;
   isAuthenticated: boolean;
-  authType: "oauth" | "inputs";
+  authType: "oauth" | "discovered-oauth" | "inputs";
   metadata?: Record<string, unknown>;
 }
 
@@ -32,6 +32,15 @@ export class McpOAuthModule extends BaseModule {
   ) {
     super();
     this.oauth2Client = new OAuth2Client();
+  }
+
+  /**
+   * Get the discovery service from config service
+   * Helper method to access discovery service through config service
+   */
+  private getDiscoveryService() {
+    // Access through config service's private field (using any to bypass TypeScript)
+    return (this.configService as any).discoveryService;
   }
 
   isEnabled(): boolean {
@@ -115,15 +124,72 @@ export class McpOAuthModule extends BaseModule {
     userId: string,
     context: any
   ): Promise<boolean> {
-    // Handle login button (OAuth)
+    // Handle login button (OAuth or discovered OAuth)
     if (actionId.startsWith("mcp_login_")) {
       const mcpId = actionId.replace("mcp_login_", "");
 
       try {
         const httpServer = await this.configService.getHttpServer(mcpId);
-        if (!httpServer || !httpServer.oauth) {
-          logger.error(`MCP ${mcpId} not found or OAuth not configured`);
+        if (!httpServer) {
+          logger.error(`MCP ${mcpId} not found`);
           return false;
+        }
+
+        let oauthConfig = httpServer.oauth;
+
+        // If no static OAuth config, check for discovered OAuth
+        if (!oauthConfig) {
+          const discoveredOAuth =
+            await this.configService.getDiscoveredOAuth(mcpId);
+          if (discoveredOAuth?.metadata) {
+            logger.info(
+              `Using discovered OAuth for ${mcpId} from ${discoveredOAuth.metadata.issuer}`
+            );
+
+            // Check if we have cached client credentials
+            let clientId = discoveredOAuth.clientCredentials?.client_id;
+            let clientSecret = discoveredOAuth.clientCredentials?.client_secret;
+
+            // If no cached credentials and registration is supported, perform dynamic registration
+            if (
+              !clientId &&
+              discoveredOAuth.metadata.registration_endpoint &&
+              this.getDiscoveryService()
+            ) {
+              logger.info(
+                `Performing dynamic client registration for ${mcpId}`
+              );
+              const discoveryService = this.getDiscoveryService()!;
+              const credentials =
+                await discoveryService.getOrCreateClientCredentials(
+                  mcpId,
+                  discoveredOAuth.metadata
+                );
+
+              if (credentials) {
+                clientId = credentials.client_id;
+                clientSecret = credentials.client_secret;
+                logger.info(`Registered client for ${mcpId}: ${clientId}`);
+              } else {
+                logger.error(`Failed to register client for ${mcpId}`);
+                return false;
+              }
+            }
+
+            // Build OAuth config from discovered metadata
+            oauthConfig = {
+              authUrl: discoveredOAuth.metadata.authorization_endpoint,
+              tokenUrl: discoveredOAuth.metadata.token_endpoint,
+              clientId: clientId || "",
+              clientSecret: clientSecret || "",
+              scopes: discoveredOAuth.metadata.scopes_supported || [],
+              grantType: "authorization_code",
+              responseType: "code",
+            };
+          } else {
+            logger.error(`MCP ${mcpId} has no OAuth configuration`);
+            return false;
+          }
         }
 
         // Generate state
@@ -132,7 +198,7 @@ export class McpOAuthModule extends BaseModule {
         // Build OAuth URL
         const redirectUri = this.getCallbackUrl();
         const loginUrl = this.oauth2Client.buildAuthUrl(
-          httpServer.oauth,
+          oauthConfig,
           state,
           redirectUri
         );
@@ -330,29 +396,37 @@ export class McpOAuthModule extends BaseModule {
     const statuses: McpStatus[] = [];
 
     for (const [id, serverConfig] of httpServers) {
-      // Support both OAuth and input-based authentication
+      // Support OAuth, discovered OAuth, and input-based authentication
       const hasOAuth = !!serverConfig.oauth;
       const hasInputs = !!(
         serverConfig.inputs && serverConfig.inputs.length > 0
       );
 
-      if (!hasOAuth && !hasInputs) {
-        continue; // Skip MCPs without authentication
+      // Check for discovered OAuth
+      const discoveredOAuth = await this.configService.getDiscoveredOAuth(id);
+      const hasDiscoveredOAuth = !!discoveredOAuth;
+
+      // Skip MCPs without any authentication method
+      if (!hasOAuth && !hasInputs && !hasDiscoveredOAuth) {
+        continue;
       }
 
       let isAuthenticated = false;
       let metadata: Record<string, unknown> | undefined;
+      let authType: "oauth" | "discovered-oauth" | "inputs";
 
-      if (hasOAuth) {
-        // Check OAuth credentials
+      if (hasOAuth || hasDiscoveredOAuth) {
+        // Check OAuth credentials (works for both static and discovered OAuth)
+        authType = hasOAuth ? "oauth" : "discovered-oauth";
         const credentials = await this.credentialStore.get(userId, id);
         isAuthenticated = !!(
           credentials?.accessToken &&
           (!credentials.expiresAt || credentials.expiresAt > Date.now())
         );
         metadata = credentials?.metadata;
-      } else if (hasInputs) {
-        // Check if user has provided input values
+      } else {
+        // Input-based authentication
+        authType = "inputs";
         const inputValues = await this.inputStore.get(userId, id);
         isAuthenticated = !!inputValues;
       }
@@ -361,7 +435,7 @@ export class McpOAuthModule extends BaseModule {
         id,
         name: this.formatMcpName(id),
         isAuthenticated,
-        authType: hasOAuth ? "oauth" : "inputs",
+        authType,
         metadata,
       });
     }
@@ -377,13 +451,25 @@ export class McpOAuthModule extends BaseModule {
 
     // MCP name and status
     const statusIcon = mcp.isAuthenticated ? "✅" : "⚪";
-    const statusText = mcp.isAuthenticated
-      ? mcp.authType === "oauth"
-        ? "Connected"
-        : "Configured"
-      : mcp.authType === "oauth"
-        ? "Not Connected"
-        : "Not Configured";
+
+    // Determine status text based on auth type
+    let statusText: string;
+    if (mcp.isAuthenticated) {
+      statusText =
+        mcp.authType === "oauth" || mcp.authType === "discovered-oauth"
+          ? "Connected"
+          : "Configured";
+    } else {
+      statusText =
+        mcp.authType === "oauth" || mcp.authType === "discovered-oauth"
+          ? "Not Connected"
+          : "Not Configured";
+    }
+
+    // Add indicator for discovered OAuth
+    if (mcp.authType === "discovered-oauth") {
+      statusText += " (Auto-discovered)";
+    }
 
     // Determine button based on auth type
     let actionButton;
@@ -393,7 +479,10 @@ export class McpOAuthModule extends BaseModule {
         type: "button",
         text: {
           type: "plain_text",
-          text: mcp.authType === "oauth" ? "Logout" : "Clear",
+          text:
+            mcp.authType === "oauth" || mcp.authType === "discovered-oauth"
+              ? "Logout"
+              : "Clear",
         },
         style: "danger",
         action_id: `mcp_logout_${mcp.id}`,
@@ -405,11 +494,14 @@ export class McpOAuthModule extends BaseModule {
         type: "button",
         text: {
           type: "plain_text",
-          text: mcp.authType === "oauth" ? "Login" : "Configure",
+          text:
+            mcp.authType === "oauth" || mcp.authType === "discovered-oauth"
+              ? "Login"
+              : "Configure",
         },
         style: "primary",
         action_id:
-          mcp.authType === "oauth"
+          mcp.authType === "oauth" || mcp.authType === "discovered-oauth"
             ? `mcp_login_${mcp.id}`
             : `mcp_configure_${mcp.id}`,
         value: mcp.id,
@@ -426,7 +518,11 @@ export class McpOAuthModule extends BaseModule {
     });
 
     // Show metadata if authenticated (OAuth only)
-    if (mcp.isAuthenticated && mcp.authType === "oauth" && mcp.metadata) {
+    if (
+      mcp.isAuthenticated &&
+      (mcp.authType === "oauth" || mcp.authType === "discovered-oauth") &&
+      mcp.metadata
+    ) {
       const username = mcp.metadata.username || mcp.metadata.login;
       if (username) {
         blocks.push({

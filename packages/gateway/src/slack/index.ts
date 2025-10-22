@@ -15,6 +15,7 @@ import { McpOAuthModule } from "../mcp/oauth-module";
 import { OAuthStateStore } from "../mcp/oauth-state-store";
 import { McpInputStore } from "../mcp/input-store";
 import { SocketHealthMonitor } from "../health/socket-health-monitor";
+import { McpOAuthDiscoveryService } from "../mcp/oauth-discovery";
 
 export class SlackDispatcher {
   private app: App;
@@ -123,12 +124,54 @@ export class SlackDispatcher {
       // Initialize Worker Gateway for SSE/HTTP worker communication
       this.queue = createMessageQueue(this.config.queues.connectionString);
       await this.queue.start();
+
+      // Initialize MCP OAuth Discovery Service
+      const publicGatewayUrl =
+        process.env.PEERBOT_PUBLIC_GATEWAY_URL ||
+        process.env.INGRESS_URL ||
+        "http://localhost:8080";
+      const callbackUrl = `${publicGatewayUrl}/mcp/oauth/callback`;
+
+      const mcpCredentialStore = new McpCredentialStore(this.queue);
+      const redisClient = this.queue.getRedisClient();
+      const mcpDiscoveryService = new McpOAuthDiscoveryService({
+        cacheStore: {
+          get: async (key: string) => {
+            try {
+              const value = await redisClient.get(key);
+              return value;
+            } catch (error) {
+              logger.error("Failed to get from cache", { key, error });
+              return null;
+            }
+          },
+          set: async (key: string, value: string, ttl: number) => {
+            try {
+              await redisClient.set(key, value, "EX", ttl);
+            } catch (error) {
+              logger.error("Failed to set cache", { key, error });
+            }
+          },
+          delete: async (key: string) => {
+            try {
+              await redisClient.del(key);
+            } catch (error) {
+              logger.error("Failed to delete from cache", { key, error });
+            }
+          },
+        },
+        callbackUrl,
+        protocolVersion: "2025-03-26",
+        cacheTtl: 86400, // 24 hours
+      });
+      logger.info("✅ MCP OAuth Discovery Service initialized");
+
       const mcpConfigService = new McpConfigService({
         configUrl:
           process.env.PEERBOT_MCP_SERVERS_URL ||
           process.env.PEERBOT_MCP_SERVERS_FILE,
+        discoveryService: mcpDiscoveryService,
       });
-      const mcpCredentialStore = new McpCredentialStore(this.queue);
       const oauthStateStore = new OAuthStateStore(this.queue);
       const mcpInputStore = new McpInputStore(this.queue);
       this.workerGateway = new WorkerGateway(this.queue, mcpConfigService);
@@ -139,6 +182,11 @@ export class SlackDispatcher {
       );
       logger.info("✅ Worker gateway initialized");
       logger.info("✅ MCP proxy initialized");
+
+      // Perform OAuth discovery for all MCP servers
+      logger.info("🔍 Discovering OAuth capabilities for MCP servers...");
+      await mcpConfigService.enrichWithDiscovery();
+      logger.info("✅ MCP OAuth discovery completed");
 
       // Register MCP OAuth module for authentication flow
       const mcpOAuthModule = new McpOAuthModule(

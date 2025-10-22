@@ -34,6 +34,7 @@ export interface GatewayIntegrationInterface {
   setModuleData(moduleData: Record<string, unknown>): void;
   updateStatus(status: string, loadingMessages?: string[]): Promise<void>;
   sendContent(content: string): Promise<void>;
+  sendStreamDelta(delta: string, isFullReplacement?: boolean): Promise<void>;
   signalDone(
     finalDelta?: string,
     seq?: number,

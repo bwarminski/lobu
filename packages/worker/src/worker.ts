@@ -144,8 +144,8 @@ class ProgressProcessor {
   private currentTodos: TodoItem[] = [];
   private currentThinking: string = "";
   private chronologicalOutput: string = "";
-  private sentLength: number = 0;
-  private sequenceNum: number = 0;
+  private lastSentContent: string = "";
+  private lastDeltaWasReplacement: boolean = false;
 
   /**
    * Process streaming update and return formatted content for Slack
@@ -228,17 +228,16 @@ class ProgressProcessor {
     else if (Array.isArray(content)) {
       for (const block of content) {
         if (block.type === "text" && block.text?.trim()) {
-          // Clear thinking when text appears (thinking -> text transition)
-          this.currentThinking = "";
           this.chronologicalOutput += `${block.text}\n`;
           hasUpdate = true;
         } else if (block.type === "thinking" && block.thinking?.trim()) {
-          // Store thinking content for status updates
+          // Store thinking content - will be shown as status
           this.currentThinking = block.thinking.trim();
+          logger.info(
+            `💭 Thinking block received (${this.currentThinking.length} chars): ${this.currentThinking.substring(0, 100)}...`
+          );
           hasUpdate = true;
         } else if (block.type === "tool_use") {
-          // Clear thinking when tool use appears (thinking -> tool transition)
-          this.currentThinking = "";
           // Check for TodoWrite updates
           if (block.name === "TodoWrite" && block.input?.todos) {
             this.currentTodos = block.input.todos;
@@ -437,40 +436,56 @@ class ProgressProcessor {
   /**
    * Get delta since last sent content
    * Returns null if no new content
+   * Handles both append-only and full replacement scenarios
    */
-  getDelta(): { delta: string; seq: number } | null {
+  getDelta(): string | null {
     const fullContent = this.formatFullUpdate();
 
-    if (!fullContent || fullContent.length <= this.sentLength) {
+    // No content to send
+    if (!fullContent) {
       return null;
     }
 
-    const delta = fullContent.slice(this.sentLength);
-    const seq = this.sequenceNum++;
-    this.sentLength = fullContent.length;
+    // No changes since last send
+    if (fullContent === this.lastSentContent) {
+      return null;
+    }
 
-    return { delta, seq };
+    // First send or content has changed
+    // Check if this is simple append (optimization for common case)
+    if (this.lastSentContent && fullContent.startsWith(this.lastSentContent)) {
+      // Only new content was appended
+      const delta = fullContent.slice(this.lastSentContent.length);
+      this.lastSentContent = fullContent;
+      this.lastDeltaWasReplacement = false;
+      return delta;
+    }
+
+    // Content was regenerated (e.g., task status changed) - send full content
+    this.lastSentContent = fullContent;
+    this.lastDeltaWasReplacement = true;
+    return fullContent;
   }
 
   /**
-   * Get current thinking content and clear it
-   * Returns null if no thinking content
+   * Check if the last delta was a full replacement (for stream restart)
+   */
+  wasLastDeltaReplacement(): boolean {
+    return this.lastDeltaWasReplacement;
+  }
+
+  /**
+   * Get current thinking content
    */
   getCurrentThinking(): string | null {
-    if (!this.currentThinking) {
-      return null;
-    }
-    const thinking = this.currentThinking;
-    this.currentThinking = ""; // Clear after reading
-    return thinking;
+    return this.currentThinking || null;
   }
 
   /**
    * Reset state for new message
    */
   reset(): void {
-    this.sentLength = 0;
-    this.sequenceNum = 0;
+    this.lastSentContent = "";
     this.chronologicalOutput = "";
     this.currentTodos = [];
     this.currentThinking = "";
@@ -742,25 +757,29 @@ export class ClaudeWorker implements WorkerExecutor {
                 // Process the update to extract user-friendly content
                 this.progressProcessor.processUpdate(update.data);
 
-                // Check for thinking content and send as status update
+                // Show thinking content as status if present
                 const thinkingContent =
                   this.progressProcessor.getCurrentThinking();
                 if (thinkingContent) {
-                  // Truncate thinking content if too long for status display
                   const maxLength = 100;
                   const displayThinking =
                     thinkingContent.length > maxLength
                       ? thinkingContent.substring(0, maxLength) + "..."
                       : thinkingContent;
+                  logger.info(
+                    `💭 Sending thinking status update: ${displayThinking}`
+                  );
                   await this.gatewayIntegration.updateStatus(displayThinking);
                 }
 
                 // Get delta and send if there's new content
-                const deltaInfo = this.progressProcessor.getDelta();
-                if (deltaInfo) {
+                const delta = this.progressProcessor.getDelta();
+                if (delta) {
+                  const isReplacement =
+                    this.progressProcessor.wasLastDeltaReplacement();
                   await this.gatewayIntegration.sendStreamDelta(
-                    deltaInfo.delta,
-                    deltaInfo.seq
+                    delta,
+                    isReplacement
                   );
                 }
               }

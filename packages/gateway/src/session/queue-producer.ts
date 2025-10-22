@@ -138,6 +138,29 @@ export class QueueProducer {
   }
 
   /**
+   * Send a response directly to thread_response queue
+   * Used to start streams immediately before worker responds
+   */
+  async sendThreadResponse(payload: any): Promise<void> {
+    if (!this.isConnected) {
+      logger.warn("Cannot send thread response - queue not connected");
+      return;
+    }
+
+    try {
+      // Ensure thread_response queue exists
+      await this.queue.createQueue("thread_response");
+      await this.queue.send("thread_response", payload);
+      logger.info(
+        `📤 Sent initial stream delta (${payload.delta?.length || 0} chars) for thread ${payload.threadTs}`
+      );
+    } catch (error) {
+      logger.error("Failed to send thread response:", error);
+      // Don't throw - this is not critical, just a UX improvement
+    }
+  }
+
+  /**
    * Get queue statistics
    */
   async getQueueStats(queueName: string): Promise<{

@@ -335,7 +335,7 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
 
   async signalDone(
     finalDelta?: string,
-    seq?: number,
+    _seq?: number,
     fullContent?: string
   ): Promise<void> {
     // Store full content for completion signal
@@ -344,8 +344,8 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     }
 
     // Send final delta if there is one
-    if (finalDelta && seq !== undefined) {
-      await this.sendStreamDelta(finalDelta, seq);
+    if (finalDelta) {
+      await this.sendStreamDelta(finalDelta);
     }
     await this.signalCompletion();
   }
@@ -365,7 +365,10 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     });
   }
 
-  async sendStreamDelta(delta: string, seq: number): Promise<void> {
+  async sendStreamDelta(
+    delta: string,
+    isFullReplacement: boolean = false
+  ): Promise<void> {
     // Mark that streaming was used
     this.usedStreaming = true;
 
@@ -376,13 +379,13 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       userId: this.userId,
       teamId: this.teamId,
       delta,
-      seq,
       timestamp: Date.now(),
       originalMessageTs: this.originalMessageTs,
       claudeSessionId: this.claudeSessionId,
       botResponseTs: this.botResponseTs,
       moduleData: this.moduleData,
       isStreamDelta: true, // Mark as streaming delta
+      isFullReplacement, // Indicate if stream should be restarted
     });
   }
 

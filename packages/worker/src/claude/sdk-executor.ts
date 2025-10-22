@@ -133,6 +133,8 @@ export async function runClaudeWithSDK(
       model: options.model,
       workingDirectory: workingDirectory || process.cwd(),
       permissionMode: "bypassPermissions", // Non-interactive mode
+      // TODO: Re-enable thinking once we verify SDK version supports it
+      // maxThinkingTokens: 5000,
     };
 
     // Add session management

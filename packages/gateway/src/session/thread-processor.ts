@@ -44,11 +44,24 @@ class StreamSession {
     this.teamId = teamId;
   }
 
-  async appendDelta(delta: string): Promise<void> {
+  async appendDelta(
+    delta: string,
+    isFullReplacement: boolean = false
+  ): Promise<void> {
+    // If this is a full replacement and we have an active stream, stop it first
+    if (isFullReplacement && this.started && this.stream) {
+      logger.info(
+        `🔄 REPLACING STREAM CONTENT: channel=${this.channelId}, thread=${this.threadTs}`
+      );
+      await this.stream.stop();
+      this.started = false;
+      this.stream = null;
+    }
+
     if (!this.started) {
       // Start new stream
       logger.info(
-        `Starting Slack stream for channel ${this.channelId}, thread ${this.threadTs} with ${delta.length} chars`
+        `🚀 STARTING NEW STREAM: channel=${this.channelId}, thread=${this.threadTs}, deltaLength=${delta.length}`
       );
       this.stream = (this.slackClient as any).chatStream({
         channel: this.channelId,
@@ -59,11 +72,15 @@ class StreamSession {
       });
       this.started = true;
       logger.info(
-        `Stream started with initial content (${delta.length} chars)`
+        `✅ Stream started with initial content (${delta.length} chars)`
       );
     } else {
       // Append to existing stream
+      logger.info(
+        `➕ APPENDING TO STREAM: channel=${this.channelId}, thread=${this.threadTs}, deltaLength=${delta.length}`
+      );
       await this.stream.append({ markdown_text: delta });
+      logger.info(`✅ Appended ${delta.length} chars to existing stream`);
     }
   }
 
@@ -98,6 +115,7 @@ class StreamSessionManager {
     threadTs: string,
     userId: string,
     delta: string,
+    isFullReplacement: boolean = false,
     teamId?: string
   ): Promise<void> {
     let session = this.sessions.get(sessionId);
@@ -114,7 +132,7 @@ class StreamSessionManager {
       this.sessions.set(sessionId, session);
     }
 
-    await session.appendDelta(delta);
+    await session.appendDelta(delta, isFullReplacement);
   }
 
   async completeSession(sessionId: string): Promise<void> {
@@ -138,8 +156,8 @@ interface ThreadResponsePayload {
   teamId?: string; // Slack team/workspace ID for streaming API
   content?: string;
   delta?: string; // Stream delta content
-  seq?: number; // Stream sequence number
   isStreamDelta?: boolean; // Whether this is a stream delta
+  isFullReplacement?: boolean; // Whether the delta is a full content replacement (restart stream)
   finalContent?: string; // Final content when streaming completes
   usedStreaming?: boolean; // Whether streaming was used
   processedMessageIds?: string[];
@@ -339,7 +357,7 @@ export class ThreadResponseConsumer {
       );
       if (data.isStreamDelta) {
         logger.info(
-          `Stream delta detected: seq=${data.seq}, deltaLength=${data.delta?.length || 0}`
+          `Stream delta detected: deltaLength=${data.delta?.length || 0}`
         );
       }
 
@@ -353,13 +371,8 @@ export class ThreadResponseConsumer {
       // This is critical because setThreadStatus interferes with chatStream
       if (data.isStreamDelta && data.delta) {
         logger.info(
-          `Processing stream delta seq=${data.seq}, length=${data.delta.length} for session ${sessionKey}`
+          `Processing stream delta length=${data.delta.length} for session ${sessionKey}, isFullReplacement=${data.isFullReplacement || false}`
         );
-
-        // Clear any existing status on first stream delta to show the stream content
-        if (data.seq === 0) {
-          await this.setThreadStatus(data.channelId, data.threadTs, "");
-        }
 
         await this.streamSessionManager.handleDelta(
           sessionKey,
@@ -367,6 +380,7 @@ export class ThreadResponseConsumer {
           data.threadTs,
           data.userId,
           data.delta,
+          data.isFullReplacement || false,
           data.teamId
         );
         // Don't set status when streaming - it interferes with chatStream

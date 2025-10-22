@@ -34,3 +34,4 @@ tmp/
 # Claude local data
 .claude/sessions/
 .claude/cache/
+packages/*/dist

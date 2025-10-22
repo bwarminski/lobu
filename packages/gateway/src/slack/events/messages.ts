@@ -42,6 +42,9 @@ export class MessageHandler {
     logger.info(
       `[TIMING] handleUserRequest started at: ${new Date(requestStartTime).toISOString()}`
     );
+    logger.info(
+      `📨 Handling request from user ${context.userId} in thread ${context.threadTs || context.messageTs}`
+    );
 
     // CRITICAL: Always use thread_ts for thread identification
     // For root messages: thread_ts is undefined, so we use message_ts

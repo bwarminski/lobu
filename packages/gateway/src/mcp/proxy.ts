@@ -95,7 +95,10 @@ export class McpProxy {
 
     // Try OAuth credentials first (supports both static and discovered OAuth)
     if (hasOAuth || hasDiscoveredOAuth) {
-      credentials = await this.credentialStore.get(tokenData.userId, mcpId!);
+      credentials = await this.credentialStore.getCredentials(
+        tokenData.userId,
+        mcpId!
+      );
 
       if (!credentials || !credentials.accessToken) {
         logger.info("MCP OAuth credentials missing", {
@@ -162,7 +165,7 @@ export class McpProxy {
             );
 
             // Store the new credentials (without TTL)
-            await this.credentialStore.set(
+            await this.credentialStore.setCredentials(
               tokenData.userId,
               mcpId!,
               refreshedCredentials
@@ -204,7 +207,7 @@ export class McpProxy {
 
     // Load input values if MCP uses inputs
     if (httpServer.inputs && httpServer.inputs.length > 0) {
-      inputValues = await this.inputStore.get(tokenData.userId, mcpId!);
+      inputValues = await this.inputStore.getInputs(tokenData.userId, mcpId!);
 
       if (!inputValues) {
         logger.info("MCP input values missing", {

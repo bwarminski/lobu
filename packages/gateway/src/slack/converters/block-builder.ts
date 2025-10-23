@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
 import { createLogger } from "@peerbot/core";
-import type { SlackBlock, SlackBlockElement } from "../../types";
+import type { SlackBlock, SlackBlockElement } from "../types";
 import { convertMarkdownToSlack } from "./markdown";
+import { SLACK } from "../constants";
 
 const logger = createLogger("slack-block-builder");
 
@@ -25,8 +26,8 @@ export interface BlockBuilderOptions {
  * Ensures blocks don't exceed Slack's limits
  */
 export class SlackBlockBuilder {
-  private readonly MAX_BLOCKS = 50;
-  private readonly MAX_TEXT_LENGTH = 3000;
+  private readonly MAX_BLOCKS = SLACK.MAX_BLOCKS;
+  private readonly MAX_TEXT_LENGTH = SLACK.MAX_BLOCK_TEXT_LENGTH;
 
   /**
    * Build blocks from markdown content with optional action buttons

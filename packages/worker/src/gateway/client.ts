@@ -6,6 +6,7 @@ import type {
   WorkerExecutor,
   GatewayIntegrationInterface,
 } from "../interfaces";
+import { ActivityTracker } from "./activity-tracker";
 
 const logger = createLogger("gateway");
 
@@ -13,19 +14,33 @@ const logger = createLogger("gateway");
 // TYPES & INTERFACES
 // ============================================================================
 
-export interface QueuedMessage {
-  payload: any;
-  timestamp: number;
+/**
+ * Platform-specific metadata (e.g., Slack team_id, channel, thread_ts)
+ */
+export interface PlatformMetadata {
+  team_id?: string;
+  channel?: string;
+  ts?: string;
+  thread_ts?: string;
+  [key: string]: string | number | boolean | undefined;
 }
 
-export interface BatcherConfig {
-  idleThreshold?: number;
-  initialCollectionWindow?: number;
-  subsequentCollectionWindow?: number;
-  quietPeriodMs?: number;
-  onBatchReady?: (messages: QueuedMessage[]) => Promise<void>;
+/**
+ * Agent execution options (model, tools, timeouts)
+ */
+export interface AgentOptions {
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  timeoutMinutes?: number;
+  [key: string]: string | number | boolean | string[] | undefined;
 }
 
+/**
+ * Thread message payload for agent execution
+ */
 interface ThreadMessagePayload {
   botId: string;
   userId: string;
@@ -34,12 +49,67 @@ interface ThreadMessagePayload {
   channelId: string;
   messageId: string;
   messageText: string;
-  platformMetadata: Record<string, any>;
-  claudeOptions: Record<string, any>;
+  platformMetadata: PlatformMetadata;
+  agentOptions: AgentOptions;
   routingMetadata?: {
     targetThreadId: string;
     userId: string;
   };
+}
+
+/**
+ * Generic message payload (can be extended for different message types)
+ */
+export type MessagePayload = ThreadMessagePayload;
+
+export interface QueuedMessage {
+  payload: MessagePayload;
+  timestamp: number;
+}
+
+/**
+ * Response data sent back to gateway
+ */
+interface ResponseData {
+  messageId: string;
+  channelId: string;
+  threadId: string;
+  userId: string;
+  timestamp: number;
+  originalMessageId: string;
+  claudeSessionId?: string;
+  botResponseId?: string;
+  teamId?: string;
+  // Content-related fields
+  content?: string;
+  delta?: string;
+  finalContent?: string;
+  // Status and metadata
+  statusUpdate?: unknown;
+  moduleData?: unknown;
+  processedMessageIds?: string[];
+  // Streaming-related
+  isStreamDelta?: boolean;
+  isFullReplacement?: boolean;
+  seq?: number;
+  usedStreaming?: boolean;
+  // Error handling
+  error?: string;
+}
+
+/**
+ * Data received from gateway for thread messages
+ */
+interface ThreadMessageData extends ThreadMessagePayload {
+  jobId?: string;
+}
+
+export interface BatcherConfig {
+  idleThreshold?: number;
+  initialCollectionWindow?: number;
+  subsequentCollectionWindow?: number;
+  quietPeriodMs?: number;
+  onBatchReady?: (messages: QueuedMessage[]) => Promise<void>;
 }
 
 // ============================================================================
@@ -266,6 +336,7 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
   private finalContent?: string;
   private lastStatus?: string;
   private accumulatedStreamContent: string = "";
+  private activityTracker: ActivityTracker;
 
   constructor(
     dispatcherUrl: string,
@@ -287,6 +358,7 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     this.claudeSessionId = claudeSessionId;
     this.botResponseTs = botResponseTs;
     this.teamId = teamId;
+    this.activityTracker = new ActivityTracker(5);
   }
 
   setJobId(jobId: string): void {
@@ -316,20 +388,31 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
 
     this.lastStatus = status || undefined;
 
+    // Add status to activity tracker if non-empty
+    if (status && status.trim() !== "") {
+      this.activityTracker.addActivity(status);
+    }
+
+    // Get all activities for loading messages
+    const activities = this.activityTracker.getActivities();
+
     const statusPayload: Record<string, unknown> = { status };
+    // Use provided loadingMessages or fall back to tracked activities
     if (loadingMessages && loadingMessages.length > 0) {
       statusPayload.loadingMessages = loadingMessages;
+    } else if (activities.length > 0) {
+      statusPayload.loadingMessages = activities;
     }
 
     await this.sendResponse({
       messageId: this.originalMessageTs,
       channelId: this.channelId,
-      threadTs: this.threadId,
+      threadId: this.threadId,
       userId: this.userId,
       timestamp: Date.now(),
-      originalMessageTs: this.originalMessageTs,
+      originalMessageId: this.originalMessageTs,
       claudeSessionId: this.claudeSessionId,
-      botResponseTs: this.botResponseTs,
+      botResponseId: this.botResponseTs,
       statusUpdate: statusPayload,
     });
   }
@@ -355,13 +438,13 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     await this.sendResponse({
       messageId: this.originalMessageTs,
       channelId: this.channelId,
-      threadTs: this.threadId,
+      threadId: this.threadId,
       userId: this.userId,
       content,
       timestamp: Date.now(),
-      originalMessageTs: this.originalMessageTs,
+      originalMessageId: this.originalMessageTs,
       claudeSessionId: this.claudeSessionId,
-      botResponseTs: this.botResponseTs,
+      botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
     });
   }
@@ -426,14 +509,14 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     await this.sendResponse({
       messageId: this.originalMessageTs,
       channelId: this.channelId,
-      threadTs: this.threadId,
+      threadId: this.threadId,
       userId: this.userId,
       teamId: this.teamId,
       delta: actualDelta,
       timestamp: Date.now(),
-      originalMessageTs: this.originalMessageTs,
+      originalMessageId: this.originalMessageTs,
       claudeSessionId: this.claudeSessionId,
-      botResponseTs: this.botResponseTs,
+      botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
       isStreamDelta: true, // Mark as streaming delta
       isFullReplacement, // Indicate if stream should be restarted
@@ -444,14 +527,14 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     await this.sendResponse({
       messageId: this.originalMessageTs,
       channelId: this.channelId,
-      threadTs: this.threadId,
+      threadId: this.threadId,
       userId: this.userId,
       teamId: this.teamId,
       timestamp: Date.now(),
-      originalMessageTs: this.originalMessageTs,
+      originalMessageId: this.originalMessageTs,
       processedMessageIds: this.processedMessageIds,
       claudeSessionId: this.claudeSessionId,
-      botResponseTs: this.botResponseTs,
+      botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
       finalContent: this.finalContent, // Include final content
       usedStreaming: this.usedStreaming, // Include streaming flag
@@ -462,17 +545,17 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     await this.sendResponse({
       messageId: this.originalMessageTs,
       channelId: this.channelId,
-      threadTs: this.threadId,
+      threadId: this.threadId,
       userId: this.userId,
       error: error.message,
       timestamp: Date.now(),
-      originalMessageTs: this.originalMessageTs,
+      originalMessageId: this.originalMessageTs,
       claudeSessionId: this.claudeSessionId,
-      botResponseTs: this.botResponseTs,
+      botResponseId: this.botResponseTs,
     });
   }
 
-  private async sendResponse(data: any): Promise<void> {
+  private async sendResponse(data: ResponseData): Promise<void> {
     const maxRetries = 3;
     let lastError: Error | null = null;
 
@@ -579,7 +662,7 @@ export class GatewayClient {
         if (!this.isRunning) break;
         await this.handleReconnect();
       } catch (error) {
-        if ((error as any).name === "AbortError") {
+        if (error instanceof Error && error.name === "AbortError") {
           logger.info("SSE connection aborted");
           break;
         }
@@ -723,7 +806,7 @@ export class GatewayClient {
     }
   }
 
-  private async handleThreadMessage(data: any): Promise<void> {
+  private async handleThreadMessage(data: ThreadMessageData): Promise<void> {
     const { jobId, ...payload } = data;
     if (jobId) {
       this.currentJobId = jobId;
@@ -776,7 +859,7 @@ export class GatewayClient {
       payload: {
         ...firstMessage.payload,
         messageText: combinedPrompt,
-        claudeOptions: firstMessage.payload.claudeOptions,
+        agentOptions: firstMessage.payload.agentOptions,
       },
     };
 
@@ -791,7 +874,7 @@ export class GatewayClient {
     processedIds?: string[]
   ): Promise<void> {
     // Dynamic import to avoid circular dependency
-    const { ClaudeWorker } = await import("../worker");
+    const { ClaudeWorker } = await import("../claude/worker");
 
     try {
       if (!process.env.USER_ID) {
@@ -873,22 +956,22 @@ export class GatewayClient {
   private payloadToWorkerConfig(payload: ThreadMessagePayload): WorkerConfig {
     const platformMetadata = payload.platformMetadata;
 
-    const claudeOptions = {
-      ...(payload.claudeOptions || {}),
+    const agentOptions = {
+      ...(payload.agentOptions || {}),
       ...(process.env.CLAUDE_ALLOWED_TOOLS
         ? { allowedTools: process.env.CLAUDE_ALLOWED_TOOLS }
-        : payload.claudeOptions?.allowedTools
-          ? { allowedTools: payload.claudeOptions.allowedTools }
+        : payload.agentOptions?.allowedTools
+          ? { allowedTools: payload.agentOptions.allowedTools }
           : {}),
       ...(process.env.CLAUDE_DISALLOWED_TOOLS
         ? { disallowedTools: process.env.CLAUDE_DISALLOWED_TOOLS }
-        : payload.claudeOptions?.disallowedTools
-          ? { disallowedTools: payload.claudeOptions.disallowedTools }
+        : payload.agentOptions?.disallowedTools
+          ? { disallowedTools: payload.agentOptions.disallowedTools }
           : {}),
       ...(process.env.CLAUDE_TIMEOUT_MINUTES
         ? { timeoutMinutes: process.env.CLAUDE_TIMEOUT_MINUTES }
-        : payload.claudeOptions?.timeoutMinutes
-          ? { timeoutMinutes: payload.claudeOptions.timeoutMinutes }
+        : payload.agentOptions?.timeoutMinutes
+          ? { timeoutMinutes: payload.agentOptions.timeoutMinutes }
           : {}),
     };
 
@@ -896,14 +979,20 @@ export class GatewayClient {
       sessionKey: `session-${payload.threadId}`,
       userId: payload.userId,
       channelId: payload.channelId,
-      threadTs: payload.threadId,
+      threadId: payload.threadId,
       userPrompt: Buffer.from(payload.messageText).toString("base64"),
-      slackResponseChannel:
-        platformMetadata.slackResponseChannel || payload.channelId,
-      slackResponseTs: platformMetadata.slackResponseTs || payload.messageId,
-      botResponseTs: platformMetadata.botResponseTs,
-      teamId: platformMetadata.teamId,
-      claudeOptions: JSON.stringify(claudeOptions),
+      responseChannel: String(
+        platformMetadata.responseChannel || payload.channelId
+      ),
+      responseId: String(platformMetadata.responseId || payload.messageId),
+      botResponseId: platformMetadata.botResponseId
+        ? String(platformMetadata.botResponseId)
+        : undefined,
+      teamId: platformMetadata.teamId
+        ? String(platformMetadata.teamId)
+        : undefined,
+      platform: payload.platform || "slack",
+      agentOptions: JSON.stringify(agentOptions),
       workspace: {
         baseDirectory: "/workspace",
       },

@@ -5,6 +5,11 @@ import type { McpCredentialStore } from "./credential-store";
 import type { OAuthStateStore } from "./oauth-state-store";
 import { OAuth2Client } from "./oauth-client";
 import type { McpInputStore } from "./input-store";
+import {
+  formatMcpName,
+  renderOAuthSuccessPage,
+  renderOAuthErrorPage,
+} from "../utils/oauth-templates";
 
 const logger = createLogger("mcp-oauth-module");
 
@@ -24,24 +29,22 @@ interface McpStatus {
 export class McpOAuthModule extends BaseModule {
   name = "mcp-oauth";
   private oauth2Client: OAuth2Client;
+  private publicGatewayUrl: string;
+  private callbackUrl: string;
 
   constructor(
     private configService: McpConfigService,
     private credentialStore: McpCredentialStore,
     private stateStore: OAuthStateStore,
-    private inputStore: McpInputStore
+    private inputStore: McpInputStore,
+    publicGatewayUrl: string,
+    callbackUrl: string
   ) {
     super();
 
-    // Validate required environment variables
-    if (!process.env.PEERBOT_PUBLIC_GATEWAY_URL) {
-      throw new Error(
-        "PEERBOT_PUBLIC_GATEWAY_URL is required for MCP OAuth. " +
-          "Set it to your public gateway URL (e.g., https://your-domain.com)"
-      );
-    }
-
     this.oauth2Client = new OAuth2Client();
+    this.publicGatewayUrl = publicGatewayUrl;
+    this.callbackUrl = callbackUrl;
   }
 
   isEnabled(): boolean {
@@ -201,8 +204,8 @@ export class McpOAuthModule extends BaseModule {
       const mcpId = actionId.replace("mcp_logout_", "");
 
       // Delete both OAuth credentials and input values
-      await this.credentialStore.delete(userId, mcpId);
-      await this.inputStore.delete(userId, mcpId);
+      await this.credentialStore.deleteCredentials(userId, mcpId);
+      await this.inputStore.deleteInputs(userId, mcpId);
 
       logger.info(`User ${userId} logged out/cleared from ${mcpId}`);
 
@@ -250,7 +253,7 @@ export class McpOAuthModule extends BaseModule {
       }
 
       // Store input values
-      await this.inputStore.set(userId, mcpId, inputValues);
+      await this.inputStore.setInputs(userId, mcpId, inputValues);
       logger.info(`Stored input values for user ${userId}, MCP ${mcpId}`);
     } catch (error) {
       logger.error("Failed to handle view submission", { error, userId });
@@ -290,7 +293,7 @@ export class McpOAuthModule extends BaseModule {
       private_metadata: JSON.stringify({ mcpId }),
       title: {
         type: "plain_text",
-        text: `Configure ${this.formatMcpName(mcpId)}`,
+        text: `Configure ${formatMcpName(mcpId)}`,
       },
       submit: {
         type: "plain_text",
@@ -343,7 +346,10 @@ export class McpOAuthModule extends BaseModule {
       if (hasOAuth || hasDiscoveredOAuth) {
         // Check OAuth credentials (works for static and discovered OAuth)
         authType = hasOAuth ? "oauth" : "discovered-oauth";
-        const credentials = await this.credentialStore.get(userId, id);
+        const credentials = await this.credentialStore.getCredentials(
+          userId,
+          id
+        );
         // Show as authenticated if credentials exist, even if expired
         // Auto-refresh will handle expired tokens when MCP is used
         isAuthenticated = !!credentials?.accessToken;
@@ -351,13 +357,13 @@ export class McpOAuthModule extends BaseModule {
       } else {
         // Input-based authentication
         authType = "inputs";
-        const inputValues = await this.inputStore.get(userId, id);
+        const inputValues = await this.inputStore.getInputs(userId, id);
         isAuthenticated = !!inputValues;
       }
 
       statuses.push({
         id,
-        name: this.formatMcpName(id),
+        name: formatMcpName(id),
         isAuthenticated,
         authType,
         metadata,
@@ -416,10 +422,8 @@ export class McpOAuthModule extends BaseModule {
     } else {
       // Show login/configure button
       if (mcp.authType === "oauth" || mcp.authType === "discovered-oauth") {
-        // OAuth: Use direct URL with secure token
-        const baseUrl = process.env.PEERBOT_PUBLIC_GATEWAY_URL!; // Validated in constructor
         const token = this.generateSecureToken(userId, mcp.id);
-        const loginUrl = `${baseUrl}/mcp/oauth/init/${mcp.id}?token=${encodeURIComponent(token)}`;
+        const loginUrl = `${this.publicGatewayUrl}/mcp/oauth/init/${mcp.id}?token=${encodeURIComponent(token)}`;
 
         actionButton = {
           type: "button",
@@ -559,11 +563,11 @@ export class McpOAuthModule extends BaseModule {
                 `MCP ${mcpId} does not support dynamic client registration (RFC 7591)`
               );
               res.status(400).json({
-                error: `${this.formatMcpName(mcpId)} requires manual OAuth app setup`,
+                error: `${formatMcpName(mcpId)} requires manual OAuth app setup`,
                 details: `This MCP does not support automatic client registration. Please:
 1. Create an OAuth app at the provider's website
 2. Configure the OAuth client ID and secret in your MCP configuration
-3. Add the callback URL: ${this.getCallbackUrl()}`,
+3. Add the callback URL: ${this.callbackUrl}`,
               });
             } else {
               logger.error(
@@ -603,11 +607,10 @@ export class McpOAuthModule extends BaseModule {
       const state = await this.stateStore.create({ userId, mcpId });
 
       // Build OAuth URL
-      const redirectUri = this.getCallbackUrl();
       const loginUrl = this.oauth2Client.buildAuthUrl(
         oauthConfig,
         state,
-        redirectUri
+        this.callbackUrl
       );
 
       // Redirect to OAuth provider
@@ -632,7 +635,7 @@ export class McpOAuthModule extends BaseModule {
     if (error) {
       logger.warn(`OAuth error: ${error}`, { error_description });
       res.send(
-        this.renderErrorPage(error as string, error_description as string)
+        renderOAuthErrorPage(error as string, error_description as string)
       );
       return;
     }
@@ -640,7 +643,7 @@ export class McpOAuthModule extends BaseModule {
     if (!code || !state) {
       res
         .status(400)
-        .send(this.renderErrorPage("invalid_request", "Missing code or state"));
+        .send(renderOAuthErrorPage("invalid_request", "Missing code or state"));
       return;
     }
 
@@ -651,7 +654,7 @@ export class McpOAuthModule extends BaseModule {
         res
           .status(400)
           .send(
-            this.renderErrorPage(
+            renderOAuthErrorPage(
               "invalid_state",
               "Invalid or expired state parameter"
             )
@@ -666,20 +669,19 @@ export class McpOAuthModule extends BaseModule {
       if (!httpServer) {
         res
           .status(404)
-          .send(this.renderErrorPage("mcp_not_found", "MCP server not found"));
+          .send(renderOAuthErrorPage("mcp_not_found", "MCP server not found"));
         return;
       }
 
       // Exchange code for token
       let credentials;
-      const redirectUri = this.getCallbackUrl();
 
       if (httpServer.oauth) {
         // Full OAuth2 token exchange
         credentials = await this.oauth2Client.exchangeCodeForToken(
           code as string,
           httpServer.oauth,
-          redirectUri
+          this.callbackUrl
         );
       } else {
         // Fallback: use code as token (for simple cases)
@@ -698,7 +700,7 @@ export class McpOAuthModule extends BaseModule {
 
       // Store credentials without TTL to preserve refresh token
       // Even if access token expires, we keep credentials so we can refresh
-      await this.credentialStore.set(
+      await this.credentialStore.setCredentials(
         stateData.userId,
         stateData.mcpId,
         credentials
@@ -709,13 +711,13 @@ export class McpOAuthModule extends BaseModule {
       );
 
       // Show success page
-      res.send(this.renderSuccessPage(stateData.mcpId));
+      res.send(renderOAuthSuccessPage(formatMcpName(stateData.mcpId)));
     } catch (error) {
       logger.error("Failed to handle OAuth callback", { error });
       res
         .status(500)
         .send(
-          this.renderErrorPage(
+          renderOAuthErrorPage(
             "server_error",
             "Failed to complete authentication"
           )
@@ -736,147 +738,12 @@ export class McpOAuthModule extends BaseModule {
     }
 
     try {
-      await this.credentialStore.delete(userId as string, mcpId!);
+      await this.credentialStore.deleteCredentials(userId as string, mcpId!);
       logger.info(`User ${userId} logged out from ${mcpId}`);
       res.json({ success: true });
     } catch (error) {
       logger.error("Failed to logout", { error, mcpId, userId });
       res.status(500).json({ error: "Failed to logout" });
     }
-  }
-
-  /**
-   * Get OAuth callback URL
-   */
-  private getCallbackUrl(): string {
-    const baseUrl =
-      process.env.PEERBOT_PUBLIC_GATEWAY_URL || "http://localhost:8080";
-    return `${baseUrl}/mcp/oauth/callback`;
-  }
-
-  /**
-   * Format MCP ID into human-readable name
-   */
-  private formatMcpName(mcpId: string): string {
-    return mcpId
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-  }
-
-  /**
-   * Render success page after OAuth
-   */
-  private renderSuccessPage(mcpId: string): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authentication Successful</title>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            }
-            .container {
-              background: white;
-              padding: 3rem;
-              border-radius: 12px;
-              text-align: center;
-              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-              max-width: 400px;
-            }
-            .success-icon {
-              font-size: 4rem;
-              margin-bottom: 1rem;
-            }
-            h1 {
-              color: #2d3748;
-              margin: 0 0 1rem 0;
-            }
-            p {
-              color: #718096;
-              line-height: 1.6;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="success-icon">✅</div>
-            <h1>Connected!</h1>
-            <p>Successfully authenticated with <strong>${this.formatMcpName(mcpId)}</strong></p>
-            <p>You can now close this window and return to Slack.</p>
-          </div>
-        </body>
-      </html>
-    `;
-  }
-
-  /**
-   * Render error page for OAuth failures
-   */
-  private renderErrorPage(error: string, description?: string): string {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authentication Failed</title>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            }
-            .container {
-              background: white;
-              padding: 3rem;
-              border-radius: 12px;
-              text-align: center;
-              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-              max-width: 400px;
-            }
-            .error-icon {
-              font-size: 4rem;
-              margin-bottom: 1rem;
-            }
-            h1 {
-              color: #2d3748;
-              margin: 0 0 1rem 0;
-            }
-            p {
-              color: #718096;
-              line-height: 1.6;
-            }
-            .error-code {
-              background: #f7fafc;
-              padding: 0.5rem;
-              border-radius: 6px;
-              font-family: monospace;
-              font-size: 0.875rem;
-              color: #e53e3e;
-              margin-top: 1rem;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="error-icon">❌</div>
-            <h1>Authentication Failed</h1>
-            <p>${description || "An error occurred during authentication"}</p>
-            <div class="error-code">${error}</div>
-            <p style="margin-top: 2rem;">Please close this window and try again from Slack.</p>
-          </div>
-        </body>
-      </html>
-    `;
   }
 }

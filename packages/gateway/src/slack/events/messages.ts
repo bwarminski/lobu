@@ -1,4 +1,6 @@
 import { createLogger, SessionUtils } from "@peerbot/core";
+import { DEFAULTS } from "../../constants";
+import { setThreadStatus } from "../utils/thread-status";
 
 const logger = createLogger("dispatcher");
 
@@ -8,18 +10,16 @@ import type {
   WorkerDeploymentPayload,
 } from "@peerbot/gateway/session/queue-producer";
 import type { SessionManager } from "@peerbot/gateway/session/session-manager";
-import type {
-  DispatcherConfig,
-  SlackContext,
-  ThreadSession,
-} from "@peerbot/gateway/types";
+import type { ThreadSession } from "../../types";
+import type { GatewayConfig } from "../../cli/config";
+import type { SlackContext, SlackWebClient } from "../types";
 
 export class MessageHandler {
-  private readonly SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours session TTL
+  private readonly SESSION_TTL = DEFAULTS.SESSION_TTL_MS;
 
   constructor(
     private queueProducer: QueueProducer,
-    private config: DispatcherConfig,
+    private config: GatewayConfig,
     private sessionManager: SessionManager
   ) {}
 
@@ -36,7 +36,7 @@ export class MessageHandler {
   async handleUserRequest(
     context: SlackContext,
     userRequest: string,
-    client: any
+    client: SlackWebClient
   ): Promise<void> {
     const requestStartTime = Date.now();
     logger.info(
@@ -62,8 +62,8 @@ export class MessageHandler {
       platform: "slack",
       channelId: context.channelId,
       userId: context.userId,
-      threadTs: normalizedThreadTs,
-      messageTs: context.messageTs,
+      threadId: normalizedThreadTs,
+      messageId: context.messageTs,
     });
 
     // Check thread ownership using session manager
@@ -111,7 +111,7 @@ export class MessageHandler {
       // Create thread session
       const threadSession: ThreadSession = {
         sessionKey,
-        threadTs: threadTs,
+        threadId: threadTs,
         channelId: context.channelId,
         userId: context.userId,
         threadCreator: context.userId, // Store the thread creator
@@ -123,7 +123,7 @@ export class MessageHandler {
       await this.sessionManager.setSession(threadSession);
 
       // Show immediate typing indicator
-      await this.setThreadStatus(
+      await setThreadStatus(
         client,
         context.channelId,
         normalizedThreadTs,
@@ -146,12 +146,12 @@ export class MessageHandler {
           platformMetadata: {
             teamId: context.teamId,
             userDisplayName: context.userDisplayName,
-            slackResponseChannel: context.channelId,
-            slackResponseTs: context.messageTs,
-            originalMessageTs: context.messageTs,
-            botResponseTs: threadSession.botResponseTs,
+            responseChannel: context.channelId,
+            responseId: context.messageTs,
+            originalMessageId: context.messageTs,
+            botResponseId: threadSession.botResponseId,
           },
-          claudeOptions: {
+          agentOptions: {
             allowedTools: this.config.claude.allowedTools,
             model: this.config.claude.model,
             timeoutMinutes: this.config.sessionTimeoutMinutes.toString(),
@@ -182,12 +182,12 @@ export class MessageHandler {
           platformMetadata: {
             teamId: context.teamId,
             userDisplayName: context.userDisplayName,
-            slackResponseChannel: context.channelId,
-            slackResponseTs: context.messageTs,
-            originalMessageTs: context.messageTs,
-            botResponseTs: threadSession.botResponseTs,
+            responseChannel: context.channelId,
+            responseId: context.messageTs,
+            originalMessageId: context.messageTs,
+            botResponseId: threadSession.botResponseId,
           },
-          claudeOptions: {
+          agentOptions: {
             ...this.config.claude,
             timeoutMinutes: this.config.sessionTimeoutMinutes.toString(),
           },
@@ -212,7 +212,7 @@ export class MessageHandler {
 
       // Handle all errors the same way - let the worker decide what to show
       try {
-        await this.setThreadStatus(
+        await setThreadStatus(
           client,
           context.channelId,
           normalizedThreadTs,
@@ -270,15 +270,10 @@ export class MessageHandler {
 
   /**
    * Check if user is allowed to use the bot
+   * Note: User allowlisting removed - all users are allowed by default
    */
-  isUserAllowed(userId: string): boolean {
-    const allowedUsers = process.env.ALLOWED_USERS || "";
-    if (!allowedUsers) {
-      return true; // If no restrictions, allow all
-    }
-
-    const userList = allowedUsers.split(",").map((u) => u.trim());
-    return userList.includes(userId);
+  isUserAllowed(_userId: string): boolean {
+    return true; // All users allowed
   }
 
   /**
@@ -290,40 +285,6 @@ export class MessageHandler {
     );
     if (deletedCount > 0) {
       logger.info(`Cleanup completed - Deleted ${deletedCount} sessions`);
-    }
-  }
-
-  /**
-   * Update Slack assistant thread status indicator
-   */
-  private async setThreadStatus(
-    client: any,
-    channelId: string,
-    threadTs: string,
-    status?: string,
-    loadingMessages?: string[]
-  ): Promise<void> {
-    if (!threadTs) {
-      return;
-    }
-
-    try {
-      const payload: Record<string, any> = {
-        channel_id: channelId,
-        thread_ts: threadTs,
-        status: status ?? "",
-      };
-
-      if (loadingMessages && loadingMessages.length > 0) {
-        payload.loading_messages = loadingMessages;
-      }
-
-      await client.apiCall("assistant.threads.setStatus", payload);
-    } catch (error) {
-      logger.warn(
-        `Failed to set status '${status || "<clear>"}' for thread ${threadTs}:`,
-        error
-      );
     }
   }
 }

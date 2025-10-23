@@ -15,6 +15,8 @@ import {
 } from "../slack/converters/block-builder";
 import { extractCodeBlockActions } from "../slack/converters/blockkit";
 import { convertMarkdownToSlack } from "../slack/converters/markdown";
+import { REDIS_KEYS, DEFAULTS } from "../constants";
+import { setThreadStatus } from "../slack/utils/thread-status";
 
 const logger = createLogger("dispatcher");
 
@@ -151,9 +153,9 @@ class StreamSessionManager {
 interface ThreadResponsePayload {
   messageId: string;
   channelId: string;
-  threadTs: string;
+  threadId: string;
   userId: string;
-  teamId?: string; // Slack team/workspace ID for streaming API
+  teamId?: string; // Platform team/workspace ID
   content?: string;
   delta?: string; // Stream delta content
   isStreamDelta?: boolean; // Whether this is a stream delta
@@ -164,9 +166,9 @@ interface ThreadResponsePayload {
   reaction?: string;
   error?: string;
   timestamp: number;
-  originalMessageTs?: string; // User's original message timestamp for reactions
+  originalMessageId?: string; // User's original message ID for reactions
   moduleData?: Record<string, unknown>; // Generic module data from all modules
-  botResponseTs?: string; // Bot's response message timestamp for updates
+  botResponseId?: string; // Bot's response message ID for updates
   claudeSessionId?: string; // Claude session ID for tracking bot messages per session
   statusUpdate?: {
     status: string;
@@ -184,7 +186,7 @@ export class ThreadResponseConsumer {
   private slackClient: WebClient;
   private isRunning = false;
   private blockBuilder: SlackBlockBuilder;
-  private readonly BOT_MESSAGES_PREFIX = "bot_messages:";
+  private readonly BOT_MESSAGES_PREFIX = REDIS_KEYS.BOT_MESSAGES;
   private moduleRegistry: IModuleRegistry;
   private streamSessionManager: StreamSessionManager;
 
@@ -218,40 +220,7 @@ export class ThreadResponseConsumer {
     botMessageTs: string
   ): Promise<void> {
     const key = `${this.BOT_MESSAGES_PREFIX}${sessionKey}`;
-    await this.redis.set(key, botMessageTs, 24 * 60 * 60); // 24 hours
-  }
-
-  /**
-   * Set thread status using assistant.threads.setStatus API
-   */
-  private async setThreadStatus(
-    channelId: string,
-    threadTs: string,
-    status?: string,
-    loadingMessages?: string[]
-  ): Promise<void> {
-    if (!threadTs) {
-      return;
-    }
-
-    try {
-      const payload: Record<string, any> = {
-        channel_id: channelId,
-        thread_ts: threadTs,
-        status: status ?? "",
-      };
-
-      if (loadingMessages && loadingMessages.length > 0) {
-        payload.loading_messages = loadingMessages;
-      }
-
-      await this.slackClient.apiCall("assistant.threads.setStatus", payload);
-    } catch (error) {
-      logger.warn(
-        `Failed to set status '${status || "<clear>"}' for thread ${threadTs}:`,
-        error
-      );
-    }
+    await this.redis.set(key, botMessageTs, DEFAULTS.SESSION_TTL_SECONDS);
   }
 
   /**
@@ -293,106 +262,184 @@ export class ThreadResponseConsumer {
   }
 
   /**
+   * Parse thread response job data from queue format
+   */
+  private parseThreadResponseJob(job: any): ThreadResponsePayload {
+    let data;
+
+    // Handle serialized format from queue (similar to worker queue consumer)
+    if (typeof job === "object" && job !== null) {
+      const keys = Object.keys(job);
+      const numericKeys = keys.filter((key) => !Number.isNaN(Number(key)));
+
+      if (numericKeys.length > 0) {
+        // Queue passes jobs as an array, get the first element
+        const firstKey = numericKeys[0];
+        const firstJob = firstKey ? job[firstKey] : null;
+
+        if (
+          typeof firstJob === "object" &&
+          firstJob !== null &&
+          firstJob.data
+        ) {
+          // This is the actual job object from the queue
+          data = firstJob.data;
+          logger.info(
+            `📤 AGENT RESPONSE: Processing agent response for user ${data.userId}, thread ${data.threadId || "unknown"}, jobId: ${firstJob.id}`
+          );
+        } else {
+          throw new Error(
+            "Invalid job format: expected job object with data field"
+          );
+        }
+      } else {
+        // Fallback - might be normal job format
+        data = job.data || job;
+      }
+    } else {
+      data = job;
+    }
+
+    if (!data || !data.messageId) {
+      throw new Error(`Invalid thread response data: ${JSON.stringify(data)}`);
+    }
+
+    return data;
+  }
+
+  /**
+   * Process streaming delta content
+   */
+  private async processStreamDelta(
+    data: ThreadResponsePayload,
+    sessionKey: string
+  ): Promise<void> {
+    if (!data.isStreamDelta || !data.delta) {
+      return;
+    }
+
+    logger.info(
+      `Processing stream delta length=${data.delta.length} for session ${sessionKey}, isFullReplacement=${data.isFullReplacement || false}`
+    );
+
+    await this.streamSessionManager.handleDelta(
+      sessionKey,
+      data.channelId,
+      data.threadId,
+      data.userId,
+      data.delta,
+      data.isFullReplacement || false,
+      data.teamId
+    );
+  }
+
+  /**
+   * Complete streaming session and handle final content
+   */
+  private async completeStreamingSession(
+    data: ThreadResponsePayload,
+    sessionKey: string,
+    existingBotMessageTs: string | null,
+    isFirstResponse: boolean
+  ): Promise<void> {
+    const hasActiveStream = this.streamSessionManager.hasSession(sessionKey);
+
+    if (hasActiveStream) {
+      logger.info(`Completing active stream for session ${sessionKey}`);
+      await this.streamSessionManager.completeSession(sessionKey);
+      // Don't set status - streaming completion handles it
+    } else {
+      // Clear status for non-streaming completion
+      await setThreadStatus(
+        this.slackClient,
+        data.channelId,
+        data.threadId,
+        ""
+      );
+
+      if (data.finalContent) {
+        // No streaming or stream wasn't active - post content directly
+        logger.info(
+          `Posting final content directly (${data.finalContent.length} chars) - usedStreaming: ${data.usedStreaming}, hasActiveStream: ${hasActiveStream}`
+        );
+        const botMessageTs = existingBotMessageTs || data.botResponseId;
+        await this.handleMessageUpdate(
+          { ...data, content: data.finalContent },
+          isFirstResponse,
+          botMessageTs
+        );
+      }
+    }
+  }
+
+  /**
+   * Store bot message timestamp for future updates
+   */
+  private async storeBotMessageTimestamp(
+    sessionKey: string,
+    newBotResponseTs: string,
+    data: ThreadResponsePayload
+  ): Promise<void> {
+    logger.info(
+      `Bot created first response with ts: ${newBotResponseTs}, storing for session ${sessionKey}`
+    );
+    await this.setBotMessageTs(sessionKey, newBotResponseTs);
+
+    // Also send the bot message timestamp back to the worker for future updates
+    try {
+      if (data.claudeSessionId) {
+        await this.queue.send("worker_metadata_update", {
+          claudeSessionId: data.claudeSessionId,
+          botResponseId: newBotResponseTs,
+          channelId: data.channelId,
+          threadId: data.threadId,
+        });
+      }
+    } catch (error) {
+      logger.debug(`Failed to send bot message timestamp to worker: ${error}`);
+    }
+  }
+
+  /**
    * Handle thread response message jobs
    */
   private async handleThreadResponse(job: any): Promise<void> {
-    let data;
+    let data: ThreadResponsePayload | undefined;
 
     try {
-      // Handle serialized format from queue (similar to worker queue consumer)
-      if (typeof job === "object" && job !== null) {
-        const keys = Object.keys(job);
-        const numericKeys = keys.filter((key) => !Number.isNaN(Number(key)));
-
-        if (numericKeys.length > 0) {
-          // Queue passes jobs as an array, get the first element
-          const firstKey = numericKeys[0];
-          const firstJob = firstKey ? job[firstKey] : null;
-
-          if (
-            typeof firstJob === "object" &&
-            firstJob !== null &&
-            firstJob.data
-          ) {
-            // This is the actual job object from the queue
-            data = firstJob.data;
-            logger.info(
-              `📤 AGENT RESPONSE: Processing agent response for user ${data.userId}, thread ${data.threadId || "unknown"}, jobId: ${firstJob.id}`
-            );
-          } else {
-            throw new Error(
-              "Invalid job format: expected job object with data field"
-            );
-          }
-        } else {
-          // Fallback - might be normal job format
-          data = job.data || job;
-        }
-      } else {
-        data = job;
-      }
-
-      if (!data || !data.messageId) {
-        throw new Error(
-          `Invalid thread response data: ${JSON.stringify(data)}`
-        );
-      }
+      data = this.parseThreadResponseJob(job);
 
       logger.info(
-        `Processing thread response job for message ${data.messageId}, originalMessageTs: ${data.originalMessageTs}, claudeSessionId: ${data.claudeSessionId}, botResponseTs: ${data.botResponseTs}`
+        `Processing thread response job for message ${data.messageId}, originalMessageId: ${data.originalMessageId}, claudeSessionId: ${data.claudeSessionId}, botResponseId: ${data.botResponseId}`
       );
 
       // Create a session key to track bot messages per conversation
-      // Use the claudeSessionId as the primary key when available
-      // This ensures all messages from the same worker session update the same bot message
       const sessionKey = data.claudeSessionId
         ? `session:${data.claudeSessionId}`
-        : `${data.userId}:${data.originalMessageTs || data.messageId}`;
+        : `${data.userId}:${data.originalMessageId || data.messageId}`;
 
       logger.info(`Using session key: ${sessionKey}`);
-
-      // Log data fields for debugging
       logger.info(
         `Thread response data fields: ${Object.keys(data).join(", ")}`
       );
-      if (data.isStreamDelta) {
-        logger.info(
-          `Stream delta detected: deltaLength=${data.delta?.length || 0}`
-        );
-      }
 
       // Check if we have a bot message for this Claude session
-      // First check if the worker provided a bot message timestamp, then check Redis
       const redisBotMessageTs = await this.getBotMessageTs(sessionKey);
-      const existingBotMessageTs = data.botResponseTs || redisBotMessageTs;
+      const existingBotMessageTs = data.botResponseId || redisBotMessageTs;
       const isFirstResponse = !existingBotMessageTs;
 
       // Handle streaming delta
-      if (data.isStreamDelta && data.delta) {
-        logger.info(
-          `Processing stream delta length=${data.delta.length} for session ${sessionKey}, isFullReplacement=${data.isFullReplacement || false}`
-        );
-
-        await this.streamSessionManager.handleDelta(
-          sessionKey,
-          data.channelId,
-          data.threadTs,
-          data.userId,
-          data.delta,
-          data.isFullReplacement || false,
-          data.teamId
-        );
-        // Continue to apply status updates - assistant threads API supports both streaming and status
-      }
+      await this.processStreamDelta(data, sessionKey);
 
       // Apply status update if provided (works alongside streaming)
       if (data.statusUpdate) {
         logger.info(
-          `Setting thread status to: "${data.statusUpdate.status}" for thread ${data.threadTs}`
+          `Setting thread status to: "${data.statusUpdate.status}" for thread ${data.threadId}`
         );
-        await this.setThreadStatus(
+        await setThreadStatus(
+          this.slackClient,
           data.channelId,
-          data.threadTs,
+          data.threadId,
           data.statusUpdate.status,
           data.statusUpdate.loadingMessages
         );
@@ -405,8 +452,7 @@ export class ThreadResponseConsumer {
 
       // Handle message content
       if (data.content) {
-        // Pass the existing bot message timestamp if we have one
-        const botMessageTs = existingBotMessageTs || data.botResponseTs;
+        const botMessageTs = existingBotMessageTs || data.botResponseId;
         const newBotResponseTs = await this.handleMessageUpdate(
           data,
           isFirstResponse,
@@ -415,36 +461,18 @@ export class ThreadResponseConsumer {
 
         // Store the bot response timestamp in Redis for future updates
         if (isFirstResponse && newBotResponseTs) {
-          logger.info(
-            `Bot created first response with ts: ${newBotResponseTs}, storing for session ${sessionKey}`
+          await this.storeBotMessageTimestamp(
+            sessionKey,
+            newBotResponseTs,
+            data
           );
-          await this.setBotMessageTs(sessionKey, newBotResponseTs);
-
-          // Also send the bot message timestamp back to the worker for future updates
-          // This ensures the worker can include it in subsequent thread_response messages
-          try {
-            if (data.claudeSessionId) {
-              await this.queue.send("worker_metadata_update", {
-                claudeSessionId: data.claudeSessionId,
-                botResponseTs: newBotResponseTs,
-                channelId: data.channelId,
-                threadTs: data.threadTs,
-              });
-            }
-          } catch (error) {
-            logger.debug(
-              `Failed to send bot message timestamp to worker: ${error}`
-            );
-          }
         }
       } else if (data.error) {
-        // Pass the existing bot message timestamp for error updates
-        const botMessageTs = existingBotMessageTs || data.botResponseTs;
+        const botMessageTs = existingBotMessageTs || data.botResponseId;
         await this.handleError(data, isFirstResponse, botMessageTs);
       }
 
-      // Log completion when processedMessageIds is present but DON'T clear session
-      // Keep the session active so any late-arriving messages still update the same bot message
+      // Handle completion
       if (
         Array.isArray(data.processedMessageIds) &&
         data.processedMessageIds.length > 0
@@ -452,34 +480,12 @@ export class ThreadResponseConsumer {
         logger.info(
           `Thread processing completed for message ${data.messageId}`
         );
-
-        // Complete active streaming session if one exists
-        const hasActiveStream =
-          this.streamSessionManager.hasSession(sessionKey);
-        if (hasActiveStream) {
-          logger.info(`Completing active stream for session ${sessionKey}`);
-          await this.streamSessionManager.completeSession(sessionKey);
-          // Don't set status - streaming completion handles it
-        } else {
-          // Clear status for non-streaming completion
-          await this.setThreadStatus(data.channelId, data.threadTs, "");
-
-          if (data.finalContent) {
-            // No streaming or stream wasn't active - post content directly
-            logger.info(
-              `Posting final content directly (${data.finalContent.length} chars) - usedStreaming: ${data.usedStreaming}, hasActiveStream: ${hasActiveStream}`
-            );
-            const botMessageTs = existingBotMessageTs || data.botResponseTs;
-            await this.handleMessageUpdate(
-              { ...data, content: data.finalContent },
-              isFirstResponse,
-              botMessageTs
-            );
-          }
-        }
-
-        // Don't clear the session here - it will be cleared when a new user message arrives
-        // This prevents duplicate bot messages if the worker sends more messages after completion
+        await this.completeStreamingSession(
+          data,
+          sessionKey,
+          existingBotMessageTs,
+          isFirstResponse
+        );
       }
     } catch (error: any) {
       // Check if it's a validation error that shouldn't be retried
@@ -520,6 +526,166 @@ export class ThreadResponseConsumer {
   }
 
   /**
+   * Parse message content - handles JSON blocks or markdown
+   */
+  private async parseMessageContent(
+    content: string,
+    data: ThreadResponsePayload
+  ): Promise<{ text: string; blocks: any[] }> {
+    // Check if content is JSON with blocks (from authentication prompt)
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed.blocks && Array.isArray(parsed.blocks)) {
+        logger.debug(
+          `Content is pre-formatted blocks - blocks count: ${parsed.blocks.length}`
+        );
+        return {
+          text: parsed.blocks[0]?.text?.text || "Authentication required",
+          blocks: parsed.blocks,
+        };
+      }
+    } catch {
+      // Not JSON or not blocks format - continue to markdown processing
+    }
+
+    // Process as markdown
+    logger.debug(
+      `Processing content for Slack - content length: ${content?.length || 0}`
+    );
+
+    // Extract code block actions and process markdown
+    const { processedContent, actionButtons: codeBlockButtons } =
+      extractCodeBlockActions(content);
+    const text = convertMarkdownToSlack(processedContent);
+
+    logger.debug(
+      `Extracted ${codeBlockButtons.length} code block action buttons`
+    );
+
+    // Get action buttons from modules
+    const moduleButtons = await this.getModuleActionButtons(
+      data.userId,
+      data.channelId,
+      data.threadId,
+      data.moduleData
+    );
+
+    // Combine all action buttons
+    const allActionButtons = [...codeBlockButtons, ...moduleButtons];
+
+    // Use block builder to create proper blocks with validation
+    const result = this.blockBuilder.buildBlocks(text, {
+      actionButtons: allActionButtons,
+      includeActionButtons: true,
+    });
+
+    return { text: result.text, blocks: result.blocks };
+  }
+
+  /**
+   * Post or update Slack message
+   */
+  private async postOrUpdateSlackMessage(
+    channelId: string,
+    threadTs: string,
+    text: string,
+    blocks: any[],
+    isFirstResponse: boolean,
+    botMessageTs?: string
+  ): Promise<string | undefined> {
+    logger.debug(
+      `Final blocks to send - count: ${blocks.length}, types: ${blocks.map((b: any) => b.type).join(", ")}`
+    );
+
+    if (isFirstResponse) {
+      // Create new message for first response
+      logger.info(
+        `Creating new bot message in channel ${channelId}, thread ${threadTs}`
+      );
+      const postResult = await this.slackClient.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: text,
+        mrkdwn: true,
+        blocks: blocks,
+        unfurl_links: true,
+        unfurl_media: true,
+      });
+
+      logger.info(
+        `Bot message created: ${postResult.ok}, ts: ${postResult.ts}`
+      );
+
+      if (!postResult.ok) {
+        logger.error(`Failed to create bot message: ${postResult.error}`);
+        return;
+      }
+
+      // Validate that Slack created the message in the correct thread
+      const returnedTs = postResult.ts as string;
+      const returnedThreadTs =
+        (postResult.message as any)?.thread_ts || returnedTs;
+
+      // Check if the message was created in the intended thread
+      if (threadTs && returnedThreadTs !== threadTs) {
+        // Delete the wrongly placed message
+        try {
+          await this.slackClient.chat.delete({
+            channel: channelId,
+            ts: returnedTs,
+          });
+          logger.info(`Deleted misplaced message ${returnedTs}`);
+        } catch (deleteError) {
+          logger.error(`Failed to delete misplaced message:`, deleteError);
+        }
+
+        // Retry with explicit thread creation
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const retryResult = await this.slackClient.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: text,
+          mrkdwn: true,
+          blocks: blocks,
+          unfurl_links: true,
+          unfurl_media: true,
+          reply_broadcast: false,
+        });
+
+        if (!retryResult.ok) {
+          throw new Error(
+            `Failed to create bot message after retry: ${retryResult.error}`
+          );
+        }
+
+        return retryResult.ts as string;
+      }
+
+      return returnedTs;
+    } else {
+      // Update existing message
+      const botTs = botMessageTs || threadTs;
+      logger.info(`Updating bot message in channel ${channelId}, ts ${botTs}`);
+
+      const updateResult = await this.slackClient.chat.update({
+        channel: channelId,
+        ts: botTs,
+        text: text,
+        blocks: blocks,
+      });
+
+      logger.info(`Slack update result: ${updateResult.ok}`);
+
+      if (!updateResult.ok) {
+        logger.error(`Slack update failed with error: ${updateResult.error}`);
+      }
+
+      return undefined;
+    }
+  }
+
+  /**
    * Handle message content updates
    */
   private async handleMessageUpdate(
@@ -527,159 +693,21 @@ export class ThreadResponseConsumer {
     isFirstResponse: boolean,
     botMessageTs?: string
   ): Promise<string | undefined> {
-    const { content, channelId, threadTs, userId } = data;
+    const { content, channelId, threadId } = data;
 
     if (!content) return;
 
     try {
-      let truncatedText: string;
-      let blocks: any[];
+      const { text, blocks } = await this.parseMessageContent(content, data);
 
-      // Check if content is JSON with blocks (from authentication prompt)
-      try {
-        const parsed = JSON.parse(content);
-        if (parsed.blocks && Array.isArray(parsed.blocks)) {
-          // Content is already formatted blocks from the worker
-          logger.debug(
-            `[DEBUG] Content is pre-formatted blocks - blocks count: ${parsed.blocks.length}`
-          );
-          truncatedText =
-            parsed.blocks[0]?.text?.text || "Authentication required";
-          blocks = parsed.blocks;
-        } else {
-          throw new Error("Not blocks format");
-        }
-      } catch {
-        // Not JSON or not blocks format - process as markdown
-        logger.debug(
-          `[DEBUG] Processing content for Slack - content length: ${content?.length || 0}`
-        );
-
-        // Extract code block actions and process markdown
-        const { processedContent, actionButtons: codeBlockButtons } =
-          extractCodeBlockActions(content);
-        const text = convertMarkdownToSlack(processedContent);
-
-        logger.debug(
-          `[DEBUG] Extracted ${codeBlockButtons.length} code block action buttons`
-        );
-
-        // Get action buttons from modules
-        const moduleButtons = await this.getModuleActionButtons(
-          userId,
-          data.channelId,
-          data.threadTs,
-          data.moduleData
-        );
-
-        // Combine all action buttons
-        const allActionButtons = [...codeBlockButtons, ...moduleButtons];
-
-        // Use block builder to create proper blocks with validation
-        const result = this.blockBuilder.buildBlocks(text, {
-          actionButtons: allActionButtons,
-          includeActionButtons: true,
-        });
-
-        truncatedText = result.text;
-        blocks = result.blocks;
-      }
-      logger.debug(
-        `[DEBUG] Final blocks to send - count: ${blocks.length}, types: ${blocks.map((b: any) => b.type).join(", ")}`
+      return await this.postOrUpdateSlackMessage(
+        channelId,
+        threadId,
+        text,
+        blocks,
+        isFirstResponse,
+        botMessageTs
       );
-      if (blocks.some((b: any) => b.type === "actions")) {
-        logger.debug(
-          `[DEBUG] Actions block elements:`,
-          blocks.find((b: any) => b.type === "actions")?.elements
-        );
-      }
-
-      if (isFirstResponse) {
-        // Create new message for first response
-        logger.info(
-          `Creating new bot message in channel ${channelId}, thread ${threadTs}`
-        );
-        const postResult = await this.slackClient.chat.postMessage({
-          channel: channelId,
-          thread_ts: threadTs,
-          text: truncatedText,
-          mrkdwn: true,
-          blocks: blocks,
-          unfurl_links: true,
-          unfurl_media: true,
-        });
-
-        logger.info(
-          `Bot message created: ${postResult.ok}, ts: ${postResult.ts}`
-        );
-
-        if (!postResult.ok) {
-          logger.error(`Failed to create bot message: ${postResult.error}`);
-          return;
-        }
-
-        // CRITICAL: Validate that Slack created the message in the correct thread
-        const returnedTs = postResult.ts as string;
-        const returnedThreadTs =
-          (postResult.message as any)?.thread_ts || returnedTs;
-
-        // Check if the message was created in the intended thread
-        if (threadTs && returnedThreadTs !== threadTs) {
-          // Delete the wrongly placed message
-          try {
-            await this.slackClient.chat.delete({
-              channel: channelId,
-              ts: returnedTs,
-            });
-            logger.info(`Deleted misplaced message ${returnedTs}`);
-          } catch (deleteError) {
-            logger.error(`Failed to delete misplaced message:`, deleteError);
-          }
-
-          // Retry with explicit thread creation
-          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
-
-          const retryResult = await this.slackClient.chat.postMessage({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: truncatedText,
-            mrkdwn: true,
-            blocks: blocks,
-            unfurl_links: true,
-            unfurl_media: true,
-            reply_broadcast: false, // Ensure it stays in thread
-          });
-
-          if (!retryResult.ok) {
-            throw new Error(
-              `Failed to create bot message after retry: ${retryResult.error}`
-            );
-          }
-
-          return retryResult.ts as string;
-        }
-
-        return returnedTs; // Return the new message timestamp
-      } else {
-        // Update existing message - use the passed botMessageTs or fallback
-        const botTs = botMessageTs || data.botResponseTs || threadTs;
-        logger.info(
-          `Updating bot message in channel ${channelId}, ts ${botTs}`
-        );
-
-        const updateResult = await this.slackClient.chat.update({
-          channel: channelId,
-          ts: botTs,
-          text: truncatedText,
-          blocks: blocks,
-        });
-
-        logger.info(`Slack update result: ${updateResult.ok}`);
-
-        if (!updateResult.ok) {
-          logger.error(`Slack update failed with error: ${updateResult.error}`);
-        }
-      }
     } catch (error: any) {
       // Handle specific Slack errors
       if (error.code === "message_not_found") {
@@ -697,8 +725,8 @@ export class ThreadResponseConsumer {
 
         // Try to send a simple error message with raw content for recovery
         try {
-          // Truncate content to fit in code block (leave room for error message + code block formatting)
-          const maxContentLength = 2500; // Conservative limit
+          // Truncate content to fit in code block
+          const maxContentLength = 2500;
           const truncatedContent =
             content.length > maxContentLength
               ? `${content.substring(0, maxContentLength)}\n...[truncated]`
@@ -708,7 +736,7 @@ export class ThreadResponseConsumer {
 
           await this.slackClient.chat.update({
             channel: channelId,
-            ts: threadTs,
+            ts: threadId,
             text: errorMessage,
           });
           logger.info(
@@ -716,16 +744,6 @@ export class ThreadResponseConsumer {
           );
         } catch (fallbackError) {
           logger.error("Failed to send fallback error message:", fallbackError);
-          // If even the fallback fails, try a minimal message
-          try {
-            await this.slackClient.chat.update({
-              channel: channelId,
-              ts: threadTs,
-              text: `❌ *Error occurred while updating message*\n\n*Error:* ${error.data?.error || error.message}`,
-            });
-          } catch (minimalError) {
-            logger.error("Failed to send minimal error message:", minimalError);
-          }
         }
         // Don't throw - this prevents retry loops for validation errors
       } else {
@@ -743,20 +761,20 @@ export class ThreadResponseConsumer {
     isFirstResponse: boolean,
     botMessageTs?: string
   ): Promise<void> {
-    const { error, channelId, threadTs, userId } = data;
+    const { error, channelId, threadId, userId } = data;
 
     if (!error) return;
 
     try {
       logger.info(
-        `Sending error message to channel ${channelId}, thread ${threadTs}`
+        `Sending error message to channel ${channelId}, thread ${threadId}`
       );
 
       // Get action buttons from modules
       const actionButtons = await this.getModuleActionButtons(
         userId,
         data.channelId,
-        data.threadTs,
+        data.threadId,
         data.moduleData
       );
 
@@ -770,7 +788,7 @@ export class ThreadResponseConsumer {
         // Create new error message
         const postResult = await this.slackClient.chat.postMessage({
           channel: channelId,
-          thread_ts: threadTs,
+          thread_ts: threadId,
           text: errorResult.text,
           mrkdwn: true,
           blocks: errorResult.blocks,
@@ -780,7 +798,7 @@ export class ThreadResponseConsumer {
         logger.info(`Error message created: ${postResult.ok}`);
       } else {
         // Update existing message with error - use the passed botMessageTs or fallback
-        const botTs = botMessageTs || data.botResponseTs || threadTs;
+        const botTs = botMessageTs || data.botResponseId || threadId;
         const updateResult = await this.slackClient.chat.update({
           channel: channelId,
           ts: botTs,

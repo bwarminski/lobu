@@ -1,5 +1,6 @@
 import { createLogger } from "@peerbot/core";
 import type { App } from "@slack/bolt";
+import type { SlackWebClient } from "../types";
 
 const logger = createLogger("dispatcher");
 
@@ -22,7 +23,7 @@ export class ShortcutCommandHandler {
     command: string,
     userId: string,
     channelId: string,
-    client: any,
+    client: SlackWebClient,
     threadTs?: string
   ): Promise<void> {
     logger.info(`Handling text command '${command}' from user ${userId}`);
@@ -113,7 +114,7 @@ export class ShortcutCommandHandler {
   public async sendContextAwareWelcome(
     userId: string,
     channelId: string,
-    client: any,
+    client: SlackWebClient,
     threadTs?: string
   ): Promise<void> {
     // Build simple welcome blocks

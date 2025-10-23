@@ -67,22 +67,23 @@ export function buildDeploymentLabels(
 }
 
 /**
- * Build Slack-related annotations with URLs
+ * Build platform metadata annotations
+ * Creates platform-specific URLs and metadata for deployments
  */
-export function buildSlackAnnotations(
+export function buildPlatformMetadata(
   threadId: string,
   channelId: string,
   teamId?: string
 ): Record<string, string> {
-  const annotations: Record<string, string> = {};
+  const metadata: Record<string, string> = {};
 
-  // Add Slack thread URL if we have team ID
+  // Add platform thread URL if we have team ID (currently Slack-specific)
   if (teamId) {
-    annotations.thread_url = `https://app.slack.com/client/${teamId}/${channelId}/thread/${threadId}`;
-    annotations.team_id = teamId;
+    metadata.thread_url = `https://app.slack.com/client/${teamId}/${channelId}/thread/${threadId}`;
+    metadata.team_id = teamId;
   }
 
-  return annotations;
+  return metadata;
 }
 
 /**

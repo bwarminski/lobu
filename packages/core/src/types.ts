@@ -11,11 +11,11 @@ export interface ClaudeExecutionOptions {
 }
 
 export interface SessionContext {
-  platform: "slack";
+  platform: string; // Platform identifier (e.g., "slack", "discord", "teams")
   channelId: string;
   userId: string;
-  messageTs?: string;
-  threadTs?: string;
+  messageId?: string;
+  threadId?: string;
   conversationHistory?: ConversationMessage[];
   customInstructions?: string;
   workingDirectory?: string;

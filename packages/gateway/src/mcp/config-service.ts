@@ -66,8 +66,7 @@ interface LoadedConfig {
 type ConfigSource = { type: "file"; path: string } | { type: "http"; url: URL };
 
 export interface McpConfigServiceOptions {
-  configUrl?: string;
-  configPath?: string;
+  configUrl?: string; // Accepts both URLs (http://, https://) and file paths
   discoveryService?: McpOAuthDiscoveryService;
   credentialStore?: McpCredentialStore;
   inputStore?: McpInputStore;
@@ -82,12 +81,6 @@ export class McpConfigService {
   private discoveryEnriched = false;
 
   constructor(options: McpConfigServiceOptions = {}) {
-    const rawLocation =
-      options.configUrl ||
-      options.configPath ||
-      process.env.PEERBOT_MCP_SERVERS_URL ||
-      process.env.PEERBOT_MCP_SERVERS_FILE;
-
     this.discoveryService = options.discoveryService;
     this.credentialStore = options.credentialStore;
     this.inputStore = options.inputStore;
@@ -95,13 +88,13 @@ export class McpConfigService {
       `McpConfigService initialized with discovery: ${!!this.discoveryService}, credential store: ${!!this.credentialStore}, input store: ${!!this.inputStore}`
     );
 
-    if (!rawLocation) {
+    if (!options.configUrl) {
       logger.warn("No MCP config location provided");
       return;
     }
 
-    logger.info(`MCP config location: ${rawLocation}`);
-    this.source = this.resolveConfigSource(rawLocation);
+    logger.info(`MCP config location: ${options.configUrl}`);
+    this.source = this.resolveConfigSource(options.configUrl);
   }
 
   /**
@@ -185,14 +178,17 @@ export class McpConfigService {
       // Check authentication status
       let authenticated = false;
       if (requiresAuth && this.credentialStore) {
-        const credentials = await this.credentialStore.get(userId, id);
+        const credentials = await this.credentialStore.getCredentials(
+          userId,
+          id
+        );
         authenticated = !!credentials?.accessToken;
       }
 
       // Check configuration status
       let configured = false;
       if (requiresInput && this.inputStore) {
-        const inputs = await this.inputStore.get(userId, id);
+        const inputs = await this.inputStore.getInputs(userId, id);
         configured = !!inputs;
       }
 

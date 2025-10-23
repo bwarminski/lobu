@@ -4,15 +4,16 @@ export interface WorkerConfig {
   sessionKey: string;
   userId: string;
   channelId: string;
-  threadTs?: string;
+  threadId?: string;
   userPrompt: string; // Base64 encoded
-  slackResponseChannel: string;
-  slackResponseTs: string;
-  botResponseTs?: string; // Bot's response message timestamp for updates
-  claudeOptions: string; // JSON string
+  responseChannel: string; // Platform-agnostic response channel
+  responseId: string; // Platform-agnostic response message ID
+  botResponseId?: string; // Bot's response message ID for updates
+  agentOptions: string; // JSON string
   sessionId?: string; // Claude session ID for new sessions
   resumeSessionId?: string; // Claude session ID to resume from
-  teamId?: string; // Slack team/workspace ID for streaming API
+  teamId?: string; // Platform team/workspace ID (e.g., Slack team ID)
+  platform?: string; // Platform identifier (e.g., "slack", "discord")
   workspace: {
     baseDirectory: string;
   };
@@ -25,7 +26,6 @@ export interface WorkspaceSetupConfig {
 export interface WorkspaceInfo {
   baseDirectory: string;
   userDirectory: string;
-  setupComplete: boolean;
 }
 
 // Re-export from shared package

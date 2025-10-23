@@ -1,12 +1,12 @@
 import { moduleRegistry } from "@peerbot/core";
 import { createMessageQueue } from "@peerbot/core";
 import { App, ExpressReceiver, LogLevel } from "@slack/bolt";
-import { logger } from "..";
+import { createLogger } from "@peerbot/core";
+import type { GatewayConfig } from "../cli/config";
 import { WorkerGateway } from "../gateway";
-import { AnthropicProxy } from "../proxy/anthropic-proxy";
+import { AnthropicProxy } from "../model-provider/anthropic-proxy";
 import { QueueProducer } from "../session/queue-producer";
-import { ThreadResponseConsumer } from "../session/thread-processor";
-import type { DispatcherConfig } from "../types";
+import { ThreadResponseConsumer } from "./thread-processor";
 import { SlackEventHandlers } from "./event-router";
 import { McpConfigService } from "../mcp/config-service";
 import { McpCredentialStore } from "../mcp/credential-store";
@@ -17,6 +17,8 @@ import { McpInputStore } from "../mcp/input-store";
 import { SocketHealthMonitor } from "../health/socket-health-monitor";
 import { McpOAuthDiscoveryService } from "../mcp/oauth-discovery";
 
+const logger = createLogger("slack-dispatcher");
+
 export class SlackDispatcher {
   private app: App;
   private queueProducer: QueueProducer;
@@ -24,11 +26,11 @@ export class SlackDispatcher {
   private anthropicProxy?: AnthropicProxy;
   private workerGateway?: WorkerGateway;
   private mcpProxy?: McpProxy;
-  private config: DispatcherConfig;
+  private config: GatewayConfig;
   private queue?: ReturnType<typeof createMessageQueue>;
   private socketHealthMonitor?: SocketHealthMonitor;
 
-  constructor(config: DispatcherConfig) {
+  constructor(config: GatewayConfig) {
     this.config = config;
 
     if (!config.queues?.connectionString) {
@@ -113,310 +115,299 @@ export class SlackDispatcher {
   }
 
   /**
+   * Initialize Anthropic proxy service
+   */
+  private async initializeAnthropicProxy(): Promise<void> {
+    this.anthropicProxy = new AnthropicProxy(this.config.anthropicProxy);
+    logger.info("✅ Anthropic proxy initialized");
+  }
+
+  /**
+   * Initialize MCP services (config, discovery, OAuth, proxy)
+   */
+  private async initializeMcpServices(): Promise<void> {
+    if (!this.queue) {
+      throw new Error("Queue must be initialized before MCP services");
+    }
+
+    const redisClient = this.queue.getRedisClient();
+
+    // Initialize MCP OAuth Discovery Service
+    const mcpCredentialStore = new McpCredentialStore(this.queue);
+    const mcpDiscoveryService = new McpOAuthDiscoveryService({
+      cacheStore: {
+        get: async (key: string) => {
+          try {
+            const value = await redisClient.get(key);
+            return value;
+          } catch (error) {
+            logger.error("Failed to get from cache", { key, error });
+            return null;
+          }
+        },
+        set: async (key: string, value: string, ttl: number) => {
+          try {
+            await redisClient.set(key, value, "EX", ttl);
+          } catch (error) {
+            logger.error("Failed to set cache", { key, error });
+          }
+        },
+        delete: async (key: string) => {
+          try {
+            await redisClient.del(key);
+          } catch (error) {
+            logger.error("Failed to delete from cache", { key, error });
+          }
+        },
+      },
+      callbackUrl: this.config.mcp.callbackUrl,
+      protocolVersion: "2025-03-26",
+      cacheTtl: 86400, // 24 hours
+    });
+    logger.info("✅ MCP OAuth Discovery Service initialized");
+
+    const oauthStateStore = new OAuthStateStore(this.queue);
+    const mcpInputStore = new McpInputStore(this.queue);
+    const mcpConfigService = new McpConfigService({
+      configUrl: this.config.mcp.serversUrl,
+      discoveryService: mcpDiscoveryService,
+      credentialStore: mcpCredentialStore,
+      inputStore: mcpInputStore,
+    });
+    this.workerGateway = new WorkerGateway(
+      this.queue,
+      this.config.mcp.publicGatewayUrl,
+      mcpConfigService
+    );
+    this.mcpProxy = new McpProxy(
+      mcpConfigService,
+      mcpCredentialStore,
+      mcpInputStore
+    );
+    logger.info("✅ Worker gateway initialized");
+    logger.info("✅ MCP proxy initialized");
+
+    // Perform OAuth discovery for all MCP servers
+    logger.info("🔍 Discovering OAuth capabilities for MCP servers...");
+    await mcpConfigService.enrichWithDiscovery();
+    logger.info("✅ MCP OAuth discovery completed");
+
+    // Register MCP OAuth module for authentication flow
+    const mcpOAuthModule = new McpOAuthModule(
+      mcpConfigService,
+      mcpCredentialStore,
+      oauthStateStore,
+      mcpInputStore,
+      this.config.mcp.publicGatewayUrl,
+      this.config.mcp.callbackUrl
+    );
+    moduleRegistry.register(mcpOAuthModule);
+    logger.info("✅ MCP OAuth module registered");
+
+    // Discover and register available modules
+    await moduleRegistry.registerAvailableModules();
+
+    // Initialize all registered modules
+    await moduleRegistry.initAll();
+    logger.info("✅ Modules initialized");
+  }
+
+  /**
+   * Initialize Socket Mode connection and monitoring
+   */
+  private async initializeSocketMode(): Promise<void> {
+    const socketModeClient = (this.app as any).receiver?.client;
+    if (!socketModeClient) {
+      logger.warn("No Socket Mode client found in receiver");
+      return;
+    }
+
+    // Circuit breaker: detect reconnection loops and exit
+    let connectionCount = 0;
+    let lastConnectionTime = Date.now();
+    const RECONNECTION_THRESHOLD = 5;
+    const RECONNECTION_WINDOW_MS = 30000;
+
+    const checkReconnectionLoop = () => {
+      const now = Date.now();
+      const timeSinceLastConnection = now - lastConnectionTime;
+
+      if (timeSinceLastConnection > RECONNECTION_WINDOW_MS) {
+        connectionCount = 0;
+      }
+
+      connectionCount++;
+      lastConnectionTime = now;
+
+      logger.info(
+        `Socket Mode connection attempt ${connectionCount}/${RECONNECTION_THRESHOLD} (window: ${timeSinceLastConnection}ms)`
+      );
+
+      if (
+        connectionCount >= RECONNECTION_THRESHOLD &&
+        timeSinceLastConnection < RECONNECTION_WINDOW_MS
+      ) {
+        logger.error(
+          `❌ FATAL: Detected reconnection loop (${connectionCount} reconnections in ${timeSinceLastConnection}ms)`
+        );
+        logger.error(
+          "Exiting process - Docker/K8s will restart with clean state"
+        );
+        process.exit(1);
+      }
+    };
+
+    // Initialize health monitor for zombie connection detection
+    this.socketHealthMonitor = new SocketHealthMonitor(this.config.health);
+
+    socketModeClient.on("slack_event", (event: any, _body: any) => {
+      logger.info("Socket Mode event received:", event.type);
+      this.socketHealthMonitor?.recordSocketEvent();
+    });
+
+    socketModeClient.on("disconnect", () => {
+      logger.warn("Socket Mode disconnected, will auto-reconnect");
+    });
+
+    socketModeClient.on("error", (error: Error) => {
+      logger.error("Socket Mode error:", error);
+    });
+
+    socketModeClient.on("ready", () => {
+      logger.info("Socket Mode client ready");
+      this.socketHealthMonitor?.recordSocketEvent();
+    });
+
+    socketModeClient.on("connecting", () => {
+      logger.info("Socket Mode connecting...");
+      checkReconnectionLoop();
+    });
+
+    socketModeClient.on("connected", () => {
+      logger.info("Socket Mode connected successfully!");
+      this.socketHealthMonitor?.recordSocketEvent();
+
+      // Reset counter on successful stable connection
+      setTimeout(() => {
+        connectionCount = 0;
+        logger.debug("Connection stable - reset reconnection counter");
+      }, require("../constants").TIME.FIVE_SECONDS_MS);
+
+      // Start health monitoring after successful connection
+      if (this.socketHealthMonitor && this.workerGateway) {
+        this.socketHealthMonitor.start(
+          () => this.workerGateway?.getActiveConnections().length || 0
+        );
+        logger.info("✅ Socket health monitoring enabled");
+      }
+    });
+
+    // Start the Socket Mode app
+    this.app.start();
+
+    // Wait for connection or timeout
+    const connectionPromise = new Promise<void>((resolve, reject) => {
+      if (!socketModeClient) {
+        reject(new Error("Socket Mode client not found"));
+        return;
+      }
+
+      const connectedHandler = () => {
+        logger.info("✅ Socket Mode connection established!");
+        clearTimeout(timeoutId);
+        resolve();
+      };
+
+      const timeoutId = setTimeout(() => {
+        socketModeClient.removeListener("connected", connectedHandler);
+        reject(new Error("Socket Mode connection timeout"));
+      }, 10000);
+
+      if (
+        socketModeClient.isConnected?.() ||
+        socketModeClient.stateMachine?.getCurrentState?.() === "connected"
+      ) {
+        connectedHandler();
+      } else {
+        socketModeClient.once("connected", connectedHandler);
+      }
+    });
+
+    await connectionPromise.catch((error) => {
+      logger.warn("Socket Mode connection warning:", error.message);
+    });
+
+    // Give it a moment to stabilize
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  /**
+   * Initialize HTTP Mode
+   */
+  private async initializeHttpMode(): Promise<void> {
+    await this.app.start(this.config.slack.port || 3000);
+
+    const receiver = (this.app as any).receiver as ExpressReceiver;
+    const expressApp = receiver.app;
+
+    // Add request logging middleware
+    expressApp.use((req: any, _res: any, next: any) => {
+      logger.debug(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+      logger.debug("Headers:", req.headers);
+      if (req.method === "POST" && req.body) {
+        logger.debug("Body:", JSON.stringify(req.body).substring(0, 200));
+      }
+      next();
+    });
+
+    logger.debug("Express routes after Slack app start:");
+    expressApp._router.stack.forEach((middleware: any) => {
+      if (middleware.route) {
+        logger.debug(
+          `- ${Object.keys(middleware.route.methods).join(", ").toUpperCase()} ${middleware.route.path}`
+        );
+      } else if (middleware.name === "router") {
+        logger.debug("- Router middleware");
+      }
+    });
+  }
+
+  /**
    * Start the dispatcher
    */
   async start(): Promise<void> {
     try {
-      // Initialize Anthropic proxy (always enabled for both Socket and HTTP mode)
-      this.anthropicProxy = new AnthropicProxy(this.config.anthropicProxy);
-      logger.info("✅ Anthropic proxy initialized");
+      // Initialize Anthropic proxy
+      await this.initializeAnthropicProxy();
 
       // Initialize Worker Gateway for SSE/HTTP worker communication
       this.queue = createMessageQueue(this.config.queues.connectionString);
       await this.queue.start();
 
-      // Initialize MCP OAuth Discovery Service
-      const publicGatewayUrl =
-        process.env.PEERBOT_PUBLIC_GATEWAY_URL ||
-        process.env.INGRESS_URL ||
-        "http://localhost:8080";
-      const callbackUrl = `${publicGatewayUrl}/mcp/oauth/callback`;
-
-      const mcpCredentialStore = new McpCredentialStore(this.queue);
-      const redisClient = this.queue.getRedisClient();
-      const mcpDiscoveryService = new McpOAuthDiscoveryService({
-        cacheStore: {
-          get: async (key: string) => {
-            try {
-              const value = await redisClient.get(key);
-              return value;
-            } catch (error) {
-              logger.error("Failed to get from cache", { key, error });
-              return null;
-            }
-          },
-          set: async (key: string, value: string, ttl: number) => {
-            try {
-              await redisClient.set(key, value, "EX", ttl);
-            } catch (error) {
-              logger.error("Failed to set cache", { key, error });
-            }
-          },
-          delete: async (key: string) => {
-            try {
-              await redisClient.del(key);
-            } catch (error) {
-              logger.error("Failed to delete from cache", { key, error });
-            }
-          },
-        },
-        callbackUrl,
-        protocolVersion: "2025-03-26",
-        cacheTtl: 86400, // 24 hours
-      });
-      logger.info("✅ MCP OAuth Discovery Service initialized");
-
-      const oauthStateStore = new OAuthStateStore(this.queue);
-      const mcpInputStore = new McpInputStore(this.queue);
-      const mcpConfigService = new McpConfigService({
-        configUrl:
-          process.env.PEERBOT_MCP_SERVERS_URL ||
-          process.env.PEERBOT_MCP_SERVERS_FILE,
-        discoveryService: mcpDiscoveryService,
-        credentialStore: mcpCredentialStore,
-        inputStore: mcpInputStore,
-      });
-      this.workerGateway = new WorkerGateway(this.queue, mcpConfigService);
-      this.mcpProxy = new McpProxy(
-        mcpConfigService,
-        mcpCredentialStore,
-        mcpInputStore
-      );
-      logger.info("✅ Worker gateway initialized");
-      logger.info("✅ MCP proxy initialized");
-
-      // Perform OAuth discovery for all MCP servers
-      logger.info("🔍 Discovering OAuth capabilities for MCP servers...");
-      await mcpConfigService.enrichWithDiscovery();
-      logger.info("✅ MCP OAuth discovery completed");
-
-      // Register MCP OAuth module for authentication flow
-      const mcpOAuthModule = new McpOAuthModule(
-        mcpConfigService,
-        mcpCredentialStore,
-        oauthStateStore,
-        mcpInputStore
-      );
-      moduleRegistry.register(mcpOAuthModule);
-      logger.info("✅ MCP OAuth module registered");
-
-      // Discover and register available modules
-      await moduleRegistry.registerAvailableModules();
-
-      // Initialize all registered modules
-      await moduleRegistry.initAll();
-      logger.info("✅ Modules initialized");
+      // Initialize MCP services
+      await this.initializeMcpServices();
 
       // Start queue producer
       await this.queueProducer.start();
       logger.info("✅ Queue producer started");
 
       // CRITICAL: Get bot's own user ID and bot ID BEFORE initializing handlers
-      // This ensures handlers have access to bot IDs during initialization
       await this.initializeBotInfo(this.config);
 
       if (this.threadResponseConsumer) {
         await this.threadResponseConsumer.start();
       }
 
-      // We'll test auth after starting the server
+      // Start Slack app based on mode
       logger.debug(
         `Starting Slack app in ${this.config.slack.socketMode ? "Socket Mode" : "HTTP Mode"}`
       );
 
       if (this.config.slack.socketMode === false) {
-        // In HTTP mode, start with the port
-        await this.app.start(this.config.slack.port || 3000);
-
-        // Add debugging info
-        const receiver = (this.app as any).receiver as ExpressReceiver;
-        const expressApp = receiver.app;
-
-        // Add request logging middleware
-        expressApp.use((req: any, _res: any, next: any) => {
-          logger.debug(
-            `[${new Date().toISOString()}] ${req.method} ${req.path}`
-          );
-          logger.debug("Headers:", req.headers);
-          if (req.method === "POST" && req.body) {
-            logger.debug("Body:", JSON.stringify(req.body).substring(0, 200));
-          }
-          next();
-        });
-
-        logger.debug("Express routes after Slack app start:");
-        expressApp._router.stack.forEach((middleware: any) => {
-          if (middleware.route) {
-            logger.debug(
-              `- ${Object.keys(middleware.route.methods).join(", ").toUpperCase()} ${middleware.route.path}`
-            );
-          } else if (middleware.name === "router") {
-            logger.debug("- Router middleware");
-          }
-        });
+        await this.initializeHttpMode();
       } else {
-        const socketModeClient = (this.app as any).receiver?.client;
-        if (socketModeClient) {
-          // Circuit breaker: detect reconnection loops and exit
-          let connectionCount = 0;
-          let lastConnectionTime = Date.now();
-          const RECONNECTION_THRESHOLD = 5; // Max reconnections
-          const RECONNECTION_WINDOW_MS = 30000; // Within 30 seconds
-
-          const checkReconnectionLoop = () => {
-            const now = Date.now();
-            const timeSinceLastConnection = now - lastConnectionTime;
-
-            // Reset counter if enough time has passed
-            if (timeSinceLastConnection > RECONNECTION_WINDOW_MS) {
-              connectionCount = 0;
-            }
-
-            connectionCount++;
-            lastConnectionTime = now;
-
-            logger.info(
-              `Socket Mode connection attempt ${connectionCount}/${RECONNECTION_THRESHOLD} (window: ${timeSinceLastConnection}ms)`
-            );
-
-            // If too many reconnections in short period, exit and let Docker/K8s restart
-            if (
-              connectionCount >= RECONNECTION_THRESHOLD &&
-              timeSinceLastConnection < RECONNECTION_WINDOW_MS
-            ) {
-              logger.error(
-                `❌ FATAL: Detected reconnection loop (${connectionCount} reconnections in ${timeSinceLastConnection}ms)`
-              );
-              logger.error(
-                "Exiting process - Docker/K8s will restart with clean state"
-              );
-              process.exit(1);
-            }
-          };
-
-          // Initialize health monitor for zombie connection detection
-          const healthConfig = {
-            checkIntervalMs: parseInt(
-              process.env.SOCKET_HEALTH_CHECK_INTERVAL_MS || "300000", // 5 min
-              10
-            ),
-            staleThresholdMs: parseInt(
-              process.env.SOCKET_STALE_THRESHOLD_MS || "900000", // 15 min
-              10
-            ),
-            protectActiveWorkers:
-              process.env.SOCKET_PROTECT_ACTIVE_WORKERS !== "false",
-          };
-          this.socketHealthMonitor = new SocketHealthMonitor(healthConfig);
-
-          socketModeClient.on("slack_event", (event: any, _body: any) => {
-            logger.info("Socket Mode event received:", event.type);
-            // Record activity for health monitoring
-            this.socketHealthMonitor?.recordSocketEvent();
-          });
-
-          socketModeClient.on("disconnect", () => {
-            logger.warn("Socket Mode disconnected, will auto-reconnect");
-          });
-
-          socketModeClient.on("error", (error: Error) => {
-            logger.error("Socket Mode error:", error);
-          });
-
-          socketModeClient.on("ready", () => {
-            logger.info("Socket Mode client ready");
-            // Record activity
-            this.socketHealthMonitor?.recordSocketEvent();
-          });
-
-          socketModeClient.on("connecting", () => {
-            logger.info("Socket Mode connecting...");
-            checkReconnectionLoop();
-          });
-
-          socketModeClient.on("connected", () => {
-            logger.info("Socket Mode connected successfully!");
-            // Record activity
-            this.socketHealthMonitor?.recordSocketEvent();
-
-            // Reset counter on successful stable connection
-            setTimeout(() => {
-              connectionCount = 0;
-              logger.debug("Connection stable - reset reconnection counter");
-            }, 5000);
-
-            // Start health monitoring after successful connection
-            if (this.socketHealthMonitor && this.workerGateway) {
-              this.socketHealthMonitor.start(
-                () => this.workerGateway?.getActiveConnections().length || 0
-              );
-              logger.info("✅ Socket health monitoring enabled");
-            }
-          });
-        } else {
-          logger.warn("No Socket Mode client found in receiver");
-        }
-
-        // In socket mode, just start with timeout
         logger.info("Starting Slack app in Socket Mode...");
-        logger.info("Config that was used for App constructor:", {
-          socketMode: this.config.slack.socketMode,
-          appTokenExists: !!this.config.slack.appToken,
-          tokenExists: !!this.config.slack.token,
-          signingSecretExists: !!this.config.slack.signingSecret,
-        });
-
-        try {
-          // Start the Socket Mode app
-          // Don't await this as Socket Mode keeps the promise pending indefinitely
-          // We'll use the event handlers to track connection status
-          this.app.start();
-
-          // Set up a race condition between successful connection and timeout
-          const connectionPromise = new Promise<void>((resolve, reject) => {
-            const socketModeClient = (this.app as any).receiver?.client;
-
-            if (!socketModeClient) {
-              reject(new Error("Socket Mode client not found"));
-              return;
-            }
-
-            // Set up a one-time connected handler
-            const connectedHandler = () => {
-              logger.info("✅ Socket Mode connection established!");
-              clearTimeout(timeoutId);
-              resolve();
-            };
-
-            // Set up timeout
-            const timeoutId = setTimeout(() => {
-              socketModeClient.removeListener("connected", connectedHandler);
-              reject(new Error("Socket Mode connection timeout"));
-            }, 10000); // 10 second timeout
-
-            // Check if already connected
-            if (
-              socketModeClient.isConnected?.() ||
-              socketModeClient.stateMachine?.getCurrentState?.() === "connected"
-            ) {
-              connectedHandler();
-            } else {
-              // Wait for connection
-              socketModeClient.once("connected", connectedHandler);
-            }
-          });
-
-          // Wait for connection or timeout
-          await connectionPromise.catch((error) => {
-            logger.warn("Socket Mode connection warning:", error.message);
-          });
-
-          // Give it a moment to stabilize
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        } catch (socketError) {
-          logger.error("❌ Failed to start Socket Mode:", socketError);
-          throw socketError;
-        }
+        await this.initializeSocketMode();
       }
 
       const mode = this.config.slack.socketMode
@@ -477,7 +468,7 @@ export class SlackDispatcher {
   getStatus(): {
     isRunning: boolean;
     mode: string;
-    config: Partial<DispatcherConfig>;
+    config: Partial<GatewayConfig>;
   } {
     return {
       isRunning: true,
@@ -487,6 +478,7 @@ export class SlackDispatcher {
           token: this.config.slack.token,
           socketMode: this.config.slack.socketMode,
           port: this.config.slack.port,
+          apiUrl: this.config.slack.apiUrl,
         },
         queues: this.config.queues,
       },
@@ -516,16 +508,14 @@ export class SlackDispatcher {
    * CRITICAL: This must be called BEFORE starting the app to ensure
    * all handlers have access to bot IDs during initialization
    */
-  private async initializeBotInfo(config: DispatcherConfig): Promise<void> {
+  private async initializeBotInfo(config: GatewayConfig): Promise<void> {
     try {
       // Validate bot IDs are set or fetch them
       if (!config.slack.botUserId || !config.slack.botId) {
         logger.info("Bot IDs not configured, calling auth.test via HTTP...");
 
         // Use direct HTTP call instead of Slack Bolt client
-        const slackApiUrl =
-          process.env.SLACK_API_URL || "https://slack.com/api";
-        const response = await fetch(`${slackApiUrl}/auth.test`, {
+        const response = await fetch(`${config.slack.apiUrl}/auth.test`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${config.slack.token}`,

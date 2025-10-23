@@ -1,12 +1,6 @@
-import {
-  createLogger,
-  type IMessageQueue,
-  type IRedisClient,
-  RedisClient,
-} from "@peerbot/core";
+import type { IMessageQueue } from "@peerbot/core";
 import { randomBytes } from "node:crypto";
-
-const logger = createLogger("mcp-oauth-state");
+import { BaseRedisStore } from "../utils/redis-store";
 
 export interface OAuthStateData {
   userId: string;
@@ -20,13 +14,12 @@ export interface OAuthStateData {
  * Secure storage for OAuth state parameters to prevent CSRF attacks
  * States expire after 5 minutes
  */
-export class OAuthStateStore {
-  private redis: IRedisClient;
-  private static KEY_PREFIX = "mcp:oauth:state";
-  private static STATE_TTL_SECONDS = 300; // 5 minutes
+export class OAuthStateStore extends BaseRedisStore<OAuthStateData> {
+  protected readonly keyPrefix = "mcp:oauth:state";
+  private static readonly STATE_TTL_SECONDS = 300; // 5 minutes
 
   constructor(queue: IMessageQueue) {
-    this.redis = new RedisClient(queue.getRedisClient());
+    super(queue, "mcp-oauth-state");
   }
 
   /**
@@ -44,20 +37,11 @@ export class OAuthStateStore {
     };
 
     const key = this.buildKey(state);
-    try {
-      await this.redis.set(
-        key,
-        JSON.stringify(stateData),
-        OAuthStateStore.STATE_TTL_SECONDS
-      );
-      logger.info(
-        `Created OAuth state for user ${data.userId}, MCP ${data.mcpId}`
-      );
-      return state;
-    } catch (error) {
-      logger.error("Failed to store OAuth state", { error, state });
-      throw new Error("Failed to create OAuth state");
-    }
+    await super.set(key, stateData, OAuthStateStore.STATE_TTL_SECONDS);
+    this.logger.info(
+      `Created OAuth state for user ${data.userId}, MCP ${data.mcpId}`
+    );
+    return state;
   }
 
   /**
@@ -66,33 +50,27 @@ export class OAuthStateStore {
    */
   async consume(state: string): Promise<OAuthStateData | null> {
     const key = this.buildKey(state);
-    try {
-      const value = await this.redis.get(key);
-      if (!value) {
-        logger.warn(`Invalid or expired OAuth state: ${state}`);
-        return null;
-      }
+    const data = await super.get(key);
 
-      // Delete the state immediately (one-time use)
-      await this.redis.del(key);
-
-      const data = JSON.parse(value) as OAuthStateData;
-
-      // Validate timestamp (extra safety check)
-      const age = Date.now() - data.timestamp;
-      if (age > OAuthStateStore.STATE_TTL_SECONDS * 1000) {
-        logger.warn(`OAuth state expired (age: ${age}ms)`);
-        return null;
-      }
-
-      logger.info(
-        `Consumed OAuth state for user ${data.userId}, MCP ${data.mcpId}`
-      );
-      return data;
-    } catch (error) {
-      logger.error("Failed to consume OAuth state", { error, state });
+    if (!data) {
+      this.logger.warn(`Invalid or expired OAuth state: ${state}`);
       return null;
     }
+
+    // Delete the state immediately (one-time use)
+    await super.delete(key);
+
+    // Validate timestamp (extra safety check)
+    const age = Date.now() - data.timestamp;
+    if (age > OAuthStateStore.STATE_TTL_SECONDS * 1000) {
+      this.logger.warn(`OAuth state expired (age: ${age}ms)`);
+      return null;
+    }
+
+    this.logger.info(
+      `Consumed OAuth state for user ${data.userId}, MCP ${data.mcpId}`
+    );
+    return data;
   }
 
   /**
@@ -100,12 +78,5 @@ export class OAuthStateStore {
    */
   private generateSecureState(): string {
     return randomBytes(32).toString("base64url");
-  }
-
-  /**
-   * Build Redis key for state
-   */
-  private buildKey(state: string): string {
-    return `${OAuthStateStore.KEY_PREFIX}:${state}`;
   }
 }

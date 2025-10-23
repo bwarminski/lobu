@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { createLogger } from "@peerbot/core";
+import type { SlackWebClient, SlackContext, SlackView } from "../types";
 
 const logger = createLogger("dispatcher");
 
@@ -13,12 +14,12 @@ const logger = createLogger("dispatcher");
  */
 export async function handleBlockkitFormSubmission(
   userId: string,
-  view: any,
-  client: any,
+  view: SlackView,
+  client: SlackWebClient,
   handleUserRequestFn: (
-    context: any,
+    context: SlackContext,
     userInput: string,
-    client: any
+    client: SlackWebClient
   ) => Promise<void>
 ): Promise<void> {
   logger.info(`Handling blockkit form submission for user: ${userId}`);

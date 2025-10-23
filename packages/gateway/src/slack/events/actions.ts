@@ -2,7 +2,7 @@ import { createLogger } from "@peerbot/core";
 
 const logger = createLogger("dispatcher");
 
-import type { SlackContext } from "@peerbot/gateway/types";
+import type { SlackContext, SlackWebClient, SlackActionBody } from "../types";
 import type { IModuleRegistry } from "@peerbot/core";
 import type { MessageHandler } from "./messages";
 
@@ -19,12 +19,12 @@ export async function handleExecutableCodeBlock(
   userId: string,
   channelId: string,
   messageTs: string,
-  body: any,
-  client: any,
+  body: SlackActionBody,
+  client: SlackWebClient,
   handleUserRequestFn: (
-    context: any,
+    context: SlackContext,
     userInput: string,
-    client: any
+    client: SlackWebClient
   ) => Promise<void>
 ): Promise<void> {
   logger.info(`Handling executable code block: ${actionId}`);
@@ -101,8 +101,8 @@ export async function handleBlockkitForm(
   actionId: string,
   channelId: string,
   messageTs: string,
-  body: any,
-  client: any
+  body: SlackActionBody,
+  client: SlackWebClient
 ): Promise<void> {
   logger.info(`Handling blockkit form: ${actionId}`);
 
@@ -207,8 +207,8 @@ export class ActionHandler {
     userId: string,
     channelId: string,
     messageTs: string,
-    body: any,
-    client: any
+    body: SlackActionBody,
+    client: SlackWebClient
   ): Promise<void> {
     logger.info(`Handling block action: ${actionId}`);
 
@@ -256,7 +256,11 @@ export class ActionHandler {
               messageTs,
               body,
               client,
-              (context: SlackContext, userRequest: string, client: any) =>
+              (
+                context: SlackContext,
+                userRequest: string,
+                client: SlackWebClient
+              ) =>
                 this.messageHandler.handleUserRequest(
                   context,
                   userRequest,
@@ -277,7 +281,7 @@ export class ActionHandler {
   /**
    * Update App Home tab with repository information and README
    */
-  async updateAppHome(userId: string, client: any): Promise<void> {
+  async updateAppHome(userId: string, client: SlackWebClient): Promise<void> {
     logger.info(
       `Updating app home for user: ${userId} with README from active repository`
     );

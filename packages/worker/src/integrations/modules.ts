@@ -14,7 +14,7 @@ export async function onSessionStart(
   // Convert to module session context
   const moduleContext: ModuleSessionContext = {
     userId: context.userId,
-    threadId: context.threadTs || "",
+    threadId: context.threadId || "",
     systemPrompt: context.customInstructions || "",
     workspace: undefined,
   };
@@ -49,7 +49,7 @@ export async function onSessionEnd(
   // Convert to module session context
   const moduleContext: ModuleSessionContext = {
     userId: context.userId,
-    threadId: context.threadTs || "",
+    threadId: context.threadId || "",
     systemPrompt: "",
     workspace: undefined,
   };
@@ -70,7 +70,18 @@ export async function onSessionEnd(
   return allButtons;
 }
 
-export async function initModuleWorkspace(config: any): Promise<void> {
+/**
+ * Configuration for module workspace initialization
+ */
+interface ModuleWorkspaceConfig {
+  workspaceDir: string;
+  username: string;
+  sessionKey: string;
+}
+
+export async function initModuleWorkspace(
+  config: ModuleWorkspaceConfig
+): Promise<void> {
   const workerModules = moduleRegistry.getWorkerModules();
   for (const module of workerModules) {
     try {

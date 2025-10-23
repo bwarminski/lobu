@@ -29,7 +29,7 @@ export interface WorkerDeploymentPayload {
   messageText: string;
   channelId: string;
   platformMetadata: Record<string, any>;
-  claudeOptions: Record<string, any>;
+  agentOptions: Record<string, any>;
   environmentVariables?: Record<string, string>;
   // Routing metadata for thread-specific processing
   routingMetadata?: {
@@ -47,7 +47,7 @@ export interface ThreadMessagePayload {
   messageId: string;
   messageText: string;
   platformMetadata: Record<string, any>;
-  claudeOptions: Record<string, any>;
+  agentOptions: Record<string, any>;
   // Routing metadata for thread-specific processing
   routingMetadata?: {
     targetThreadId: string;

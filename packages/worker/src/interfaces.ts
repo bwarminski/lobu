@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import type { WorkerConfig } from "./types";
-
 /**
  * Interface for worker executors
  * Allows different implementations (Claude, GPT, etc.)
@@ -47,8 +45,3 @@ export interface GatewayIntegrationInterface {
   signalCompletion(): Promise<void>;
   signalError(error: Error): Promise<void>;
 }
-
-/**
- * Factory function type for creating worker executors
- */
-export type WorkerExecutorFactory = (config: WorkerConfig) => WorkerExecutor;

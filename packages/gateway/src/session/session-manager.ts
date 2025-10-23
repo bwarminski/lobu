@@ -3,6 +3,7 @@
 import type { IMessageQueue } from "@peerbot/core";
 import { createLogger, type IRedisClient, RedisClient } from "@peerbot/core";
 import type { ThreadSession } from "../types";
+import { REDIS_KEYS, DEFAULTS } from "../constants";
 
 const logger = createLogger("session-manager");
 
@@ -14,7 +15,8 @@ export interface SessionStore {
     channelId: string,
     threadTs: string
   ): Promise<ThreadSession | null>;
-  cleanup(ttl: number): Promise<number>;
+  /** Optional cleanup - not needed for Redis TTL-based stores */
+  cleanup?(ttl: number): Promise<number>;
 }
 
 /**
@@ -22,9 +24,9 @@ export interface SessionStore {
  * Sessions are stored with automatic TTL expiration
  */
 export class RedisSessionStore implements SessionStore {
-  private readonly SESSION_PREFIX = "session:";
+  private readonly SESSION_PREFIX = REDIS_KEYS.SESSION;
   private readonly THREAD_INDEX_PREFIX = "thread_index:";
-  private readonly DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+  private readonly DEFAULT_TTL_SECONDS = DEFAULTS.SESSION_TTL_SECONDS;
   private redis: IRedisClient;
 
   constructor(queue: IMessageQueue) {
@@ -70,10 +72,10 @@ export class RedisSessionStore implements SessionStore {
       );
 
       // Create thread index for fast lookups
-      if (session.threadTs) {
+      if (session.threadId) {
         const indexKey = this.getThreadIndexKey(
           session.channelId,
-          session.threadTs
+          session.threadId
         );
         await this.redis.set(
           indexKey,
@@ -98,10 +100,10 @@ export class RedisSessionStore implements SessionStore {
       await this.redis.del(key);
 
       // Clean up thread index
-      if (session?.threadTs) {
+      if (session?.threadId) {
         const indexKey = this.getThreadIndexKey(
           session.channelId,
-          session.threadTs
+          session.threadId
         );
         await this.redis.del(indexKey);
       }
@@ -136,9 +138,8 @@ export class RedisSessionStore implements SessionStore {
     }
   }
 
-  async cleanup(): Promise<number> {
-    // Redis TTL handles cleanup automatically
-    // This method is kept for interface compatibility
+  /** Optional cleanup - Redis handles this via TTL */
+  async cleanup?(): Promise<number> {
     logger.debug("Redis TTL handles automatic cleanup");
     return 0;
   }
@@ -225,8 +226,9 @@ export class SessionManager {
 
   /**
    * Cleanup expired sessions (for in-memory stores)
+   * Note: Redis-based stores handle this automatically via TTL
    */
   async cleanupExpired(ttl: number): Promise<number> {
-    return await this.store.cleanup(ttl);
+    return (await this.store.cleanup?.(ttl)) || 0;
   }
 }

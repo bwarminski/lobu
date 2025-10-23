@@ -1,5 +1,6 @@
 import { createLogger } from "@peerbot/core";
 import type { App } from "@slack/bolt";
+import type { SlackWebClient } from "../types";
 
 const logger = createLogger("dispatcher");
 
@@ -12,7 +13,7 @@ export function setupTeamJoinHandler(
   sendContextAwareWelcome: (
     userId: string,
     channelId: string,
-    client: any,
+    client: SlackWebClient,
     threadTs?: string
   ) => Promise<void>
 ): void {

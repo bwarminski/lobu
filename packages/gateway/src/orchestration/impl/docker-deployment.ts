@@ -10,7 +10,7 @@ import {
   type QueueJobData,
 } from "@peerbot/core";
 import Docker from "dockerode";
-import { ResourceParser } from "../deployment-utils";
+import { ResourceParser, buildPlatformMetadata } from "../deployment-utils";
 
 const logger = createLogger("orchestrator");
 
@@ -173,17 +173,15 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
           "com.docker.compose.project": composeProjectName,
           "com.docker.compose.service": deploymentName, // Use unique service name
           "com.docker.compose.oneoff": "False",
-          // Add Slack thread link for visibility
-          ...(messageData?.channelId && messageData?.threadId
-            ? {
-                thread_url: `https://app.slack.com/client/${messageData?.platformMetadata?.teamId || "unknown"}/${messageData.channelId}/thread/${messageData.threadId}`,
-              }
-            : {}),
-          // Slack team ID label
-          ...(messageData?.platformMetadata?.teamId
-            ? {
-                team_id: messageData.platformMetadata.teamId,
-              }
+          // Add platform-specific metadata
+          ...(messageData?.channelId &&
+          messageData?.threadId &&
+          messageData?.platformMetadata?.teamId
+            ? buildPlatformMetadata(
+                messageData.threadId,
+                messageData.channelId,
+                messageData.platformMetadata.teamId
+              )
             : {}),
         },
         HostConfig: {

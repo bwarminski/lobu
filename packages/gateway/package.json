@@ -17,7 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@peerbot/core": "workspace:*",
     "@sentry/node": "^10.19.0",
-    "@slack/bolt": "^3.19.0",
+    "@slack/bolt": "^4.5.0",
     "@slack/web-api": "^7.11.0",
     "@types/node-fetch": "^2.6.13",
     "commander": "^14.0.1",

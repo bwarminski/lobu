@@ -15,7 +15,7 @@ const logger = createLogger("workspace");
  * Extract thread ID from deployment name
  * Example: peerbot-worker-1756766056.836119 -> 1756766056.836119
  */
-export function extractThreadIdFromDeploymentName(
+function extractThreadIdFromDeploymentName(
   deploymentName: string | undefined
 ): string | null {
   if (!deploymentName) return null;
@@ -27,7 +27,7 @@ export function extractThreadIdFromDeploymentName(
 /**
  * Get workspace directory path for a thread
  */
-export function getWorkspacePathForThread(
+function getWorkspacePathForThread(
   baseDirectory: string,
   threadId: string
 ): string {
@@ -54,10 +54,7 @@ export function setupWorkspaceEnv(deploymentName: string | undefined): void {
  * Get thread identifier from various sources
  * Priority: SLACK_THREAD_TS > SLACK_RESPONSE_TS > sessionKey > username
  */
-export function getThreadIdentifier(
-  sessionKey?: string,
-  username?: string
-): string {
+function getThreadIdentifier(sessionKey?: string, username?: string): string {
   const threadId =
     process.env.SLACK_THREAD_TS ||
     process.env.SLACK_RESPONSE_TS ||
@@ -115,7 +112,6 @@ export class WorkspaceManager {
       this.workspaceInfo = {
         baseDirectory: this.config.baseDirectory,
         userDirectory,
-        setupComplete: true,
       };
 
       logger.info(

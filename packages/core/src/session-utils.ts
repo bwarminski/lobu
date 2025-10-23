@@ -8,17 +8,17 @@ export class SessionUtils {
    * Generate session key from context
    */
   static generateSessionKey(context: SessionContext): string {
-    // Use thread timestamp as the session key (if in a thread)
-    // Otherwise use message timestamp
-    const timestamp = context.threadTs || context.messageTs || "";
+    // Use thread ID as the session key (if in a thread)
+    // Otherwise use message ID
+    const id = context.threadId || context.messageId || "";
 
-    // If we have a thread timestamp, use it directly as the session key
+    // If we have a thread ID, use it directly as the session key
     // This ensures consistency across all worker executions in the same thread
-    if (context.threadTs) {
-      return context.threadTs;
+    if (context.threadId) {
+      return context.threadId;
     }
 
-    // For direct messages (no thread), use the channel and message timestamp
-    return `${context.channelId}-${timestamp}`;
+    // For direct messages (no thread), use the channel and message ID
+    return `${context.channelId}-${id}`;
   }
 }

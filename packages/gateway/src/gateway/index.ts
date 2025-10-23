@@ -19,9 +19,15 @@ export class WorkerGateway {
   private jobRouter: WorkerJobRouter;
   private queue: IMessageQueue;
   private mcpConfigService?: McpConfigService;
+  private publicGatewayUrl: string;
 
-  constructor(queue: IMessageQueue, mcpConfigService?: McpConfigService) {
+  constructor(
+    queue: IMessageQueue,
+    publicGatewayUrl: string,
+    mcpConfigService?: McpConfigService
+  ) {
     this.queue = queue;
+    this.publicGatewayUrl = publicGatewayUrl;
     this.connectionManager = new WorkerConnectionManager();
     this.jobRouter = new WorkerJobRouter(queue, this.connectionManager);
     this.mcpConfigService = mcpConfigService;
@@ -206,9 +212,7 @@ export class WorkerGateway {
     if (host) {
       return `${protocol}://${host}`;
     }
-    return (
-      process.env.PEERBOT_PUBLIC_GATEWAY_URL || `${protocol}://localhost:8080`
-    );
+    return this.publicGatewayUrl;
   }
 
   /**

@@ -4,12 +4,22 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Server as HttpServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createLogger } from "@peerbot/core";
 import { z } from "zod";
 
 const logger = createLogger("worker");
+
+/**
+ * MCP resource handler parameters
+ */
+interface ResourceParams {
+  uri?: string;
+  url?: string;
+  toString(): string;
+}
 
 interface ProcessInfo {
   id: string;
@@ -29,8 +39,8 @@ interface ProcessInfo {
 
 export interface ProcessManagerInstance {
   port: number;
-  server: any;
-  httpServer: any;
+  server: McpServer;
+  httpServer: HttpServer;
   close: () => Promise<void>;
   stop: () => Promise<void>;
 }
@@ -550,9 +560,10 @@ function createMCPServer(manager: ProcessManager): McpServer {
                   );
                   break;
                 }
-              } catch (_error: any) {
+              } catch (error: unknown) {
+                const err = error as { cause?: { code?: string } };
                 if (
-                  _error.cause?.code === "ECONNREFUSED" &&
+                  err.cause?.code === "ECONNREFUSED" &&
                   healthCheckAttempts === 1
                 ) {
                   logger.error(
@@ -830,7 +841,7 @@ function createMCPServer(manager: ProcessManager): McpServer {
     "processes://logs/*",
     "Get logs for a specific process",
     { mimeType: "text/plain" },
-    async (params: any) => {
+    async (params: ResourceParams) => {
       const uri = params.uri || params.url || params.toString();
       const id = uri.replace("processes://logs/", "");
       const logs = await manager.getLogs(id, 1000);
@@ -850,7 +861,7 @@ function createMCPServer(manager: ProcessManager): McpServer {
     "processes://status/*",
     "Get status of a specific process",
     { mimeType: "application/json" },
-    async (params: any) => {
+    async (params: ResourceParams) => {
       const uri = params.uri || params.url || params.toString();
       const id = uri.replace("processes://status/", "");
       const status = manager.getStatus(id);

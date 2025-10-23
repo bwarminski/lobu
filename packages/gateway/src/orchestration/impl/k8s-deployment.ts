@@ -9,7 +9,7 @@ import {
   OrchestratorError,
   type QueueJobData,
 } from "@peerbot/core";
-import { buildSlackAnnotations } from "../deployment-utils";
+import { buildPlatformMetadata } from "../deployment-utils";
 
 const logger = createLogger("k8s-deployment");
 
@@ -299,9 +299,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         template: {
           metadata: {
             annotations: {
-              // Add Slack-related annotations
+              // Add platform-specific metadata
               ...(messageData &&
-                buildSlackAnnotations(
+                buildPlatformMetadata(
                   messageData.threadId,
                   messageData.channelId,
                   messageData.platformMetadata?.teamId

@@ -3,7 +3,10 @@
 /**
  * Centralized error handling for dispatcher
  * Provides error classification and retry logic
+ * Platform-specific errors (e.g., Slack) are in their respective directories
  */
+
+import { SlackApiError } from "./slack/errors";
 
 /**
  * Base error class for all dispatcher errors
@@ -36,52 +39,6 @@ export class DispatcherError extends Error {
       code: this.code,
       statusCode: this.statusCode,
       retryable: this.isRetryable(),
-    };
-  }
-}
-
-/**
- * Slack API errors
- */
-export class SlackApiError extends DispatcherError {
-  constructor(
-    message: string,
-    public readonly slackError: string,
-    public readonly data?: unknown
-  ) {
-    super(message, `SLACK_API_${slackError.toUpperCase()}`, 502);
-  }
-
-  isRetryable(): boolean {
-    // Retry on rate limits and transient errors
-    const retryableErrors = [
-      "rate_limited",
-      "timeout",
-      "service_unavailable",
-      "internal_error",
-    ];
-    return retryableErrors.includes(this.slackError);
-  }
-
-  /**
-   * Check if this is a validation error (non-retryable)
-   */
-  isValidationError(): boolean {
-    const validationErrors = [
-      "invalid_blocks",
-      "msg_too_long",
-      "invalid_arguments",
-      "invalid_array_arg",
-    ];
-    return validationErrors.includes(this.slackError);
-  }
-
-  toJSON() {
-    return {
-      ...super.toJSON(),
-      slackError: this.slackError,
-      data: this.data,
-      isValidationError: this.isValidationError(),
     };
   }
 }
@@ -179,26 +136,6 @@ export class ModuleError extends DispatcherError {
       moduleName: this.moduleName,
     };
   }
-}
-
-/**
- * Error factory for creating errors from Slack API responses
- */
-export function createSlackError(error: unknown): SlackApiError {
-  if (typeof error === "object" && error !== null) {
-    const errorObj = error as {
-      code?: string;
-      data?: { error?: string };
-      message?: string;
-    };
-
-    const slackErrorCode = errorObj.data?.error || errorObj.code || "unknown";
-    const message = errorObj.message || `Slack API error: ${slackErrorCode}`;
-
-    return new SlackApiError(message, slackErrorCode, errorObj.data);
-  }
-
-  return new SlackApiError(String(error), "unknown", undefined);
 }
 
 /**

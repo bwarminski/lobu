@@ -2,7 +2,6 @@ import { BaseModule, createLogger, decrypt } from "@peerbot/core";
 import type { Request, Response } from "express";
 import type { ClaudeCredentialStore } from "./credential-store";
 import type { ClaudeModelPreferenceStore } from "./model-preference-store";
-import type { ClaudeModelService } from "./model-service";
 import { ClaudeOAuthClient } from "../oauth/claude-client";
 import type { ClaudeOAuthStateStore } from "./oauth-state-store";
 import type { IMessageQueue } from "../../infrastructure/queue";
@@ -25,7 +24,6 @@ export class ClaudeOAuthModule extends BaseModule {
     private credentialStore: ClaudeCredentialStore,
     private stateStore: ClaudeOAuthStateStore,
     private modelPreferenceStore: ClaudeModelPreferenceStore,
-    private modelService: ClaudeModelService,
     queue: IMessageQueue,
     publicGatewayUrl: string,
     systemTokenAvailable: boolean
@@ -135,7 +133,8 @@ export class ClaudeOAuthModule extends BaseModule {
 
     try {
       const hasCredentials = await this.credentialStore.hasCredentials(userId);
-      const availableModels = await this.modelService.getAvailableModels();
+      const availableModels =
+        await this.modelPreferenceStore.getAvailableModels();
       const currentModel =
         await this.modelPreferenceStore.getModelPreference(userId);
 
@@ -160,7 +159,7 @@ export class ClaudeOAuthModule extends BaseModule {
       } else {
         // Show model dropdown and login/logout button side by side using actions block
         const selectedModelInfo = availableModels.find(
-          (m) => m.id === currentModel
+          (m: any) => m.id === currentModel
         );
 
         const elements: any[] = [
@@ -171,7 +170,7 @@ export class ClaudeOAuthModule extends BaseModule {
               text: "Select a model",
             },
             action_id: "claude_select_model",
-            options: availableModels.map((model) => ({
+            options: availableModels.map((model: any) => ({
               text: {
                 type: "plain_text",
                 text: model.display_name,
@@ -227,13 +226,6 @@ export class ClaudeOAuthModule extends BaseModule {
       }
     } catch (error) {
       logger.error("Failed to render Claude OAuth home tab", { error, userId });
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "⚠️ _Failed to load model selection_",
-        },
-      });
     }
 
     return blocks;

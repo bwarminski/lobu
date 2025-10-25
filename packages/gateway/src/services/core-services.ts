@@ -6,7 +6,6 @@ import type { IMessageQueue } from "../infrastructure/queue";
 import { QueueProducer } from "../infrastructure/queue";
 import { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { ClaudeModelPreferenceStore } from "../auth/claude/model-preference-store";
-import { ClaudeModelService } from "../auth/claude/model-service";
 import { ClaudeOAuthModule } from "../auth/claude/oauth-module";
 import { ClaudeOAuthStateStore } from "../auth/claude/oauth-state-store";
 import type { GatewayConfig } from "../config";
@@ -166,13 +165,6 @@ export class CoreServices {
     );
     logger.info("✅ Claude credential & preference stores initialized");
 
-    // Initialize model service
-    const claudeModelService = new ClaudeModelService(
-      redisClient,
-      this.config.anthropicProxy.anthropicApiKey
-    );
-    logger.info("✅ Claude model service initialized");
-
     // Initialize Anthropic API proxy
     this.anthropicProxy = new AnthropicProxy(
       this.config.anthropicProxy,
@@ -187,7 +179,6 @@ export class CoreServices {
       this.claudeCredentialStore,
       claudeOAuthStateStore,
       this.claudeModelPreferenceStore,
-      claudeModelService,
       this.queue,
       this.config.mcp.publicGatewayUrl,
       systemTokenAvailable

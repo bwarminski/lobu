@@ -47,19 +47,16 @@ export class ClaudeModelPreferenceStore {
       {
         id: "claude-sonnet-4-5",
         display_name: "Claude Sonnet 4.5",
-        created_at: new Date().toISOString(),
         type: "model",
       },
       {
         id: "claude-haiku-4-5",
         display_name: "Claude Haiku 4.5",
-        created_at: new Date().toISOString(),
         type: "model",
       },
       {
         id: "claude-opus-4-1",
         display_name: "Claude Opus 4.1",
-        created_at: new Date().toISOString(),
         type: "model",
       },
     ];

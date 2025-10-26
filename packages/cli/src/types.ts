@@ -5,10 +5,13 @@ export interface PeerbotConfig {
   targets?: TargetsConfig;
 }
 
+export type WorkerImageSource =
+  | { source: "base" }
+  | { source: "dockerfile"; dockerfile?: string }
+  | { source: "registry"; image: string };
+
 export interface WorkerConfig {
-  customization: "base" | "dockerfile" | "image";
-  baseImage: string;
-  customImage?: string;
+  image?: string | WorkerImageSource;
   resources: ResourceConfig;
   environment?: Record<string, string>;
   volumes?: VolumeMount[];
@@ -46,6 +49,7 @@ export interface GatewayConfig {
 
 export interface CredentialsConfig {
   slack: {
+    signingSecret: string;
     botToken: string;
     appToken: string;
   };
@@ -56,9 +60,6 @@ export interface CredentialsConfig {
 
 export interface TargetsConfig {
   docker?: DockerTargetConfig;
-  kubernetes?: KubernetesTargetConfig;
-  ecs?: ECSTargetConfig;
-  cloudflare?: CloudflareTargetConfig;
 }
 
 export interface DockerTargetConfig {
@@ -68,49 +69,7 @@ export interface DockerTargetConfig {
   };
 }
 
-export interface KubernetesTargetConfig {
-  namespace?: string;
-  registry?: string;
-  repository?: string;
-  releaseName?: string;
-  runtimeClassName?: string;
-  serviceAccount?: string;
-  persistentVolume?: {
-    storageClass?: string;
-    size?: string;
-  };
-  ingress?: {
-    enabled?: boolean;
-    className?: string;
-    host?: string;
-  };
-}
-
-export interface ECSTargetConfig {
-  cluster?: string;
-  taskExecutionRole?: string;
-  taskRole?: string;
-  networkMode?: string;
-  subnets?: string[];
-  securityGroups?: string[];
-  launchType?: "FARGATE" | "EC2";
-  cpu?: string;
-  memory?: string;
-  ecrRepository?: string;
-}
-
-export interface CloudflareTargetConfig {
-  accountId?: string;
-  maxInstances?: number;
-  storage?: {
-    workspace?: {
-      bucket?: string;
-    };
-  };
-  routing?: "stateful" | "random";
-}
-
-export type DeploymentTarget = "docker" | "kubernetes" | "ecs" | "cloudflare";
+export type DeploymentTarget = "docker";
 
 export interface InitOptions {
   target: DeploymentTarget;

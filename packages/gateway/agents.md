@@ -4,7 +4,6 @@ Platform-agnostic gateway that dispatches messages to workers. Handles chat plat
 
 ### Module Structure
 - **`src/slack/`**: Slack-specific code (events, formatters, API clients). All Slack logic must live here.
-- **`src/dispatcher/`**: Future chat platforms (Discord, Teams, etc.) will live as separate modules here.
 - **`src/orchestration/`**: Worker lifecycle management, deployment coordination.
 - **`src/auth/`**: OAuth flows for MCP servers and platform authentication.
 

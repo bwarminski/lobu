@@ -107,14 +107,6 @@ spec:
                   optional: true
 
             # GitHub authentication handled via MCP
-
-            # OAuth callback ingress URL
-            - name: INGRESS_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "peerbot.fullname" . }}-config
-                  key: ingress-url
-                  optional: true
           
             # Claude configuration
             - name: MODEL

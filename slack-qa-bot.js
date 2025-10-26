@@ -155,8 +155,60 @@ async function waitForBotResponse(
   return foundResponse;
 }
 
+async function uploadFile(filePath, channels, threadTs = null) {
+  const fs = require("node:fs");
+  const FormData = require("form-data");
+
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("channels", channels);
+    form.append("file", fs.createReadStream(filePath));
+    if (threadTs) {
+      form.append("thread_ts", threadTs);
+    }
+
+    const options = {
+      hostname: "slack.com",
+      port: 443,
+      path: "/api/files.upload",
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${QA_BOT_TOKEN}`,
+        ...form.getHeaders(),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        try {
+          const result = JSON.parse(data);
+          if (result.ok) {
+            resolve(result);
+          } else {
+            reject(new Error(`Slack API error: ${result.error}`));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+
+    req.on("error", reject);
+    form.pipe(req);
+  });
+}
+
 async function runTest(testMessage, timeout = 45000, options = {}) {
-  const { jsonOutput = false, threadTs = null, noWait = false } = options;
+  const {
+    jsonOutput = false,
+    threadTs = null,
+    noWait = false,
+    filePath = null,
+  } = options;
   const quiet = jsonOutput;
 
   if (!quiet) {
@@ -175,18 +227,39 @@ async function runTest(testMessage, timeout = 45000, options = {}) {
 
     if (!quiet) {
       console.log("📨 Sending test message...");
+      if (filePath) {
+        console.log(`📎 With file: ${filePath}`);
+      }
     }
 
-    const requestBody = {
-      channel: targetChannel,
-      text: message,
-    };
+    let msg;
 
-    if (threadTs) {
-      requestBody.thread_ts = threadTs;
+    if (filePath) {
+      // Upload file with message
+      const uploadResult = await uploadFile(filePath, targetChannel, threadTs);
+
+      // Send message in the same thread as the file
+      const requestBody = {
+        channel: targetChannel,
+        text: message,
+        thread_ts:
+          threadTs || uploadResult.file.shares.public[targetChannel][0].ts,
+      };
+
+      msg = await makeSlackRequest("chat.postMessage", requestBody);
+    } else {
+      // Regular message without file
+      const requestBody = {
+        channel: targetChannel,
+        text: message,
+      };
+
+      if (threadTs) {
+        requestBody.thread_ts = threadTs;
+      }
+
+      msg = await makeSlackRequest("chat.postMessage", requestBody);
     }
-
-    const msg = await makeSlackRequest("chat.postMessage", requestBody);
 
     messageTs = msg.ts;
 
@@ -282,6 +355,7 @@ let timeout = 45000;
 let jsonOutput = false;
 let threadTs = null;
 let noWait = false;
+let filePath = null;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--timeout") {
@@ -295,6 +369,13 @@ for (let i = 0; i < args.length; i++) {
     jsonOutput = true;
   } else if (args[i] === "--no-wait") {
     noWait = true;
+  } else if (args[i] === "--file") {
+    if (!args[i + 1]) {
+      console.error(`❌ Error: --file requires a file path`);
+      process.exit(1);
+    }
+    filePath = args[i + 1];
+    i++; // Skip next arg
   } else if (args[i] === "--thread-ts") {
     if (!args[i + 1]) {
       console.error(`❌ Error: --thread-ts requires a value`);
@@ -336,7 +417,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (message) {
-  runTest(message, timeout, { jsonOutput, threadTs, noWait });
+  runTest(message, timeout, { jsonOutput, threadTs, noWait, filePath });
 } else {
   runTest("Hello bot - simple test", timeout, { jsonOutput });
 }

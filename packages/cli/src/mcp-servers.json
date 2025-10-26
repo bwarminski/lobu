@@ -1,0 +1,240 @@
+{
+  "servers": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Access repositories, issues, and code search",
+      "type": "oauth",
+      "config": {
+        "url": "https://api.githubcopilot.com/mcp/",
+        "oauth": {
+          "authUrl": "https://github.com/login/oauth/authorize",
+          "tokenUrl": "https://github.com/login/oauth/access_token",
+          "clientId": "${GITHUB_CLIENT_ID}",
+          "clientSecret": "${env:GITHUB_CLIENT_SECRET}",
+          "scopes": ["repo", "read:user"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create a GitHub OAuth App at https://github.com/settings/developers\n2. Set Authorization callback URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add GITHUB_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright",
+      "description": "Browser automation and web testing",
+      "type": "command",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-playwright"]
+      }
+    },
+    {
+      "id": "figma",
+      "name": "Figma",
+      "description": "Access design files and components",
+      "type": "oauth",
+      "config": {
+        "url": "https://api.figma.com/v1/",
+        "oauth": {
+          "authUrl": "https://www.figma.com/oauth",
+          "tokenUrl": "https://www.figma.com/api/oauth/token",
+          "clientId": "${FIGMA_CLIENT_ID}",
+          "clientSecret": "${env:FIGMA_CLIENT_SECRET}",
+          "scopes": ["file_read"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create a Figma App at https://www.figma.com/developers/apps\n2. Set Redirect URI to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add FIGMA_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "description": "Access and manage Notion pages and databases",
+      "type": "oauth",
+      "config": {
+        "url": "https://mcp.notion.com/mcp",
+        "oauth": {
+          "authUrl": "https://api.notion.com/v1/oauth/authorize",
+          "tokenUrl": "https://api.notion.com/v1/oauth/token",
+          "clientId": "${NOTION_CLIENT_ID}",
+          "clientSecret": "${env:NOTION_CLIENT_SECRET}",
+          "scopes": [],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create a Notion Integration at https://www.notion.so/my-integrations\n2. Set Redirect URI to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the OAuth Client ID and Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add NOTION_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "firecrawl",
+      "name": "Firecrawl",
+      "description": "Web scraping and content extraction",
+      "type": "api-key",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@firecrawl/mcp-server"],
+        "env": {
+          "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+        }
+      },
+      "setupInstructions": "1. Get API key from https://www.firecrawl.dev/dashboard\n2. Add FIRECRAWL_API_KEY to your .env file"
+    },
+    {
+      "id": "grafana",
+      "name": "Grafana",
+      "description": "Access dashboards and metrics",
+      "type": "api-key",
+      "config": {
+        "url": "${GRAFANA_URL}/api",
+        "headers": {
+          "Authorization": "Bearer ${env:GRAFANA_API_KEY}"
+        }
+      },
+      "setupInstructions": "1. Create a Service Account in your Grafana instance\n2. Generate an API token\n3. Add GRAFANA_URL and GRAFANA_API_KEY to your .env file"
+    },
+    {
+      "id": "jira",
+      "name": "Atlassian Jira",
+      "description": "Access and manage Jira issues",
+      "type": "oauth",
+      "config": {
+        "url": "https://api.atlassian.com",
+        "oauth": {
+          "authUrl": "https://auth.atlassian.com/authorize",
+          "tokenUrl": "https://auth.atlassian.com/oauth/token",
+          "clientId": "${JIRA_CLIENT_ID}",
+          "clientSecret": "${env:JIRA_CLIENT_SECRET}",
+          "scopes": ["read:jira-work", "read:jira-user", "write:jira-work"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create an OAuth 2.0 app at https://developer.atlassian.com/console/myapps/\n2. Set Callback URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add JIRA_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "datadog",
+      "name": "Datadog",
+      "description": "Monitor logs and metrics",
+      "type": "api-key",
+      "config": {
+        "url": "https://api.datadoghq.com/api/v2",
+        "headers": {
+          "DD-API-KEY": "${env:DATADOG_API_KEY}",
+          "DD-APPLICATION-KEY": "${env:DATADOG_APP_KEY}"
+        }
+      },
+      "setupInstructions": "1. Go to https://app.datadoghq.com/organization-settings/api-keys\n2. Create an API Key and Application Key\n3. Add DATADOG_API_KEY and DATADOG_APP_KEY to your .env file"
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar",
+      "description": "Access and manage calendar events",
+      "type": "oauth",
+      "config": {
+        "url": "https://www.googleapis.com/calendar/v3",
+        "oauth": {
+          "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+          "tokenUrl": "https://oauth2.googleapis.com/token",
+          "clientId": "${GOOGLE_CLIENT_ID}",
+          "clientSecret": "${env:GOOGLE_CLIENT_SECRET}",
+          "scopes": ["https://www.googleapis.com/auth/calendar.readonly"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create OAuth credentials at https://console.cloud.google.com/apis/credentials\n2. Set Authorized redirect URI to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add GOOGLE_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "description": "Access Slack workspace data",
+      "type": "oauth",
+      "config": {
+        "url": "https://slack.com/api",
+        "oauth": {
+          "authUrl": "https://slack.com/oauth/v2/authorize",
+          "tokenUrl": "https://slack.com/api/oauth.v2.access",
+          "clientId": "${SLACK_MCP_CLIENT_ID}",
+          "clientSecret": "${env:SLACK_MCP_CLIENT_SECRET}",
+          "scopes": [
+            "channels:history",
+            "channels:read",
+            "chat:write",
+            "users:read"
+          ],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create a Slack App at https://api.slack.com/apps\n2. Set OAuth Redirect URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add SLACK_MCP_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "description": "Access error tracking and performance monitoring",
+      "type": "none",
+      "config": {
+        "url": "https://mcp.sentry.dev/mcp"
+      }
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "description": "Manage issues and projects",
+      "type": "oauth",
+      "config": {
+        "url": "https://api.linear.app/graphql",
+        "oauth": {
+          "authUrl": "https://linear.app/oauth/authorize",
+          "tokenUrl": "https://api.linear.app/oauth/token",
+          "clientId": "${LINEAR_CLIENT_ID}",
+          "clientSecret": "${env:LINEAR_CLIENT_SECRET}",
+          "scopes": ["read", "write"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create OAuth app at https://linear.app/settings/api\n2. Set Redirect URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add LINEAR_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "description": "Access Discord servers and channels",
+      "type": "oauth",
+      "config": {
+        "url": "https://discord.com/api/v10",
+        "oauth": {
+          "authUrl": "https://discord.com/oauth2/authorize",
+          "tokenUrl": "https://discord.com/api/oauth2/token",
+          "clientId": "${DISCORD_CLIENT_ID}",
+          "clientSecret": "${env:DISCORD_CLIENT_SECRET}",
+          "scopes": ["identify", "guilds", "messages.read"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create Discord app at https://discord.com/developers/applications\n2. Set Redirect URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add DISCORD_CLIENT_SECRET to your .env file"
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "description": "Access GitLab repositories and issues",
+      "type": "oauth",
+      "config": {
+        "url": "https://gitlab.com/api/v4",
+        "oauth": {
+          "authUrl": "https://gitlab.com/oauth/authorize",
+          "tokenUrl": "https://gitlab.com/oauth/token",
+          "clientId": "${GITLAB_CLIENT_ID}",
+          "clientSecret": "${env:GITLAB_CLIENT_SECRET}",
+          "scopes": ["api", "read_user"],
+          "grantType": "authorization_code",
+          "responseType": "code"
+        }
+      },
+      "setupInstructions": "1. Create GitLab application at https://gitlab.com/-/profile/applications\n2. Set Redirect URI to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Application ID and Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add GITLAB_CLIENT_SECRET to your .env file"
+    }
+  ]
+}

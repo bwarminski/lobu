@@ -21,28 +21,7 @@
         "description": "Peerbot commands - manage repositories and authentication",
         "usage_hint": "connect | login | help"
       }
-    ],
-    "assistant_view": {
-      "assistant_description": "It can generate Claude Code session working on public Github data",
-      "suggested_prompts": [
-        {
-          "title": "Create a project",
-          "message": "Create a new project"
-        },
-        {
-          "title": "Start working on a feature",
-          "message": "List me projects and let me tell you what I want to develop on which project"
-        },
-        {
-          "title": "Fix a bug",
-          "message": "List me projects and let me tell you what I want to develop on which project"
-        },
-        {
-          "title": "Ask a question to the codebase",
-          "message": "List me projects and let me tell you what I want to develop on which project"
-        }
-      ]
-    }
+    ]
   },
   "oauth_config": {
     "redirect_urls": [],
@@ -58,6 +37,8 @@
         "groups:read",
         "im:history",
         "im:read",
+        "files:read",
+        "files:write",
         "im:write",
         "mpim:read",
         "reactions:read",
@@ -76,7 +57,10 @@
         "member_joined_channel",
         "message.channels",
         "message.groups",
-        "message.im"
+        "message.im",
+        "file_shared",
+        "assistant_thread_started",
+        "assistant_thread_context_changed"
       ]
     },
     "interactivity": {

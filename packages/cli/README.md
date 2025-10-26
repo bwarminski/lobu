@@ -1,6 +1,6 @@
 # @peerbot/cli
 
-CLI tool for deploying and managing Peerbot across multiple platforms.
+CLI tool for initializing Peerbot projects with Docker Compose.
 
 ## Installation
 
@@ -12,8 +12,7 @@ npm install -g @peerbot/cli
 mkdir my-peerbot
 cd my-peerbot
 peerbot init
-npm install
-npm run dev
+docker compose up -d
 ```
 
 ## Worker Deployment Options
@@ -89,101 +88,38 @@ See [Worker Package Documentation](../worker/docs/custom-base-image.md) for deta
 Initialize a new Peerbot project in the current directory.
 
 **Interactive prompts:**
-- Deployment target (Docker, Kubernetes, etc.)
 - **Worker mode:** Base image vs Package installation
 - Slack credentials
 - Anthropic API key
 - Public gateway URL (for OAuth)
 
 **Generates:**
-- `package.json` with npm scripts
-- `peerbot.config.js` - Core configuration
+- `docker-compose.yml` - Service definitions (redis, gateway, worker)
 - `.env` - Credentials
-- `Dockerfile.worker` - Worker customization
+- `Dockerfile.worker` - Worker customization via Dockerfile
 - `.gitignore`, `README.md`
 
-### `peerbot dev`
+**If docker-compose.yml exists**, you'll be prompted for an alternative filename.
 
-Start development server using Docker Compose.
+## Usage
 
-**Features:**
-- Automatic dependency checks
-- Worker image building
-- File watching for Dockerfile changes
-- Hot reload on worker customization
-
-### `peerbot logs [service]`
-
-Stream logs from running services.
+After running `peerbot init`:
 
 ```bash
-peerbot logs           # All services
-peerbot logs gateway   # Gateway only
-peerbot logs redis     # Redis only
+# Start services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+
+# Rebuild worker after changes
+docker compose build worker
 ```
-
-### `peerbot down`
-
-Stop all running services.
-
-### `peerbot rebuild`
-
-Rebuild worker image and restart gateway.
-
-### `peerbot deploy` (Coming Soon)
-
-Deploy to production platforms:
-- Kubernetes
-- AWS ECS
-- Cloudflare Containers
-- GCP Cloud Run
 
 ## Configuration
-
-### peerbot.config.js
-
-```javascript
-module.exports = {
-  worker: {
-    customization: 'dockerfile',  // 'base', 'dockerfile', or 'image'
-    baseImage: 'buremba/peerbot-worker-base:0.1.0',
-
-    resources: {
-      cpu: '1000m',
-      memory: '2Gi',
-    },
-
-    environment: {
-      // Custom env vars for workers
-    },
-
-    volumes: [
-      // Volume mounts (Docker/K8s)
-    ],
-  },
-
-  gateway: {
-    port: 8080,
-    publicUrl: process.env.PEERBOT_PUBLIC_GATEWAY_URL,
-  },
-
-  credentials: {
-    slack: {
-      botToken: process.env.SLACK_BOT_TOKEN,
-      appToken: process.env.SLACK_APP_TOKEN,
-    },
-    anthropic: {
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    },
-  },
-
-  targets: {
-    docker: { /* Docker-specific config */ },
-    kubernetes: { /* K8s-specific config */ },
-    cloudflare: { /* Cloudflare-specific config */ },
-  },
-};
-```
 
 ### Dockerfile.worker (Base Image Mode)
 
@@ -202,8 +138,6 @@ RUN bun add @octokit/rest
 # Copy custom scripts
 COPY ./scripts /workspace/scripts
 ```
-
-**The same Dockerfile works across all container platforms!** (Docker, Kubernetes, ECS, Cloudflare Containers, etc.)
 
 ### Dockerfile.worker (Package Mode)
 
@@ -230,8 +164,9 @@ CMD ["peerbot-worker"]
 
 ```bash
 # 1. Create project
-npx peerbot init my-bot
+mkdir my-bot
 cd my-bot
+peerbot init
 
 # 2. Choose worker mode during init
 #    - Base image (recommended)
@@ -240,16 +175,17 @@ cd my-bot
 # 3. Customize worker (optional)
 # Edit Dockerfile.worker
 
-# 4. Start development
-npm run dev
-
-# File watcher detects Dockerfile changes and auto-rebuilds!
+# 4. Start services
+docker compose up -d
 
 # 5. View logs
-npm run logs
+docker compose logs -f
 
-# 6. Stop
-npm run down
+# 6. Rebuild after changes
+docker compose build worker
+
+# 7. Stop services
+docker compose down
 ```
 
 ## Version Locking
@@ -260,17 +196,6 @@ The CLI version locks to base image versions:
 - CLI `0.2.0` → `buremba/peerbot-worker-base:0.2.0`
 
 This ensures compatibility between CLI and runtime images.
-
-## Platform Support
-
-| Platform | Status | Provider |
-|----------|--------|----------|
-| Docker (local) | ✅ Available | DockerProvider |
-| Kubernetes | 🚧 Coming Soon | KubernetesProvider |
-| AWS ECS | 🚧 Coming Soon | ECSProvider |
-| Cloudflare Containers | 🚧 Coming Soon | CloudflareProvider |
-| GCP Cloud Run | 🚧 Coming Soon | CloudRunProvider |
-| Azure Container Apps | 🚧 Coming Soon | AzureProvider |
 
 ## Distribution Strategy
 
@@ -314,7 +239,9 @@ npm install -g @peerbot/worker@0.1.0
 ```
 User creates project
         ↓
-npx peerbot init my-bot
+mkdir my-bot && cd my-bot
+        ↓
+peerbot init
         ↓
 Choose: Base image or Package?
         ↓
@@ -326,45 +253,18 @@ Choose: Base image or Package?
 │                                 │ RUN pip install pandas
 └───────────────┬────────────────┘
                 ↓
-        User runs: npm run dev
+    CLI generates docker-compose.yml
                 ↓
-        DockerProvider.build()
+        User runs: docker compose up -d
                 ↓
-        DockerProvider.render() → docker-compose.yml
-                ↓
-        DockerProvider.apply() → docker compose up
+        Docker builds worker:latest
                 ↓
         Gateway spawns workers dynamically
 ```
 
 ## Contributing
 
-To add a new deployment provider:
-
-1. Create `src/providers/my-provider.ts`
-2. Extend `BaseProvider`
-3. Implement required methods
-4. Register in `src/providers/index.ts`
-
-Example:
-
-```typescript
-export class MyProvider extends BaseProvider {
-  async build(config: PeerbotConfig): Promise<void> {
-    // Build worker image
-  }
-
-  async render(config: PeerbotConfig): Promise<void> {
-    // Generate platform manifests
-  }
-
-  async apply(config: PeerbotConfig): Promise<void> {
-    // Deploy to platform
-  }
-
-  // ... implement other methods
-}
-```
+Peerbot CLI generates Docker Compose configurations. To modify the generated setup, see `src/commands/init.ts`.
 
 ## License
 

@@ -5,14 +5,6 @@
   // Features to add to the dev container
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "kubectl": "latest",
-      "helm": "latest",
-      "minikube": "none"
-    },
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "18"
-    },
     "ghcr.io/devcontainers/features/git:1": {}
   },
 
@@ -42,22 +34,6 @@
   "portsAttributes": {
     "3000": {
       "label": "Slack App",
-      "onAutoForward": "notify"
-    },
-    "3001": {
-      "label": "Dispatcher",
-      "onAutoForward": "notify"
-    },
-    "3002": {
-      "label": "Dispatcher Service",
-      "onAutoForward": "notify"
-    },
-    "8080": {
-      "label": "Health Check",
-      "onAutoForward": "silent"
-    },
-    "8081": {
-      "label": "Orchestrator",
       "onAutoForward": "notify"
     }
   },

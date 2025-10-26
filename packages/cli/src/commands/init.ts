@@ -1,13 +1,18 @@
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, access, writeFile, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { randomBytes } from "node:crypto";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
 import YAML from "yaml";
-import { AVAILABLE_TARGETS, TARGET_LABELS } from "../providers/index.js";
-import type { DeploymentTarget } from "../types.js";
 import { checkConfigExists } from "../utils/config.js";
 import { renderTemplate } from "../utils/template.js";
+import {
+  MCP_SERVERS,
+  getRequiredEnvVars,
+  type McpServerDefinition,
+} from "../mcp-servers.js";
 
 const DEFAULT_SLACK_MANIFEST = {
   display_information: {
@@ -76,6 +81,8 @@ const DEFAULT_SLACK_MANIFEST = {
         "im:history",
         "im:read",
         "im:write",
+        "files:read",
+        "files:write",
         "mpim:read",
         "reactions:read",
         "reactions:write",
@@ -129,7 +136,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
   // Get CLI version
   const cliVersion = await getCliVersion();
 
-  // Interactive prompts
+  // Interactive prompts - basic setup
   const baseAnswers = await inquirer.prompt([
     {
       type: "input",
@@ -145,16 +152,6 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     },
     {
       type: "list",
-      name: "target",
-      message: "Deployment target?",
-      choices: AVAILABLE_TARGETS.map((target) => ({
-        name: TARGET_LABELS[target],
-        value: target,
-      })),
-      default: "docker",
-    },
-    {
-      type: "list",
       name: "workerMode",
       message: "How do you want to run workers?",
       choices: [
@@ -166,22 +163,66 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
           name: "Install as package (advanced - bring your own base image)",
           value: "package",
         },
-        {
-          name: "No customization (use default base image)",
-          value: "none",
-        },
       ],
       default: "base-image",
-      when: (answers) =>
-        answers.target === "docker" || answers.target === "kubernetes",
-    },
-    {
-      type: "input",
-      name: "publicUrl",
-      message: "Public Gateway URL (for MCP OAuth callbacks)?",
-      default: "",
     },
   ]);
+
+  // MCP Server selection
+  const { configureMcp } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "configureMcp",
+      message: "Would you like to configure MCP servers?",
+      default: true,
+    },
+  ]);
+
+  let selectedMcpServers: McpServerDefinition[] = [];
+  let publicUrl = "";
+
+  if (configureMcp) {
+    const { mcpServers } = await inquirer.prompt([
+      {
+        type: "checkbox",
+        name: "mcpServers",
+        message: "Select MCP servers to configure (you can add more later):",
+        choices: MCP_SERVERS.map((server) => ({
+          name: `${server.name} - ${server.description}`,
+          value: server.id,
+          checked: server.id === "github", // GitHub selected by default
+        })),
+        pageSize: 15,
+      },
+    ]);
+
+    selectedMcpServers = MCP_SERVERS.filter((s) => mcpServers.includes(s.id));
+
+    // Check if any OAuth servers were selected
+    const hasOAuthServers = selectedMcpServers.some((s) => s.type === "oauth");
+
+    if (hasOAuthServers) {
+      const { publicGatewayUrl } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "publicGatewayUrl",
+          message: "Public Gateway URL (required for OAuth MCP servers):",
+          validate: (input: string) => {
+            if (!input) {
+              return "Public URL is required when using OAuth-based MCP servers";
+            }
+            try {
+              new URL(input);
+              return true;
+            } catch {
+              return "Please enter a valid URL (e.g., https://your-domain.com)";
+            }
+          },
+        },
+      ]);
+      publicUrl = publicGatewayUrl;
+    }
+  }
 
   const { slackAppOption } = await inquirer.prompt([
     {
@@ -242,7 +283,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     )}`
   );
   console.log(
-    `OAuth Tokens (Bot Token): ${chalk.cyan(chalk.underline(oauthUrl))} You should install the app first.\n`
+    `OAuth Tokens (Bot Token): ${chalk.cyan(chalk.underline(oauthUrl))}, you need to install the app first.\n`
   );
   if (trimmedAppId === "") {
     console.log(
@@ -267,22 +308,22 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     },
     {
       type: "password",
-      name: "slackBotToken",
-      message: "Slack Bot Token (xoxb-...)?",
+      name: "slackAppToken",
+      message: "Slack App Token (xapp-...)?",
       validate: (input: string) => {
-        if (!input || !input.startsWith("xoxb-")) {
-          return "Please enter a valid Slack bot token starting with xoxb-";
+        if (!input || !input.startsWith("xapp-")) {
+          return "Please enter a valid Slack app token starting with xapp-";
         }
         return true;
       },
     },
     {
       type: "password",
-      name: "slackAppToken",
-      message: "Slack App Token (xapp-...)?",
+      name: "slackBotToken",
+      message: "Slack Bot Token (xoxb-...)?",
       validate: (input: string) => {
-        if (!input || !input.startsWith("xapp-")) {
-          return "Please enter a valid Slack app token starting with xapp-";
+        if (!input || !input.startsWith("xoxb-")) {
+          return "Please enter a valid Slack bot token starting with xoxb-";
         }
         return true;
       },
@@ -296,7 +337,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       message: "How should teammates access Claude/OpenAI?",
       choices: [
         {
-          name: "Each user brings their own API keys",
+          name: "Each user brings their subscriptions",
           value: "user-provided",
         },
         {
@@ -327,55 +368,116 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     );
   }
 
+  // Generate encryption key for credentials
+  const encryptionKey = randomBytes(32).toString("hex");
+
   const answers = {
     ...baseAnswers,
     slackAppId: trimmedAppId,
     ...credentialAnswers,
     anthropicApiKey,
+    publicUrl,
+    encryptionKey,
+    selectedMcpServers,
   };
+
+  // Check if docker-compose.yml exists
+  let composeFilename = "docker-compose.yml";
+  try {
+    await access(join(cwd, composeFilename), constants.F_OK);
+    const { customFilename } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "customFilename",
+        message: `${composeFilename} already exists. Enter a different filename:`,
+        default: "docker-compose.peerbot.yml",
+        validate: (input: string) => {
+          if (!input.endsWith(".yml") && !input.endsWith(".yaml")) {
+            return "Filename must end with .yml or .yaml";
+          }
+          return true;
+        },
+      },
+    ]);
+    composeFilename = customFilename;
+  } catch {
+    // File doesn't exist, use default
+  }
 
   const spinner = ora("Creating Peerbot project...").start();
 
   try {
-    const workerMode = answers.workerMode || "none";
-    const customization = workerMode === "none" ? "base" : "dockerfile";
+    const workerMode = answers.workerMode;
+    const projectName = answers.projectName;
+
+    // Create .peerbot directory
+    const peerbotDir = join(cwd, ".peerbot");
+    await mkdir(peerbotDir, { recursive: true });
+
+    // Generate MCP config if servers were selected
+    if (answers.selectedMcpServers.length > 0) {
+      const mcpConfig: { mcpServers: Record<string, any> } = {
+        mcpServers: {},
+      };
+
+      for (const server of answers.selectedMcpServers) {
+        // Clone the config and replace PUBLIC_URL placeholder
+        const serverConfig = JSON.parse(
+          JSON.stringify(server.config)
+            .replace(
+              /\{PUBLIC_URL\}/g,
+              answers.publicUrl || "http://localhost:8080"
+            )
+            .replace(/\$\{([A-Z_]+)\}/g, (match, varName) => {
+              // Keep env: prefix for secrets, remove for client IDs
+              if (match.includes("env:")) {
+                return match;
+              }
+              return `\${${varName}}`; // Will be replaced with instructions
+            })
+        );
+
+        mcpConfig.mcpServers[server.id] = serverConfig;
+      }
+
+      await writeFile(
+        join(peerbotDir, "mcp.config.json"),
+        JSON.stringify(mcpConfig, null, 2)
+      );
+    }
 
     const variables = {
-      PROJECT_NAME: answers.projectName,
+      PROJECT_NAME: projectName,
       CLI_VERSION: cliVersion,
-      WORKER_CUSTOMIZATION: customization,
-      WORKER_MODE: workerMode,
       SLACK_SIGNING_SECRET: answers.slackSigningSecret,
       SLACK_BOT_TOKEN: answers.slackBotToken,
       SLACK_APP_TOKEN: answers.slackAppToken,
       ANTHROPIC_API_KEY: answers.anthropicApiKey,
+      ENCRYPTION_KEY: answers.encryptionKey,
       PEERBOT_PUBLIC_GATEWAY_URL: answers.publicUrl || "",
-      CUSTOMIZE_WORKER: workerMode !== "none" ? "true" : "false",
+      GATEWAY_PORT: "8080",
     };
-
-    // Create package.json (if it doesn't exist)
-    try {
-      await import("node:fs/promises").then((fs) =>
-        fs.access(join(cwd, "package.json"))
-      );
-    } catch {
-      // package.json doesn't exist, create it
-      await renderTemplate(
-        "package.json.tmpl",
-        variables,
-        join(cwd, "package.json")
-      );
-    }
-
-    // Create config file
-    await renderTemplate(
-      "peerbot.config.js.tmpl",
-      variables,
-      join(cwd, "peerbot.config.js")
-    );
 
     // Create .env file
     await renderTemplate(".env.tmpl", variables, join(cwd, ".env"));
+
+    // Append MCP environment variables if any were selected
+    if (answers.selectedMcpServers.length > 0) {
+      const requiredEnvVars = getRequiredEnvVars(answers.selectedMcpServers);
+      if (requiredEnvVars.length > 0) {
+        let mcpEnvContent = "\n# MCP Server Credentials\n";
+        mcpEnvContent +=
+          "# Add your OAuth client secrets and API keys below:\n";
+
+        for (const varName of requiredEnvVars) {
+          mcpEnvContent += `# ${varName}=your_${varName.toLowerCase()}_here\n`;
+        }
+
+        const envPath = join(cwd, ".env");
+        const currentContent = await readFile(envPath, "utf-8");
+        await writeFile(envPath, currentContent + mcpEnvContent);
+      }
+    }
 
     // Create .gitignore
     await renderTemplate(".gitignore.tmpl", {}, join(cwd, ".gitignore"));
@@ -398,9 +500,15 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       );
     }
 
-    // Create .peerbot directory
-    const { ensurePeerbotDir } = await import("../utils/config.js");
-    await ensurePeerbotDir(cwd);
+    // Generate docker-compose.yml
+    const composeContent = generateDockerCompose({
+      projectName,
+      cliVersion,
+      gatewayPort: "8080",
+      dockerfilePath: "./Dockerfile.worker",
+      hasMcpServers: answers.selectedMcpServers.length > 0,
+    });
+    await writeFile(join(cwd, composeFilename), composeContent);
 
     spinner.succeed("Project created successfully!");
 
@@ -408,41 +516,98 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     console.log(chalk.green("\n✓ Peerbot initialized!\n"));
     console.log(chalk.bold("Next steps:\n"));
     console.log(chalk.cyan("  1. Review your configuration:"));
-    console.log(chalk.dim("     - peerbot.config.js"));
     console.log(chalk.dim("     - .env"));
-    if (workerMode !== "none") {
-      console.log(chalk.dim("     - Dockerfile.worker"));
-      if (workerMode === "package") {
-        console.log(
-          chalk.yellow(
-            "     ℹ Advanced mode: See docs/custom-base-image.md for requirements\n"
-          )
-        );
-      } else {
-        console.log();
-      }
+    console.log(chalk.dim(`     - ${composeFilename}`));
+    console.log(chalk.dim("     - Dockerfile.worker"));
+    if (answers.selectedMcpServers.length > 0) {
+      console.log(chalk.dim("     - .peerbot/mcp.config.json"));
+    }
+    if (workerMode === "package") {
+      console.log(
+        chalk.yellow(
+          "     ℹ Advanced mode: See docs/custom-base-image.md for requirements\n"
+        )
+      );
     } else {
       console.log();
     }
-    console.log(chalk.cyan("  2. Install dependencies:"));
-    console.log(chalk.dim("     npm install\n"));
-    console.log(chalk.cyan("  3. Start the bot:"));
-    console.log(chalk.dim("     npm run dev\n"));
-    console.log(chalk.cyan("  4. View logs:"));
-    console.log(chalk.dim("     npm run logs\n"));
 
-    if (answers.target !== "docker") {
-      console.log(
-        chalk.yellow(
-          `ℹ  Note: ${TARGET_LABELS[answers.target as DeploymentTarget]} support is coming soon.`
-        )
+    // MCP Setup instructions
+    if (answers.selectedMcpServers.length > 0) {
+      const oauthServers = answers.selectedMcpServers.filter(
+        (s: McpServerDefinition) => s.type === "oauth"
       );
-      console.log(
-        chalk.dim(
-          '   For now, you can use Docker locally with "npx peerbot dev"\n'
-        )
+      const apiKeyServers = answers.selectedMcpServers.filter(
+        (s: McpServerDefinition) => s.type === "api-key"
       );
+
+      if (oauthServers.length > 0 || apiKeyServers.length > 0) {
+        console.log(chalk.cyan("  2. Configure MCP servers:"));
+
+        if (oauthServers.length > 0) {
+          console.log(chalk.yellow("\n     OAuth-based MCP servers:"));
+          for (const server of oauthServers) {
+            console.log(chalk.dim(`     - ${server.name}:`));
+            const instructions = server.setupInstructions
+              ?.replace(
+                /\{PUBLIC_URL\}/g,
+                answers.publicUrl || "http://localhost:8080"
+              )
+              .split("\n")
+              .filter((line: string) => line.trim())
+              .map((line: string) => `       ${line}`)
+              .join("\n");
+            if (instructions) {
+              console.log(chalk.dim(instructions));
+            }
+          }
+        }
+
+        if (apiKeyServers.length > 0) {
+          console.log(chalk.yellow("\n     API Key-based MCP servers:"));
+          for (const server of apiKeyServers) {
+            console.log(
+              chalk.dim(`     - ${server.name}: Add API key to .env file`)
+            );
+          }
+        }
+
+        console.log(chalk.cyan("\n  3. Start the services:"));
+      } else {
+        console.log(chalk.cyan("  2. Start the services:"));
+      }
+    } else {
+      console.log(chalk.cyan("  2. Start the services:"));
     }
+
+    console.log(chalk.dim(`     docker compose -f ${composeFilename} up -d\n`));
+    console.log(
+      chalk.cyan(
+        `  ${answers.selectedMcpServers.length > 0 ? "4" : "3"}. View logs:`
+      )
+    );
+    console.log(
+      chalk.dim(`     docker compose -f ${composeFilename} logs -f\n`)
+    );
+    console.log(
+      chalk.cyan(
+        `  ${answers.selectedMcpServers.length > 0 ? "5" : "4"}. Stop the services:`
+      )
+    );
+    console.log(chalk.dim(`     docker compose -f ${composeFilename} down\n`));
+    console.log(
+      chalk.yellow(
+        "ℹ When you modify Dockerfile.worker or context files, rebuild the worker image:\n"
+      )
+    );
+    console.log(
+      chalk.dim(`  docker compose -f ${composeFilename} build worker\n`)
+    );
+    console.log(
+      chalk.dim(
+        "  The gateway will automatically pick up the latest worker image.\n"
+      )
+    );
   } catch (error) {
     spinner.fail("Failed to create project");
     throw error;
@@ -474,4 +639,102 @@ async function getCliVersion(): Promise<string> {
   const pkgContent = await readFile(pkgPath, "utf-8");
   const pkg = JSON.parse(pkgContent);
   return pkg.version || "0.1.0";
+}
+
+function generateDockerCompose(options: {
+  projectName: string;
+  cliVersion: string;
+  gatewayPort: string;
+  dockerfilePath: string;
+  hasMcpServers: boolean;
+}): string {
+  const {
+    projectName,
+    cliVersion,
+    gatewayPort,
+    dockerfilePath,
+    hasMcpServers,
+  } = options;
+  const workerImage = `${projectName}-worker:latest`;
+  const gatewayImage = `buremba/peerbot-gateway:${cliVersion}`;
+
+  const mcpEnvVars = hasMcpServers
+    ? `
+      MCP_CONFIG_URL: file:///app/.peerbot/mcp.config.json
+      ENCRYPTION_KEY: \${ENCRYPTION_KEY}`
+    : "";
+
+  const mcpVolumes = hasMcpServers
+    ? `
+      - ./.peerbot:/app/.peerbot:ro`
+    : "";
+
+  return `# Generated by @peerbot/cli
+# You can modify this file as needed
+
+name: ${projectName}
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    networks:
+      - ${projectName}-network
+
+  gateway:
+    image: ${gatewayImage}
+    ports:
+      - "${gatewayPort}:8080"
+    environment:
+      DEPLOYMENT_MODE: docker
+      WORKER_IMAGE: ${workerImage}
+      REDIS_URL: redis://redis:6379
+      QUEUE_URL: redis://redis:6379/0
+      SLACK_BOT_TOKEN: \${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: \${SLACK_APP_TOKEN}
+      SLACK_SIGNING_SECRET: \${SLACK_SIGNING_SECRET}
+      ANTHROPIC_API_KEY: \${ANTHROPIC_API_KEY}
+      PEERBOT_PUBLIC_GATEWAY_URL: \${PEERBOT_PUBLIC_GATEWAY_URL:-}
+      HOST_PROJECT_PATH: \${PWD}
+      NODE_ENV: \${NODE_ENV:-development}${mcpEnvVars}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./workspaces:/app/workspaces
+      - env_storage:/app/.peerbot/env${mcpVolumes}
+    networks:
+      - ${projectName}-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: ${dockerfilePath}
+      args:
+        BASE_VERSION: ${cliVersion}
+        NODE_ENV: \${NODE_ENV:-development}
+    image: ${workerImage}
+    command: echo "Worker image built successfully"
+    profiles:
+      - build-only
+
+networks:
+  ${projectName}-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  env_storage:
+`;
 }

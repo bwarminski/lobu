@@ -1,6 +1,6 @@
-# {{PROJECT_NAME}}
+# my-peerbot
 
-Peerbot instance created with `@peerbot/cli` v{{CLI_VERSION}}
+Peerbot instance created with `@peerbot/cli` v0.1.0
 
 ## Quick Start
 

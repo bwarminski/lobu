@@ -33,7 +33,6 @@
 
 - If you create ephemeral files, you MUST delete them when you're done with them.
 - Use Docker to build and run the Slack bot in development mode, K8S for production.
-- NEVER create files unless they're absolutely necessary for achieving your goal. Instead try to run the code on the fly for testing reasons.
 - NEVER proactively create documentation files (\*.md) or README files. Only create documentation files if explicitly requested by the User. If you need to remember something, add it to CLAUDE.md as a a single sentence.
 - ALWAYS ignore `/dist/` directories when analyzing code - these contain compiled artifacts, not source
 - If you're referencing Slack threads or users in your response, add their direct links as well.
@@ -73,11 +72,13 @@ Gateway automatically detects zombie Socket Mode connections and triggers restar
 
 ## Persistent Storage
 
-Worker pods now use persistent volumes for data storage:
+Worker deployments use persistent volumes for session continuity across scale-to-zero:
 
-1. **Persistent Volumes**: Each worker pod mounts a persistent volume at `/workspace` to preserve data across pod restarts
-2. **Auto-Resume**: The worker automatically resumes conversations using Claude CLI's built-in `--resume` functionality when continuing a thread in the same persistent volume
-3. **Data Persistence**: All workspace data is preserved in the persistent volume, eliminating the need for conversation file syncing
+1. **Per-Deployment PVC**: Each worker deployment gets its own PersistentVolumeClaim (1 thread = 1 PVC) mounted at `/workspace`
+2. **Session Storage**: Claude SDK sessions are stored in `/workspace/.claude/` (via `HOME=/workspace` environment variable)
+3. **Auto-Resume**: When a worker scales back up, it automatically detects existing sessions in `/workspace/.claude/` and uses Claude CLI's `--continue` flag to resume
+4. **Cleanup**: PVCs are automatically deleted when deployments are cleaned up after thread inactivity
+5. **Docker Mode**: Uses host directory mounts at `./workspaces/{threadId}/` for equivalent persistence
 
 ## MCP OAuth Authentication
 
@@ -183,6 +184,9 @@ Basic usage:
 
 # JSON output for automation
 ./slack-qa-bot.js --json "Create a function" | jq -r .thread_ts
+
+# Test thread continuity
+./slack-qa-bot.js "2+3" --timeout 20 --json | jq -r '.thread_ts' | xargs -I {} ./slack-qa-bot.js "add 1 to that number, only answer the number" --thread-ts {} --timeout 25
 
 # Comprehensive E2E testing
 ./slack-qa-bot.js

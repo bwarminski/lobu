@@ -67,8 +67,10 @@ RUN echo 'export PATH="/home/bun/.bun/bin:$PATH"' >> /home/claude/.bashrc && \
     echo 'export BUN_INSTALL="/home/bun/.bun"' >> /home/claude/.bashrc && \
     echo 'export PATH="/root/.cargo/bin:$PATH"' >> /home/claude/.bashrc
 
-# Copy worker-specific package manifest to minimize workspace footprint
-COPY package.worker.json ./package.json
+# Create minimal package.json for worker-only workspace
+RUN echo '{ "name": "@peerbot/worker-build", "private": true, "workspaces": [ "packages/core", "packages/github", "packages/worker" ] }' > package.json
+
+# Copy dependency manifests
 COPY bun.lock ./bun.lock
 COPY tsconfig.json ./
 COPY packages/worker/package.json ./packages/worker/
@@ -138,5 +140,8 @@ WORKDIR /app/packages/worker
 
 # Set the NODE_ENV as an environment variable
 ENV NODE_ENV=${NODE_ENV}
+
+# Set HOME to /workspace so Claude sessions persist in mounted volume
+ENV HOME=/workspace
 
 ENTRYPOINT ["/app/entrypoint.sh"]

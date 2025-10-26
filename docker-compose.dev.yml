@@ -27,7 +27,6 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
-      INGRESS_URL: ${INGRESS_URL:-http://localhost:8080}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-docker}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
@@ -35,6 +34,9 @@ services:
       PEERBOT_MCP_SERVERS_URL: ${PEERBOT_MCP_SERVERS_URL:-examples/mcp/oauth.json}
       PEERBOT_PUBLIC_GATEWAY_URL: ${PEERBOT_PUBLIC_GATEWAY_URL}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      # Additional mounts for worker containers (semicolon-separated, supports placeholders)
+      # Example: ${HOST_PROJECT_PATH}/examples/startup-builder:/workspace/startup-builder:ro
+      WORKER_DEV_MOUNTS: "${PWD}/examples/startup-builder:/workspace/startup-builder:ro"
     volumes:
       # Mount Docker socket for Docker mode
       - /var/run/docker.sock:/var/run/docker.sock

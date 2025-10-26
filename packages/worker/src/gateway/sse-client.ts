@@ -3,7 +3,7 @@
  */
 
 import { createLogger } from "@peerbot/core";
-import type { WorkerExecutor, WorkerConfig } from "../core/types";
+import type { WorkerConfig, WorkerExecutor } from "../core/types";
 import { GatewayIntegration } from "./gateway-integration";
 import { MessageBatcher } from "./message-batcher";
 import type { MessagePayload, QueuedMessage } from "./types";

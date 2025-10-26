@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import type { ThreadSession, SessionStore, ISessionManager } from "../session";
-import type { IMessageQueue } from "../infrastructure/queue";
-import type Redis from "ioredis";
 import { createLogger, DEFAULTS, REDIS_KEYS } from "@peerbot/core";
+import type Redis from "ioredis";
+import type { IMessageQueue } from "../infrastructure/queue";
+import type { ISessionManager, SessionStore, ThreadSession } from "../session";
 
 const logger = createLogger("session-manager");
 

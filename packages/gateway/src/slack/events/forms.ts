@@ -3,13 +3,13 @@
 import { createLogger } from "@peerbot/core";
 import type { ActionsBlock, ContextBlock, SectionBlock } from "@slack/types";
 import type {
+  AnyBlock,
+  ModalView,
   SlackContext,
   View,
   WebClient,
-  AnyBlock,
-  ModalView,
 } from "../types";
-import { sendSlackMessage, type SlackMessagePayload } from "./message-utils";
+import { type SlackMessagePayload, sendSlackMessage } from "./message-utils";
 
 const logger = createLogger("dispatcher");
 

@@ -5,8 +5,8 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createLogger } from "@peerbot/core";
 import type { ProgressCallback } from "../core/types";
 import { ensureBaseUrl } from "../core/url-utils";
+import { createCustomToolsServer } from "./custom-tools";
 import { getSessionContext } from "./session-manager";
-// import { createCustomToolsServer } from "./custom-tools";
 
 const logger = createLogger("claude-sdk");
 
@@ -25,7 +25,7 @@ export interface ClaudeExecutionOptions {
   fallbackModel?: string;
   timeoutMinutes?: string | number;
   model?: string;
-  resumeSessionId?: string;
+  continue?: boolean;
 }
 
 export interface ClaudeExecutionResult {
@@ -172,10 +172,7 @@ export async function runClaudeWithSDK(
   options: ClaudeExecutionOptions,
   onProgress?: ProgressCallback,
   workingDirectory?: string,
-  customToolsConfig?: {
-    channelId: string;
-    threadId: string;
-  }
+  customToolsConfig?: { channelId: string; threadId: string }
 ): Promise<ClaudeExecutionResult> {
   logger.info("Starting Claude SDK execution");
 
@@ -217,6 +214,9 @@ export async function runClaudeWithSDK(
       throw new Error("WORKER_TOKEN is required for Claude SDK authentication");
     }
 
+    // Track errors from stderr
+    let stderrError: Error | null = null;
+
     const sdkOptions: SDKOptions = {
       model: options.model,
       cwd: workingDirectory || process.cwd(),
@@ -236,16 +236,31 @@ export async function runClaudeWithSDK(
       },
       stderr: (message: string) => {
         logger.error(`[Claude CLI stderr] ${message}`);
+
+        // Detect any error messages from Claude CLI (skip MCP connection errors)
+        // Hacky but Claude Code SDK hangs in this case, it doesn't exit si we have this approach.
+        if (message.includes("[ERROR]") && !message.includes("MCP server")) {
+          // Try to extract the error message from JSON if present
+          const jsonMatch = message.match(/"message":"([^"]+)"/);
+          if (jsonMatch) {
+            stderrError = new Error(jsonMatch[1]);
+            logger.error(`Error detected from stderr: ${jsonMatch[1]}`);
+          } else {
+            // Extract error text after [ERROR]
+            const errorMatch = message.match(/\[ERROR\]\s*(.+)/);
+            if (errorMatch) {
+              stderrError = new Error(errorMatch[1]);
+              logger.error(`Error detected from stderr: ${errorMatch[1]}`);
+            }
+          }
+        }
       },
     };
 
     // Add session management
-    if (options.resumeSessionId === "continue") {
+    if (options.continue) {
       sdkOptions.continue = true;
       logger.info("Continuing most recent Claude session");
-    } else if (options.resumeSessionId) {
-      sdkOptions.resume = options.resumeSessionId;
-      logger.info(`Resuming session: ${options.resumeSessionId}`);
     }
 
     // Add system prompts
@@ -274,16 +289,16 @@ export async function runClaudeWithSDK(
     const allMcpServers = { ...mcpServers };
 
     // Add custom tools server if config provided
-    // if (customToolsConfig && dispatcherUrl && workerToken) {
-    //   const customTools = createCustomToolsServer(
-    //     dispatcherUrl,
-    //     workerToken,
-    //     customToolsConfig.channelId,
-    //     customToolsConfig.threadId
-    //   );
-    //   allMcpServers["peerbot"] = customTools;
-    //   logger.info("Added custom tools server: peerbot");
-    // }
+    if (customToolsConfig && dispatcherUrl && workerToken) {
+      const customTools = createCustomToolsServer(
+        dispatcherUrl,
+        workerToken,
+        customToolsConfig.channelId,
+        customToolsConfig.threadId
+      );
+      allMcpServers.peerbot = customTools;
+      logger.info("Added custom tools server: peerbot");
+    }
 
     if (Object.keys(allMcpServers).length > 0) {
       sdkOptions.mcpServers = allMcpServers;
@@ -323,9 +338,41 @@ export async function runClaudeWithSDK(
     let capturedSessionId: string | undefined;
     let messageCount = 0;
     let lastMessageTime = Date.now();
+    let hasSuccessfulResult = false;
 
-    // Process streaming responses
-    for await (const message of response) {
+    // Track last activity for timeout detection
+    const STALL_TIMEOUT_MS = 5000; // 5 seconds without messages = stalled
+
+    // Process streaming responses with timeout check
+    const messageIterator = response[Symbol.asyncIterator]();
+    let iteratorDone = false;
+
+    while (!iteratorDone) {
+      // Check if stderr detected an error
+      if (stderrError) {
+        logger.error("Detected error from stderr, throwing error");
+        throw stderrError;
+      }
+
+      // Use Promise.race to implement timeout
+      const messagePromise = messageIterator.next();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          if (stderrError) {
+            reject(stderrError);
+          }
+        }, STALL_TIMEOUT_MS);
+      });
+
+      const result = await Promise.race([messagePromise, timeoutPromise]);
+
+      if (result.done) {
+        iteratorDone = true;
+        break;
+      }
+
+      const message = result.value;
+
       messageCount++;
       const now = Date.now();
       const timeSinceLastMessage = now - lastMessageTime;
@@ -404,6 +451,10 @@ export async function runClaudeWithSDK(
               `SDK result received (${resultStr.length} chars): ${resultStr.substring(0, 200)}`
             );
             output = resultStr;
+            hasSuccessfulResult = true;
+            // Clear any stderr errors since we got a successful result
+            // (Claude CLI may log post-completion errors like metrics opt-out checks)
+            stderrError = null;
           } else {
             logger.warn(`Result message without success: ${message.subtype}`, {
               subtype: message.subtype,
@@ -425,6 +476,17 @@ export async function runClaudeWithSDK(
           break;
         }
       }
+    }
+
+    // Final check for stderr errors after loop completes
+    // Skip if we already received a successful result (post-completion errors are benign)
+    if (stderrError && !hasSuccessfulResult) {
+      logger.error("Error detected in stderr after message loop completed");
+      throw stderrError;
+    } else if (stderrError && hasSuccessfulResult) {
+      logger.info(
+        "Ignoring post-completion stderr error (session completed successfully)"
+      );
     }
 
     logger.info(

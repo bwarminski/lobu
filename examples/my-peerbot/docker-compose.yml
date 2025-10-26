@@ -8,7 +8,7 @@ services:
     image: redis:7-alpine
     command: redis-server --appendonly yes
     ports:
-      - "6380:6379"
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -20,7 +20,7 @@ services:
       - my-peerbot-network
 
   gateway:
-    image: buremba/peerbot-gateway:0.1.0
+    image: buremba/peerbot-gateway:2.0.0
     ports:
       - "8080:8080"
     environment:
@@ -32,16 +32,16 @@ services:
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
-      ANTHROPIC_PROXY_ENABLED: ${ANTHROPIC_PROXY_ENABLED}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       PEERBOT_PUBLIC_GATEWAY_URL: ${PEERBOT_PUBLIC_GATEWAY_URL:-}
       HOST_PROJECT_PATH: ${PWD}
       NODE_ENV: ${NODE_ENV:-development}
+      MCP_CONFIG_URL: file:///app/.peerbot/mcp.config.json
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./workspaces:/app/workspaces
       - env_storage:/app/.peerbot/env
+      - ./.peerbot:/app/.peerbot:ro
     networks:
       - my-peerbot-network
     depends_on:
@@ -54,7 +54,7 @@ services:
       context: .
       dockerfile: ./Dockerfile.worker
       args:
-        BASE_VERSION: 0.1.0
+        BASE_VERSION: 2.0.0
         NODE_ENV: ${NODE_ENV:-development}
     image: my-peerbot-worker:latest
     command: echo "Worker image built successfully"

@@ -1,5 +1,5 @@
 import { createLogger } from "@peerbot/core";
-import type { WebClient, AnyBlock } from "../types";
+import type { AnyBlock, WebClient } from "../types";
 
 const logger = createLogger("slack-message-helper");
 

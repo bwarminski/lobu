@@ -1,5 +1,5 @@
-import { OAuthStateStore } from "../oauth/state-store";
 import type Redis from "ioredis";
+import { OAuthStateStore } from "../oauth/state-store";
 
 interface ClaudeOAuthStateData {
   userId: string;

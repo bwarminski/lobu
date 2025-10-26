@@ -6,13 +6,12 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
 import YAML from "yaml";
-import { checkConfigExists } from "../utils/config.js";
-import { renderTemplate } from "../utils/template.js";
 import {
-  MCP_SERVERS,
   getRequiredEnvVars,
+  MCP_SERVERS,
   type McpServerDefinition,
 } from "../mcp-servers.js";
+import { renderTemplate } from "../utils/template.js";
 
 const DEFAULT_SLACK_MANIFEST = {
   display_information: {
@@ -112,29 +111,24 @@ const DEFAULT_SLACK_MANIFEST = {
   },
 } as const;
 
-export async function initCommand(cwd: string = process.cwd()): Promise<void> {
+export async function initCommand(
+  cwd: string = process.cwd(),
+  projectNameArg?: string
+): Promise<void> {
   console.log(chalk.bold.cyan("\n🤖 Welcome to Peerbot!\n"));
-
-  // Check if already initialized
-  const configExists = await checkConfigExists(cwd);
-  if (configExists) {
-    const { overwrite } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "overwrite",
-        message: "Peerbot config already exists. Overwrite?",
-        default: false,
-      },
-    ]);
-
-    if (!overwrite) {
-      console.log(chalk.yellow("\nℹ Initialization cancelled\n"));
-      return;
-    }
-  }
 
   // Get CLI version
   const cliVersion = await getCliVersion();
+
+  // Validate project name if provided as argument
+  if (projectNameArg && !/^[a-z0-9-]+$/.test(projectNameArg)) {
+    console.log(
+      chalk.red(
+        "\n✗ Project name must be lowercase alphanumeric with hyphens only\n"
+      )
+    );
+    process.exit(1);
+  }
 
   // Interactive prompts - basic setup
   const baseAnswers = await inquirer.prompt([
@@ -142,13 +136,14 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       type: "input",
       name: "projectName",
       message: "Project name?",
-      default: "my-peerbot",
+      default: projectNameArg || "my-peerbot",
       validate: (input: string) => {
         if (!/^[a-z0-9-]+$/.test(input)) {
           return "Project name must be lowercase alphanumeric with hyphens only";
         }
         return true;
       },
+      when: !projectNameArg, // Skip prompt if project name provided as argument
     },
     {
       type: "list",
@@ -167,6 +162,27 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       default: "base-image",
     },
   ]);
+
+  // Use project name from argument or prompt
+  const projectName = projectNameArg || baseAnswers.projectName;
+
+  // Create project directory - fail if it exists
+  const projectDir = join(cwd, projectName);
+  try {
+    await access(projectDir, constants.F_OK);
+    console.log(
+      chalk.red(
+        `\n✗ Directory "${projectName}" already exists. Please choose a different project name or remove the existing directory.\n`
+      )
+    );
+    process.exit(1);
+  } catch {
+    // Directory doesn't exist - good to proceed
+    await mkdir(projectDir, { recursive: true });
+    console.log(
+      chalk.dim(`\nCreating project in: ${chalk.cyan(projectDir)}\n`)
+    );
+  }
 
   // MCP Server selection
   const { configureMcp } = await inquirer.prompt([
@@ -187,16 +203,65 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
         type: "checkbox",
         name: "mcpServers",
         message: "Select MCP servers to configure (you can add more later):",
-        choices: MCP_SERVERS.map((server) => ({
-          name: `${server.name} - ${server.description}`,
-          value: server.id,
-          checked: server.id === "github", // GitHub selected by default
-        })),
+        choices: [
+          ...MCP_SERVERS.map((server) => ({
+            name: `${server.name} - ${server.description}`,
+            value: server.id,
+            checked: server.id === "github", // GitHub selected by default
+          })),
+          {
+            name: "Custom MCP server (provide URL)",
+            value: "custom",
+          },
+        ],
         pageSize: 15,
       },
     ]);
 
     selectedMcpServers = MCP_SERVERS.filter((s) => mcpServers.includes(s.id));
+
+    // Handle custom MCP server
+    if (mcpServers.includes("custom")) {
+      const { customMcpUrl, customMcpName } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "customMcpName",
+          message: "Custom MCP server name:",
+          validate: (input: string) => {
+            if (!input || !/^[a-z0-9-]+$/.test(input)) {
+              return "Name must be lowercase alphanumeric with hyphens only";
+            }
+            return true;
+          },
+        },
+        {
+          type: "input",
+          name: "customMcpUrl",
+          message: "Custom MCP server URL:",
+          validate: (input: string) => {
+            if (!input) {
+              return "Please enter a valid URL";
+            }
+            try {
+              new URL(input);
+              return true;
+            } catch {
+              return "Please enter a valid URL (e.g., https://your-mcp-server.com)";
+            }
+          },
+        },
+      ]);
+
+      selectedMcpServers.push({
+        id: customMcpName,
+        name: customMcpName,
+        description: "Custom MCP server",
+        type: "none",
+        config: {
+          url: customMcpUrl,
+        },
+      });
+    }
 
     // Check if any OAuth servers were selected
     const hasOAuthServers = selectedMcpServers.some((s) => s.type === "oauth");
@@ -381,37 +446,16 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     selectedMcpServers,
   };
 
-  // Check if docker-compose.yml exists
-  let composeFilename = "docker-compose.yml";
-  try {
-    await access(join(cwd, composeFilename), constants.F_OK);
-    const { customFilename } = await inquirer.prompt([
-      {
-        type: "input",
-        name: "customFilename",
-        message: `${composeFilename} already exists. Enter a different filename:`,
-        default: "docker-compose.peerbot.yml",
-        validate: (input: string) => {
-          if (!input.endsWith(".yml") && !input.endsWith(".yaml")) {
-            return "Filename must end with .yml or .yaml";
-          }
-          return true;
-        },
-      },
-    ]);
-    composeFilename = customFilename;
-  } catch {
-    // File doesn't exist, use default
-  }
+  // docker-compose.yml will be created in new directory, no need to check
+  const composeFilename = "docker-compose.yml";
 
   const spinner = ora("Creating Peerbot project...").start();
 
   try {
     const workerMode = answers.workerMode;
-    const projectName = answers.projectName;
 
-    // Create .peerbot directory
-    const peerbotDir = join(cwd, ".peerbot");
+    // Create .peerbot directory in project directory
+    const peerbotDir = join(projectDir, ".peerbot");
     await mkdir(peerbotDir, { recursive: true });
 
     // Generate MCP config if servers were selected
@@ -459,7 +503,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     };
 
     // Create .env file
-    await renderTemplate(".env.tmpl", variables, join(cwd, ".env"));
+    await renderTemplate(".env.tmpl", variables, join(projectDir, ".env"));
 
     // Append MCP environment variables if any were selected
     if (answers.selectedMcpServers.length > 0) {
@@ -473,30 +517,34 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
           mcpEnvContent += `# ${varName}=your_${varName.toLowerCase()}_here\n`;
         }
 
-        const envPath = join(cwd, ".env");
+        const envPath = join(projectDir, ".env");
         const currentContent = await readFile(envPath, "utf-8");
         await writeFile(envPath, currentContent + mcpEnvContent);
       }
     }
 
     // Create .gitignore
-    await renderTemplate(".gitignore.tmpl", {}, join(cwd, ".gitignore"));
+    await renderTemplate(".gitignore.tmpl", {}, join(projectDir, ".gitignore"));
 
     // Create README
-    await renderTemplate("README.md.tmpl", variables, join(cwd, "README.md"));
+    await renderTemplate(
+      "README.md.tmpl",
+      variables,
+      join(projectDir, "README.md")
+    );
 
     // Create Dockerfile.worker based on mode
     if (workerMode === "base-image") {
       await renderTemplate(
         "Dockerfile.worker.tmpl",
         variables,
-        join(cwd, "Dockerfile.worker")
+        join(projectDir, "Dockerfile.worker")
       );
     } else if (workerMode === "package") {
       await renderTemplate(
         "Dockerfile.worker-package.tmpl",
         variables,
-        join(cwd, "Dockerfile.worker")
+        join(projectDir, "Dockerfile.worker")
       );
     }
 
@@ -508,14 +556,16 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       dockerfilePath: "./Dockerfile.worker",
       hasMcpServers: answers.selectedMcpServers.length > 0,
     });
-    await writeFile(join(cwd, composeFilename), composeContent);
+    await writeFile(join(projectDir, composeFilename), composeContent);
 
     spinner.succeed("Project created successfully!");
 
     // Print next steps
     console.log(chalk.green("\n✓ Peerbot initialized!\n"));
     console.log(chalk.bold("Next steps:\n"));
-    console.log(chalk.cyan("  1. Review your configuration:"));
+    console.log(chalk.cyan("  1. Navigate to your project:"));
+    console.log(chalk.dim(`     cd ${projectName}\n`));
+    console.log(chalk.cyan("  2. Review your configuration:"));
     console.log(chalk.dim("     - .env"));
     console.log(chalk.dim(`     - ${composeFilename}`));
     console.log(chalk.dim("     - Dockerfile.worker"));
@@ -542,7 +592,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
       );
 
       if (oauthServers.length > 0 || apiKeyServers.length > 0) {
-        console.log(chalk.cyan("  2. Configure MCP servers:"));
+        console.log(chalk.cyan("  3. Configure MCP servers:"));
 
         if (oauthServers.length > 0) {
           console.log(chalk.yellow("\n     OAuth-based MCP servers:"));
@@ -572,18 +622,18 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
           }
         }
 
-        console.log(chalk.cyan("\n  3. Start the services:"));
+        console.log(chalk.cyan("\n  4. Start the services:"));
       } else {
-        console.log(chalk.cyan("  2. Start the services:"));
+        console.log(chalk.cyan("  3. Start the services:"));
       }
     } else {
-      console.log(chalk.cyan("  2. Start the services:"));
+      console.log(chalk.cyan("  3. Start the services:"));
     }
 
     console.log(chalk.dim(`     docker compose -f ${composeFilename} up -d\n`));
     console.log(
       chalk.cyan(
-        `  ${answers.selectedMcpServers.length > 0 ? "4" : "3"}. View logs:`
+        `  ${answers.selectedMcpServers.length > 0 ? "5" : "4"}. View logs:`
       )
     );
     console.log(
@@ -591,7 +641,7 @@ export async function initCommand(cwd: string = process.cwd()): Promise<void> {
     );
     console.log(
       chalk.cyan(
-        `  ${answers.selectedMcpServers.length > 0 ? "5" : "4"}. Stop the services:`
+        `  ${answers.selectedMcpServers.length > 0 ? "6" : "5"}. Stop the services:`
       )
     );
     console.log(chalk.dim(`     docker compose -f ${composeFilename} down\n`));

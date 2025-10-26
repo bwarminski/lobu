@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
-import { createLogger } from "@peerbot/core";
+import { createLogger, WorkspaceError } from "@peerbot/core";
 import type { WorkspaceInfo, WorkspaceSetupConfig } from "./types";
-import { WorkspaceError } from "@peerbot/core";
 
 const logger = createLogger("workspace");
 

@@ -107,7 +107,6 @@ export interface ThreadResponsePayload {
   originalMessageId?: string;
   moduleData?: Record<string, unknown>;
   botResponseId?: string;
-  claudeSessionId?: string;
   ephemeral?: boolean; // If true, message should be sent as ephemeral (only visible to user)
   statusUpdate?: {
     status?: string;

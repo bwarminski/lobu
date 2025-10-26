@@ -1,10 +1,10 @@
 import { BaseModule, createLogger, decrypt } from "@peerbot/core";
 import type { Request, Response } from "express";
+import type { IMessageQueue } from "../../infrastructure/queue";
+import { ClaudeOAuthClient } from "../oauth/claude-client";
 import type { ClaudeCredentialStore } from "./credential-store";
 import type { ClaudeModelPreferenceStore } from "./model-preference-store";
-import { ClaudeOAuthClient } from "../oauth/claude-client";
 import type { ClaudeOAuthStateStore } from "./oauth-state-store";
-import type { IMessageQueue } from "../../infrastructure/queue";
 
 const logger = createLogger("claude-oauth-module");
 

@@ -1,25 +1,26 @@
 #!/usr/bin/env bun
 
-import { createLogger } from "@peerbot/core";
 import type { IModuleRegistry } from "@peerbot/core";
-import type { ISessionManager } from "../session";
-import type { QueueProducer } from "../infrastructure/queue";
+import { createLogger } from "@peerbot/core";
 import type { App } from "@slack/bolt";
 import type {
-  GenericMessageEvent,
-  FileSharedEvent,
   FileDeletedEvent,
+  FileSharedEvent,
+  GenericMessageEvent,
 } from "@slack/types";
+import type { QueueProducer } from "../infrastructure/queue";
+import type { ISessionManager } from "../session";
 
 const logger = createLogger("slack-events");
+
 import type { MessageHandlerConfig } from "./config";
 import { ActionHandler } from "./events/actions";
+import { setupAssistantHandlers } from "./events/assistant";
 import { handleBlockkitFormSubmission } from "./events/forms";
 import { MessageHandler } from "./events/messages";
 import { ShortcutCommandHandler } from "./events/shortcuts";
 import { setupTeamJoinHandler } from "./events/welcome";
-import { setupAssistantHandlers } from "./events/assistant";
-import type { SlackContext, WebClient, SlackMessageEvent } from "./types";
+import type { SlackContext, SlackMessageEvent, WebClient } from "./types";
 import { isSelfGeneratedEvent } from "./utils";
 
 /**

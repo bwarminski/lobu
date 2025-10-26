@@ -4,13 +4,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { WorkerJobRouter } from "../gateway/job-router";
 import { WorkerConnectionManager } from "../gateway/connection-manager";
+import { WorkerJobRouter } from "../gateway/job-router";
 import {
+  cleanupTestEnv,
   MockMessageQueue,
   MockResponse,
   setupTestEnv,
-  cleanupTestEnv,
   TestHelpers,
 } from "./setup";
 

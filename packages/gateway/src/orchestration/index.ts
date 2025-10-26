@@ -1,15 +1,17 @@
+export * from "./base-deployment-manager";
+export * from "./deployment-utils";
 export * from "./impl";
 export { MessageConsumer as QueueConsumer } from "./message-consumer";
-export * from "./deployment-utils";
-export * from "./base-deployment-manager";
 
 import { createLogger, moduleRegistry } from "@peerbot/core";
-import type { OrchestratorConfig } from "./base-deployment-manager";
+import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
+import type {
+  BaseDeploymentManager,
+  OrchestratorConfig,
+} from "./base-deployment-manager";
 import { buildModuleEnvVars } from "./deployment-utils";
 import { DockerDeploymentManager, K8sDeploymentManager } from "./impl";
 import { MessageConsumer } from "./message-consumer";
-import type { BaseDeploymentManager } from "./base-deployment-manager";
-import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 
 const logger = createLogger("orchestrator");
 

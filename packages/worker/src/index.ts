@@ -4,9 +4,9 @@ import { createLogger, moduleRegistry } from "@peerbot/core";
 
 const logger = createLogger("worker");
 
+import { setupWorkspaceEnv } from "./core/workspace";
 import { GatewayClient } from "./gateway/sse-client";
 import { startProcessManager, stopProcessManager } from "./mcp/process-manager";
-import { setupWorkspaceEnv } from "./core/workspace";
 
 /**
  * Main entry point for gateway-based persistent worker

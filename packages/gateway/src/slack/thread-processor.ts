@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 
 import type { IModuleRegistry } from "@peerbot/core";
-import type { ThreadResponsePayload } from "../infrastructure/queue";
-import type { IMessageQueue } from "../infrastructure/queue";
-import type Redis from "ioredis";
 import { createLogger, DEFAULTS, REDIS_KEYS } from "@peerbot/core";
-import { WebClient } from "@slack/web-api";
 import type { AnyBlock } from "@slack/types";
+import { WebClient } from "@slack/web-api";
+import type Redis from "ioredis";
+import type {
+  IMessageQueue,
+  ThreadResponsePayload,
+} from "../infrastructure/queue";
 import {
   type ModuleButton,
   SlackBlockBuilder,
@@ -367,26 +369,12 @@ export class ThreadResponseConsumer {
   private async storeBotMessageTimestamp(
     sessionKey: string,
     newBotResponseTs: string,
-    data: ThreadResponsePayload
+    _data: ThreadResponsePayload
   ): Promise<void> {
     logger.info(
       `Bot created first response with ts: ${newBotResponseTs}, storing for session ${sessionKey}`
     );
     await this.setBotMessageTs(sessionKey, newBotResponseTs);
-
-    // Also send the bot message timestamp back to the worker for future updates
-    try {
-      if (data.claudeSessionId) {
-        await this.queue.send("worker_metadata_update", {
-          claudeSessionId: data.claudeSessionId,
-          botResponseId: newBotResponseTs,
-          channelId: data.channelId,
-          threadId: data.threadId,
-        });
-      }
-    } catch (error) {
-      logger.debug(`Failed to send bot message timestamp to worker: ${error}`);
-    }
   }
 
   /**
@@ -399,13 +387,11 @@ export class ThreadResponseConsumer {
       data = this.parseThreadResponseJob(job);
 
       logger.info(
-        `Processing thread response job for message ${data.messageId}, originalMessageId: ${data.originalMessageId}, claudeSessionId: ${data.claudeSessionId}, botResponseId: ${data.botResponseId}`
+        `Processing thread response job for message ${data.messageId}, originalMessageId: ${data.originalMessageId}, botResponseId: ${data.botResponseId}`
       );
 
       // Create a session key to track bot messages per conversation
-      const sessionKey = data.claudeSessionId
-        ? `session:${data.claudeSessionId}`
-        : `${data.userId}:${data.originalMessageId || data.messageId}`;
+      const sessionKey = `${data.userId}:${data.originalMessageId || data.messageId}`;
 
       logger.info(`Using session key: ${sessionKey}`);
       logger.info(

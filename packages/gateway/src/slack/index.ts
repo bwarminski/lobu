@@ -12,48 +12,42 @@
 
 // Configuration
 export type {
-  SlackConfig,
-  SlackPlatformConfig,
   AgentOptions,
   MessageHandlerConfig,
+  SlackConfig,
+  SlackPlatformConfig,
 } from "./config";
-
-// Platform Adapter
-export { SlackPlatform } from "./platform";
-
-// Instruction Provider
-export { SlackInstructionProvider } from "./instructions/provider";
+// Constants
+export { SLACK } from "./config";
+export type { ModuleButton } from "./converters/block-builder";
 
 // Block Builders and Converters
 export { SlackBlockBuilder } from "./converters/block-builder";
-export { convertMarkdownToSlack } from "./converters/markdown";
 export { extractCodeBlockActions } from "./converters/blockkit";
-export type { ModuleButton } from "./converters/block-builder";
-
-// Types
-export type {
-  // Core types
-  SlackContext,
-  WebClient,
-  AnyBlock,
-  Button,
-  // View types
-  View,
-  // Action types
-  SlackActionBody,
-  // Module types
-  ModuleActionContext,
-  // Message types
-  SlackMessageEvent,
-} from "./types";
-
-// Utilities
-export { setThreadStatus, isSelfGeneratedEvent } from "./utils";
-
-// Constants
-export { SLACK } from "./config";
-
+export { convertMarkdownToSlack } from "./converters/markdown";
 // Event Handlers (for advanced usage)
 export { SlackEventHandlers } from "./event-router";
-export { MessageHandler } from "./events/messages";
 export { ActionHandler } from "./events/actions";
+export { MessageHandler } from "./events/messages";
+// Instruction Provider
+export { SlackInstructionProvider } from "./instructions/provider";
+// Platform Adapter
+export { SlackPlatform } from "./platform";
+// Types
+export type {
+  AnyBlock,
+  Button,
+  // Module types
+  ModuleActionContext,
+  // Action types
+  SlackActionBody,
+  // Core types
+  SlackContext,
+  // Message types
+  SlackMessageEvent,
+  // View types
+  View,
+  WebClient,
+} from "./types";
+// Utilities
+export { isSelfGeneratedEvent, setThreadStatus } from "./utils";

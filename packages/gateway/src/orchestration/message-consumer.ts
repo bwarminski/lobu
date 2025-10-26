@@ -1,17 +1,17 @@
 import { createLogger, ErrorCode, OrchestratorError } from "@peerbot/core";
+import * as Sentry from "@sentry/node";
+import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
+import type {
+  IMessageQueue,
+  QueueJob as SharedQueueJob,
+} from "../infrastructure/queue";
+import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
 import {
   type BaseDeploymentManager,
   generateDeploymentName,
   type OrchestratorConfig,
   type QueueJobData,
 } from "./base-deployment-manager";
-import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
-import type {
-  IMessageQueue,
-  QueueJob as SharedQueueJob,
-} from "../infrastructure/queue";
-import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
-import * as Sentry from "@sentry/node";
 
 const logger = createLogger("orchestrator");
 

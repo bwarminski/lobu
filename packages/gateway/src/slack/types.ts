@@ -5,31 +5,29 @@
  * Imports and re-exports types from Slack SDK to ensure type safety
  */
 
-// Import SDK types
-import type {
-  AnyBlock,
-  Block,
-  BlockElement,
-  Button,
-  ActionsBlockElement,
-  AppMentionEvent,
-  AppHomeOpenedEvent,
-  TeamJoinEvent,
-  FileSharedEvent,
-  GenericMessageEvent,
-  View,
-  ModalView,
-  HomeView,
-} from "@slack/types";
-
-import type { WebClient } from "@slack/web-api";
-
 import type {
   BlockAction,
   SlackActionMiddlewareArgs,
   SlackEventMiddlewareArgs,
   SlackViewMiddlewareArgs,
 } from "@slack/bolt";
+// Import SDK types
+import type {
+  ActionsBlockElement,
+  AnyBlock,
+  AppHomeOpenedEvent,
+  AppMentionEvent,
+  Block,
+  BlockElement,
+  Button,
+  FileSharedEvent,
+  GenericMessageEvent,
+  HomeView,
+  ModalView,
+  TeamJoinEvent,
+  View,
+} from "@slack/types";
+import type { WebClient } from "@slack/web-api";
 
 // Type aliases for convenience
 export type SlackBlock = Block;

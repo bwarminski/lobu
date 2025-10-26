@@ -2,9 +2,9 @@ import type {
   OAuthErrorResponse,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { BaseOAuth2Client } from "./base-client";
 import type { OAuth2Config } from "../mcp/config-service";
 import type { McpCredentialRecord } from "../mcp/credential-store";
+import { BaseOAuth2Client } from "./base-client";
 
 /**
  * Generic OAuth2 client for token exchange

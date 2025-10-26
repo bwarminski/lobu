@@ -1,15 +1,10 @@
 #!/usr/bin/env bun
 
 import { createLogger, moduleRegistry } from "@peerbot/core";
-import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
-import type { IMessageQueue } from "../infrastructure/queue";
-import { QueueProducer } from "../infrastructure/queue";
 import { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { ClaudeModelPreferenceStore } from "../auth/claude/model-preference-store";
 import { ClaudeOAuthModule } from "../auth/claude/oauth-module";
 import { ClaudeOAuthStateStore } from "../auth/claude/oauth-state-store";
-import type { GatewayConfig } from "../config";
-import { WorkerGateway } from "../gateway";
 import { McpConfigService } from "../auth/mcp/config-service";
 import { McpCredentialStore } from "../auth/mcp/credential-store";
 import { McpInputStore } from "../auth/mcp/input-store";
@@ -17,9 +12,17 @@ import { McpOAuthDiscoveryService } from "../auth/mcp/oauth-discovery";
 import { McpOAuthModule } from "../auth/mcp/oauth-module";
 import { OAuthStateStore } from "../auth/mcp/oauth-state-store";
 import { McpProxy } from "../auth/mcp/proxy";
+import type { GatewayConfig } from "../config";
+import { WorkerGateway } from "../gateway";
 import { AnthropicProxy } from "../infrastructure/model-provider";
-import { RedisSessionStore, SessionManager } from "./session-manager";
+import type { IMessageQueue } from "../infrastructure/queue";
+import {
+  QueueProducer,
+  RedisQueue,
+  type RedisQueueConfig,
+} from "../infrastructure/queue";
 import { InstructionService } from "./instruction-service";
+import { RedisSessionStore, SessionManager } from "./session-manager";
 
 const logger = createLogger("core-services");
 

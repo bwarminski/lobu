@@ -2,8 +2,8 @@
  * Slack-specific configuration and constants
  */
 
-import type { LogLevel } from "@slack/bolt";
 import type { AgentOptions as CoreAgentOptions } from "@peerbot/core";
+import type { LogLevel } from "@slack/bolt";
 
 // ============================================================================
 // Constants

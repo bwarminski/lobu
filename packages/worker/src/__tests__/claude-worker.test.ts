@@ -132,8 +132,6 @@ describe("ClaudeWorker", () => {
   describe("Session Management", () => {
     test("handles new session", async () => {
       const config = { ...mockWorkerConfig };
-      delete config.sessionId;
-      delete config.resumeSessionId;
 
       const worker = new ClaudeWorker(config);
 
@@ -142,46 +140,6 @@ describe("ClaudeWorker", () => {
         success: true,
         exitCode: 0,
         output: "New session completed",
-        sessionKey: "test-session-key",
-      });
-
-      await worker.execute();
-
-      expect(mockClaudeAgent.runAgent).toHaveBeenCalled();
-    });
-
-    test("handles session resume", async () => {
-      const configWithResume: WorkerConfig = {
-        ...mockWorkerConfig,
-        resumeSessionId: "existing-session-id",
-      };
-
-      const worker = new ClaudeWorker(configWithResume);
-
-      mockClaudeAgent.runAgent.mockResolvedValueOnce({
-        success: true,
-        exitCode: 0,
-        output: "Resumed session completed",
-        sessionKey: "test-session-key",
-      });
-
-      await worker.execute();
-
-      expect(mockClaudeAgent.runAgent).toHaveBeenCalled();
-    });
-
-    test("handles session continuation", async () => {
-      const configWithContinue: WorkerConfig = {
-        ...mockWorkerConfig,
-        sessionId: "session-to-continue",
-      };
-
-      const worker = new ClaudeWorker(configWithContinue);
-
-      mockClaudeAgent.runAgent.mockResolvedValueOnce({
-        success: true,
-        exitCode: 0,
-        output: "Continued session completed",
         sessionKey: "test-session-key",
       });
 

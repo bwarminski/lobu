@@ -147,30 +147,6 @@
       "setupInstructions": "1. Create OAuth credentials at https://console.cloud.google.com/apis/credentials\n2. Set Authorized redirect URI to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add GOOGLE_CLIENT_SECRET to your .env file"
     },
     {
-      "id": "slack",
-      "name": "Slack",
-      "description": "Access Slack workspace data",
-      "type": "oauth",
-      "config": {
-        "url": "https://slack.com/api",
-        "oauth": {
-          "authUrl": "https://slack.com/oauth/v2/authorize",
-          "tokenUrl": "https://slack.com/api/oauth.v2.access",
-          "clientId": "${SLACK_MCP_CLIENT_ID}",
-          "clientSecret": "${env:SLACK_MCP_CLIENT_SECRET}",
-          "scopes": [
-            "channels:history",
-            "channels:read",
-            "chat:write",
-            "users:read"
-          ],
-          "grantType": "authorization_code",
-          "responseType": "code"
-        }
-      },
-      "setupInstructions": "1. Create a Slack App at https://api.slack.com/apps\n2. Set OAuth Redirect URL to: {PUBLIC_URL}/mcp/oauth/callback\n3. Copy the Client ID and Client Secret\n4. Update .peerbot/mcp.config.json with your Client ID\n5. Add SLACK_MCP_CLIENT_SECRET to your .env file"
-    },
-    {
       "id": "sentry",
       "name": "Sentry",
       "description": "Access error tracking and performance monitoring",

@@ -2,18 +2,18 @@
 
 import {
   createLogger,
-  moduleRegistry,
   type InstructionProvider,
+  moduleRegistry,
 } from "@peerbot/core";
-import type { PlatformAdapter, CoreServices } from "../platform";
-import { App, ExpressReceiver, LogLevel, type AppOptions } from "@slack/bolt";
-import type { Request, Response, NextFunction } from "express";
-import type { SlackPlatformConfig, AgentOptions } from "./config";
-import { SocketHealthMonitor } from "./health/socket-health-monitor";
-import { SlackEventHandlers } from "./event-router";
-import { ThreadResponseConsumer } from "./thread-processor";
-import { SlackInstructionProvider } from "./instructions/provider";
+import { App, type AppOptions, ExpressReceiver, LogLevel } from "@slack/bolt";
+import type { NextFunction, Request, Response } from "express";
+import type { CoreServices, PlatformAdapter } from "../platform";
 import { FileHandler } from "../services/file-handler";
+import type { AgentOptions, SlackPlatformConfig } from "./config";
+import { SlackEventHandlers } from "./event-router";
+import { SocketHealthMonitor } from "./health/socket-health-monitor";
+import { SlackInstructionProvider } from "./instructions/provider";
+import { ThreadResponseConsumer } from "./thread-processor";
 
 const logger = createLogger("slack-platform");
 

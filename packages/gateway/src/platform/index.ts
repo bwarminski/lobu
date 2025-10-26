@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
 
-import type { IMessageQueue, QueueProducer } from "../infrastructure/queue";
 import type { InstructionProvider } from "@peerbot/core";
-import type { AnthropicProxy } from "../infrastructure/model-provider";
-import type { ISessionManager } from "../session";
-import type { InstructionService } from "../services/instruction-service";
-import type { WorkerGateway } from "../gateway";
-import type { McpProxy } from "../auth/mcp/proxy";
 import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import type { ClaudeModelPreferenceStore } from "../auth/claude/model-preference-store";
+import type { McpProxy } from "../auth/mcp/proxy";
+import type { WorkerGateway } from "../gateway";
+import type { AnthropicProxy } from "../infrastructure/model-provider";
+import type { IMessageQueue, QueueProducer } from "../infrastructure/queue";
+import type { InstructionService } from "../services/instruction-service";
+import type { ISessionManager } from "../session";
 
 // ============================================================================
 // Core Services Interface

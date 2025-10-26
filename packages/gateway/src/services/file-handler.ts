@@ -1,6 +1,6 @@
+import { Readable } from "node:stream";
 import { createLogger } from "@peerbot/core";
 import type { WebClient } from "../slack/types";
-import { Readable } from "node:stream";
 
 const logger = createLogger("file-handler");
 

@@ -7,7 +7,7 @@
 
 // Export types and classes for external packages
 export type { GatewayConfig } from "./config";
-export { SessionManager, RedisSessionStore } from "./services/session-manager";
+export { RedisSessionStore, SessionManager } from "./services/session-manager";
 
 // Start CLI when run directly
 import("./cli");

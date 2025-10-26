@@ -1,5 +1,6 @@
 import { BaseModule, createLogger, decrypt, encrypt } from "@peerbot/core";
 import type { Request, Response } from "express";
+import { GenericOAuth2Client } from "../oauth/generic-client";
 import {
   formatMcpName,
   renderOAuthErrorPage,
@@ -8,7 +9,6 @@ import {
 import type { McpConfigService } from "./config-service";
 import type { McpCredentialStore } from "./credential-store";
 import type { McpInputStore } from "./input-store";
-import { GenericOAuth2Client } from "../oauth/generic-client";
 import type { OAuthStateStore } from "./oauth-state-store";
 
 const logger = createLogger("mcp-oauth-module");

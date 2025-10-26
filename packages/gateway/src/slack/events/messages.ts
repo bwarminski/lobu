@@ -1,14 +1,14 @@
 import { createLogger, DEFAULTS } from "@peerbot/core";
-import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
 import type {
+  QueueProducer,
   ThreadMessagePayload,
   WorkerDeploymentPayload,
 } from "../../infrastructure/queue/queue-producer";
-import type { ThreadSession, ISessionManager } from "../../session";
+import type { ISessionManager, ThreadSession } from "../../session";
 import { generateSessionKey } from "../../session";
-import { setThreadStatus } from "../utils";
 import type { MessageHandlerConfig } from "../config";
-import type { SlackContext, WebClient, SlackMessageEvent } from "../types";
+import type { SlackContext, SlackMessageEvent, WebClient } from "../types";
+import { setThreadStatus } from "../utils";
 
 const logger = createLogger("dispatcher");
 

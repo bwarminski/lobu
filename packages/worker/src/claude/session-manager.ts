@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { createLogger } from "@peerbot/core";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { createLogger } from "@peerbot/core";
 import { ensureBaseUrl } from "../core/url-utils";
 
 const logger = createLogger("claude-session");

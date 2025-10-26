@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
-import type { WorkerTokenData, InstructionContext } from "@peerbot/core";
+import type { InstructionContext, WorkerTokenData } from "@peerbot/core";
 import { createLogger, verifyWorkerToken } from "@peerbot/core";
-import type { IMessageQueue } from "../infrastructure/queue";
 import type { Request, Response } from "express";
 import type { McpConfigService } from "../auth/mcp/config-service";
+import type { IMessageQueue } from "../infrastructure/queue";
 import type { InstructionService } from "../services/instruction-service";
 import { WorkerConnectionManager } from "./connection-manager";
 import { WorkerJobRouter } from "./job-router";

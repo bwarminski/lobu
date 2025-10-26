@@ -1,8 +1,8 @@
 import {
   createLogger,
   ErrorCode,
-  OrchestratorError,
   generateWorkerToken,
+  OrchestratorError,
 } from "@peerbot/core";
 
 const logger = createLogger("orchestrator");

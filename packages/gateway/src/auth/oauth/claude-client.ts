@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { BaseOAuth2Client } from "./base-client";
 import type { ClaudeCredentials } from "../claude/credential-store";
+import { BaseOAuth2Client } from "./base-client";
 
 interface ClaudeTokenResponse {
   access_token: string;

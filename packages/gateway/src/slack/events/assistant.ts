@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
 import { createLogger } from "@peerbot/core";
-import { Assistant } from "@slack/bolt";
 import type { App } from "@slack/bolt";
-import type { MessageHandler } from "./messages";
-import type { SlackContext, WebClient } from "../types";
+import { Assistant } from "@slack/bolt";
 import type { MessageHandlerConfig } from "../config";
+import type { SlackContext, WebClient } from "../types";
+import type { MessageHandler } from "./messages";
 
 const logger = createLogger("slack-assistant");
 

@@ -7,12 +7,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createLogger } from "@peerbot/core";
 import { z } from "zod";
+import type { ProcessManager } from "./process-manager";
 import type {
   ProcessInfo,
   ProcessManagerInstance,
   ResourceParams,
 } from "./types";
-import type { ProcessManager } from "./process-manager";
 
 const logger = createLogger("worker");
 

@@ -9,10 +9,10 @@ import {
 } from "../base-deployment-manager";
 import {
   BASE_WORKER_LABELS,
-  WORKER_SELECTOR_LABELS,
   buildDeploymentInfoSummary,
   getVeryOldThresholdDays,
   resolvePlatformDeploymentMetadata,
+  WORKER_SELECTOR_LABELS,
 } from "../deployment-utils";
 
 const logger = createLogger("k8s-deployment");

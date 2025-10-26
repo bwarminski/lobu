@@ -1,23 +1,23 @@
 #!/usr/bin/env bun
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { createLogger, type InstructionProvider } from "@peerbot/core";
 import * as Sentry from "@sentry/node";
 import { GatewayIntegration } from "../gateway/gateway-integration";
 import { generateCustomInstructions } from "../instructions/builder";
-import { WorkspaceManager } from "./workspace";
 import { handleExecutionError } from "./error-handler";
 import { listAppDirectories } from "./project-scanner";
-import * as fs from "fs/promises";
-import * as path from "path";
-import { Readable } from "stream";
-import { pipeline } from "stream/promises";
 import type {
   GatewayIntegrationInterface,
-  WorkerExecutor,
-  WorkerConfig,
   ProgressUpdate,
   SessionExecutionResult,
+  WorkerConfig,
+  WorkerExecutor,
 } from "./types";
+import { WorkspaceManager } from "./workspace";
 
 const logger = createLogger("base-worker");
 
@@ -45,12 +45,6 @@ export abstract class BaseWorker implements WorkerExecutor {
       );
     }
 
-    // Determine session ID - only use actual IDs, not "continue"
-    const sessionId =
-      config.resumeSessionId === "continue"
-        ? undefined
-        : config.resumeSessionId;
-
     this.gatewayIntegration = new GatewayIntegration(
       dispatcherUrl,
       workerToken,
@@ -58,7 +52,6 @@ export abstract class BaseWorker implements WorkerExecutor {
       config.channelId,
       config.threadId || "",
       config.responseId,
-      sessionId,
       config.botResponseId,
       config.teamId
     );
@@ -140,12 +133,8 @@ export abstract class BaseWorker implements WorkerExecutor {
       );
       logger.info(`User prompt: ${userPrompt.substring(0, 100)}...`);
 
-      const isResumedSession = !!this.config.resumeSessionId;
-
       // Setup workspace
-      logger.info(
-        isResumedSession ? "Resuming workspace..." : "Setting up workspace..."
-      );
+      logger.info("Setting up workspace...");
 
       await Sentry.startSpan(
         {
@@ -214,7 +203,7 @@ export abstract class BaseWorker implements WorkerExecutor {
       }
 
       // Update status with loading messages
-      const loadingMessages = this.getLoadingMessages(isResumedSession);
+      const loadingMessages = this.getLoadingMessages(false);
       await this.gatewayIntegration.updateStatus(
         "is running..",
         loadingMessages
@@ -240,7 +229,6 @@ export abstract class BaseWorker implements WorkerExecutor {
             "session.key": this.config.sessionKey,
             "thread.id": this.config.threadId,
             agent: this.getAgentName(),
-            is_resume: !!this.config.resumeSessionId,
           },
         },
         async () => {
@@ -380,7 +368,10 @@ export abstract class BaseWorker implements WorkerExecutor {
     try {
       const files = await fs.readdir(outputDir);
       for (const file of files) {
-        await fs.unlink(path.join(outputDir, file)).catch(() => {});
+        // Ignore individual file deletion errors
+        await fs.unlink(path.join(outputDir, file)).catch(() => {
+          /* intentionally empty */
+        });
       }
     } catch (error) {
       logger.debug("Could not clear output directory:", error);
@@ -426,7 +417,9 @@ export abstract class BaseWorker implements WorkerExecutor {
 
         const destPath = path.join(inputDir, file.name);
         const fileStream = Readable.fromWeb(response.body as any);
-        const writeStream = (await import("fs")).createWriteStream(destPath);
+        const writeStream = (await import("node:fs")).createWriteStream(
+          destPath
+        );
 
         await pipeline(fileStream, writeStream);
         logger.info(`Downloaded: ${file.name} to input directory`);
@@ -447,8 +440,8 @@ export abstract class BaseWorker implements WorkerExecutor {
 
 **When to Create Files:**
 Create and show files for any output that helps answer the user's request by using \`show_to_user\` tool:
-- **Charts & visualizations**: pie charts, bar graphs, plots, diagrams
-- **Reports & documents**: analysis reports, summaries, PDFs  
+- **Charts & visualizations**: pie charts, bar graphs, plots, diagrams via \`matplotlib\`
+- **Reports & documents**: analysis reports, summaries, PDFs
 - **Data files**: CSV exports, JSON data, spreadsheets
 - **Code files**: scripts, configurations, examples
 - **Images**: generated images, processed photos, screenshots.

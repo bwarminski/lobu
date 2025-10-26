@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { InstructionProvider } from "@peerbot/core";
 import { createLogger } from "@peerbot/core";
 import { BaseWorker } from "../core/base-worker";
-import type { InstructionProvider } from "@peerbot/core";
 import type {
   ProgressUpdate,
   SessionExecutionResult,
@@ -12,8 +14,6 @@ import type {
 import { ClaudeCoreInstructionProvider } from "./instructions";
 import { ProgressProcessor } from "./processor";
 import { type ClaudeExecutionOptions, runClaudeWithSDK } from "./sdk-adapter";
-import * as fs from "fs/promises";
-import * as path from "path";
 
 const logger = createLogger("claude-worker");
 
@@ -68,17 +68,11 @@ export class ClaudeWorker extends BaseWorker {
       const workspaceDir = this.getWorkingDirectory();
       const sessionExists = await this.checkClaudeSessionExists(workspaceDir);
 
-      // Decide whether to continue or start new session
-      const resumeSessionId = sessionExists ? "continue" : undefined;
-
       logger.info(
         sessionExists
           ? `Continuing existing Claude session for thread ${this.config.threadId}`
           : `Starting new Claude session for thread ${this.config.threadId}`
       );
-
-      // Capture Claude session ID from progress callback
-      let capturedClaudeSessionId: string | undefined;
 
       // Execute Claude with SDK
       const result = await runClaudeWithSDK(
@@ -86,16 +80,9 @@ export class ClaudeWorker extends BaseWorker {
         {
           ...agentOptions,
           appendSystemPrompt: customInstructions,
-          ...(resumeSessionId ? { resumeSessionId } : {}),
+          ...(sessionExists ? { continue: true } : {}),
         },
         async (update) => {
-          // Capture session ID from completion event
-          if (update.type === "completion" && update.data?.sessionId) {
-            capturedClaudeSessionId = update.data.sessionId;
-            logger.info(
-              `Captured Claude session ID: ${capturedClaudeSessionId}`
-            );
-          }
           await onProgress(update);
         },
         this.getWorkingDirectory(),
@@ -110,7 +97,6 @@ export class ClaudeWorker extends BaseWorker {
         sessionKey: this.config.sessionKey,
         persisted: false,
         storagePath: `${this.config.platform || "platform"}://thread`,
-        claudeSessionId: capturedClaudeSessionId,
       };
     } catch (error) {
       logger.error(

@@ -104,7 +104,6 @@ export interface ThreadResponsePayload {
   originalMessageId?: string;
   moduleData?: Record<string, unknown>;
   botResponseId?: string;
-  claudeSessionId?: string;
   statusUpdate?: {
     status?: string;
     loadingMessages?: string[];

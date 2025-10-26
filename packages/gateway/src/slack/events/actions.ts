@@ -4,10 +4,10 @@ const logger = createLogger("dispatcher");
 
 import type { IModuleRegistry } from "@peerbot/core";
 import type {
+  AnyBlock,
   SlackActionBody,
   SlackContext,
   WebClient,
-  AnyBlock,
 } from "../types";
 import type { MessageHandler } from "./messages";
 

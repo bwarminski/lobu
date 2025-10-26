@@ -265,18 +265,6 @@ describe("BaseWorker", () => {
 
       expect(testWorker.mockCalls.getLoadingMessages).toBe(1);
     });
-
-    test("shows appropriate messages for resumed session", async () => {
-      const configWithResume = {
-        ...mockWorkerConfig,
-        resumeSessionId: "existing-session-id",
-      };
-
-      const resumeWorker = new TestWorker(configWithResume);
-      await resumeWorker.execute();
-
-      expect(resumeWorker.mockCalls.getLoadingMessages).toBe(1);
-    });
   });
 
   describe("Final Result Handling", () => {

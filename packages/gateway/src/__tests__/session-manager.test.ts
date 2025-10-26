@@ -5,8 +5,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ThreadSession } from "@peerbot/core";
-import { SessionManager, RedisSessionStore } from "../services/session-manager";
-import { MockMessageQueue, setupTestEnv, cleanupTestEnv } from "./setup";
+import { RedisSessionStore, SessionManager } from "../services/session-manager";
+import { cleanupTestEnv, MockMessageQueue, setupTestEnv } from "./setup";
 
 describe("SessionManager", () => {
   let mockQueue: MockMessageQueue;

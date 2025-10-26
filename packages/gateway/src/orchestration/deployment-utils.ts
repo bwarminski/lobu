@@ -1,6 +1,6 @@
 import { moduleRegistry } from "@peerbot/core";
-import { platformRegistry } from "../platform";
 import type { PlatformAdapter } from "../platform";
+import { platformRegistry } from "../platform";
 import type {
   DeploymentInfo,
   OrchestratorConfig,

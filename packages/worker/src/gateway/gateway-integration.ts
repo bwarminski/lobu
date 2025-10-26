@@ -18,7 +18,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
   private channelId: string;
   private threadId: string;
   private originalMessageTs: string;
-  private claudeSessionId?: string;
   private botResponseTs?: string;
   public processedMessageIds: string[] = [];
   private jobId?: string;
@@ -39,7 +38,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     channelId: string,
     threadId: string,
     originalMessageTs: string,
-    claudeSessionId: string | undefined = undefined,
     botResponseTs: string | undefined = undefined,
     teamId: string | undefined = undefined,
     processedMessageIds: string[] = []
@@ -50,7 +48,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
     this.channelId = channelId;
     this.threadId = threadId;
     this.originalMessageTs = originalMessageTs;
-    this.claudeSessionId = claudeSessionId;
     this.botResponseTs = botResponseTs;
     this.teamId = teamId;
     this.processedMessageIds = processedMessageIds;
@@ -102,7 +99,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       userId: this.userId,
       timestamp: Date.now(),
       originalMessageId: this.originalMessageTs,
-      claudeSessionId: this.claudeSessionId,
       botResponseId: this.botResponseTs,
       statusUpdate: statusPayload,
     });
@@ -130,7 +126,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       content,
       timestamp: Date.now(),
       originalMessageId: this.originalMessageTs,
-      claudeSessionId: this.claudeSessionId,
       botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
     });
@@ -218,7 +213,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       delta: actualDelta,
       timestamp: Date.now(),
       originalMessageId: this.originalMessageTs,
-      claudeSessionId: this.claudeSessionId,
       botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
       isStreamDelta: true, // Mark as streaming delta
@@ -236,7 +230,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       timestamp: Date.now(),
       originalMessageId: this.originalMessageTs,
       processedMessageIds: this.processedMessageIds,
-      claudeSessionId: this.claudeSessionId,
       botResponseId: this.botResponseTs,
       moduleData: this.moduleData,
       finalContent: this.finalContent, // Include final content
@@ -253,7 +246,6 @@ export class GatewayIntegration implements GatewayIntegrationInterface {
       error: error.message,
       timestamp: Date.now(),
       originalMessageId: this.originalMessageTs,
-      claudeSessionId: this.claudeSessionId,
       botResponseId: this.botResponseTs,
     });
   }

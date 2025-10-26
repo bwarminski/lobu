@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import type { IMessageQueue } from "../infrastructure/queue";
 import { createLogger } from "@peerbot/core";
+import type { IMessageQueue } from "../infrastructure/queue";
 import type { WorkerConnectionManager } from "./connection-manager";
 
 const logger = createLogger("worker-job-router");

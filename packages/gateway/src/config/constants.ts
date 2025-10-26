@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { TIME, REDIS_KEYS, DEFAULTS as CORE_DEFAULTS } from "@peerbot/core";
+import { DEFAULTS as CORE_DEFAULTS, REDIS_KEYS, TIME } from "@peerbot/core";
 
 /**
  * Gateway-specific constants

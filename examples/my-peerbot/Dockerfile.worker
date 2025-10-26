@@ -1,40 +1,5 @@
-FROM oven/bun:1.2.9
-
-# Build argument to control dev/prod behavior
-ARG NODE_ENV=production
-
-WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    bash \
-    openssh-client \
-    jq \
-    sudo \
-    ca-certificates \
-    procps \
-    htop \
-    net-tools \
-    iputils-ping \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy package files and install dependencies
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-
-# Copy source code
-COPY packages/worker/src ./packages/worker/src
-COPY packages/core/src ./packages/core/src
-COPY packages/core/dist ./packages/core/dist
-
-# Build the worker
-RUN bun run build:worker
-
-# Set up workspace directory
-WORKDIR /workspace
-ENV HOME=/workspace
+ARG BASE_VERSION=2.0.0
+FROM buremba/peerbot-worker-base:${BASE_VERSION}
 
 # === CUSTOMIZE BELOW THIS LINE ===
 # This Dockerfile extends the peerbot worker base image with your custom tools and dependencies.

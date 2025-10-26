@@ -63,7 +63,6 @@ export interface WorkerConfig {
   responseId: string; // Platform-agnostic response message ID
   botResponseId?: string; // Bot's response message ID for updates
   agentOptions: string; // JSON string
-  resumeSessionId?: string; // Claude session ID to resume ("continue" or specific ID)
   teamId?: string; // Platform team/workspace ID (e.g., Slack team ID)
   platform?: string; // Platform identifier (e.g., "slack", "discord")
   workspace: {
@@ -152,7 +151,6 @@ export interface SessionExecutionResult extends ExecutionResult {
   sessionKey: string;
   persisted?: boolean;
   storagePath?: string;
-  claudeSessionId?: string;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { createLogger } from "@peerbot/core";
-import type { IMessageQueue } from "../queue";
 import type Redis from "ioredis";
+import type { IMessageQueue } from "../queue";
 
 /**
  * Base class for Redis-backed stores

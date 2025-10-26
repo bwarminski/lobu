@@ -6,9 +6,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { WorkerConnectionManager } from "../gateway/connection-manager";
 import {
+  cleanupTestEnv,
   MockResponse,
   setupTestEnv,
-  cleanupTestEnv,
   TestHelpers,
 } from "./setup";
 

@@ -10,9 +10,9 @@ import {
 } from "../base-deployment-manager";
 import {
   BASE_WORKER_LABELS,
-  ResourceParser,
   buildDeploymentInfoSummary,
   getVeryOldThresholdDays,
+  ResourceParser,
   resolvePlatformDeploymentMetadata,
 } from "../deployment-utils";
 

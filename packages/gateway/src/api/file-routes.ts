@@ -1,10 +1,10 @@
+import { Readable } from "node:stream";
 import { createLogger, verifyWorkerToken } from "@peerbot/core";
 import type { Request, Response } from "express";
 import { Router } from "express";
+import multer from "multer";
 import type { FileHandler } from "../services/file-handler";
 import type { ISessionManager } from "../session";
-import multer from "multer";
-import { Readable } from "node:stream";
 
 const logger = createLogger("file-routes");
 

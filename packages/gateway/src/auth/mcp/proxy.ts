@@ -1,10 +1,10 @@
 import { createLogger, verifyWorkerToken } from "@peerbot/core";
-import type { IMessageQueue } from "../../infrastructure/queue";
 import type { Request, Response } from "express";
+import type { IMessageQueue } from "../../infrastructure/queue";
+import { GenericOAuth2Client } from "../oauth/generic-client";
 import type { McpConfigService } from "./config-service";
 import type { McpCredentialStore } from "./credential-store";
 import type { McpInputStore } from "./input-store";
-import { GenericOAuth2Client } from "../oauth/generic-client";
 import { substituteObject, substituteString } from "./string-substitution";
 
 const logger = createLogger("mcp-proxy");

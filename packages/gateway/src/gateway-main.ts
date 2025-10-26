@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { createLogger } from "@peerbot/core";
-import { platformRegistry, type PlatformAdapter } from "./platform";
 import type { GatewayConfig } from "./config";
+import { type PlatformAdapter, platformRegistry } from "./platform";
 import { CoreServices } from "./services/core-services";
 
 const logger = createLogger("gateway");

@@ -4,9 +4,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ClaudeExecutionOptions, LogLevel } from "@peerbot/core";
 import { createLogger, TIME } from "@peerbot/core";
-import type { OrchestratorConfig } from "../orchestration/base-deployment-manager";
 import { config as dotenvConfig } from "dotenv";
 import { DEFAULTS } from "../config";
+import type { OrchestratorConfig } from "../orchestration/base-deployment-manager";
 import type { SlackConfig } from "../slack";
 
 const logger = createLogger("cli-config");

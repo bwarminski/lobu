@@ -1,6 +1,6 @@
 {
   "name": "create-peerbot",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "CLI for deploying and managing Peerbot across multiple platforms",
   "type": "module",
   "main": "dist/index.js",

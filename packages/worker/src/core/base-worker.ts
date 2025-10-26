@@ -446,18 +446,12 @@ export abstract class BaseWorker implements WorkerExecutor {
 ## File Generation & Output
 
 **When to Create Files:**
-Create and show files for any output that helps answer the user's request:
+Create and show files for any output that helps answer the user's request by using \`show_to_user\` tool:
 - **Charts & visualizations**: pie charts, bar graphs, plots, diagrams
 - **Reports & documents**: analysis reports, summaries, PDFs  
 - **Data files**: CSV exports, JSON data, spreadsheets
 - **Code files**: scripts, configurations, examples
-- **Images**: generated images, processed photos, screenshots
-
-**Rule: Direct Execution = File Output**
-When user gives direct instructions ("create chart", "generate report", "build app"):
-1. Execute the task immediately with tools
-2. Create output file if applicable
-3. Use \`show_to_user\` tool to share the result
+- **Images**: generated images, processed photos, screenshots.
 
 ### Reading User Files
 - Input files from the user: ${workspaceDir}/input/

@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.0](https://github.com/buremba/peerbot/compare/v2.0.0...v2.1.0) (2025-10-27)
+
+
+### Features
+
+* add force npm publish workflow for emergency release ([92965fc](https://github.com/buremba/peerbot/commit/92965fcebda8b3c1d1f7d1d987d66459a71c117b))
+* add Gemini integration and improve gateway/worker architecture ([331cdda](https://github.com/buremba/peerbot/commit/331cddaff94a4ccee01ff4e52e095ea611d9f77b))
+* add manual npm publish workflow for existing releases ([e1c13d4](https://github.com/buremba/peerbot/commit/e1c13d448ca2078f134d38cbfc4934577cdcc8cc))
+* re-enable custom tools and remove unused claudeSessionId tracking ([2adb766](https://github.com/buremba/peerbot/commit/2adb766077f1d688ba93ca1994b260aff3f6e4b8))
+
+
+### Bug Fixes
+
+* build only required packages for npm publishing ([55065a7](https://github.com/buremba/peerbot/commit/55065a773f1d86785732ea2b116447013cbb3d35))
+* simplify manual npm publish to use main branch ([423eb43](https://github.com/buremba/peerbot/commit/423eb436c21445fd42ed99129fd7a89469a00dc7))
+* temporarily disable custom tools to fix npm build ([2065c74](https://github.com/buremba/peerbot/commit/2065c7456cb50bb7f7b8b413d0ec0b9f9509655e))
+
 ## [2.0.0](https://github.com/buremba/peerbot/compare/v1.0.6...v2.0.0) (2025-10-26)
 
 

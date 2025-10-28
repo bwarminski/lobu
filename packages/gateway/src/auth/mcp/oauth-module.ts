@@ -597,7 +597,8 @@ export class McpOAuthModule extends BaseModule {
             scopes: discoveredOAuth.metadata.scopes_supported || [],
             grantType: "authorization_code",
             responseType: "code",
-            tokenEndpointAuthMethod: clientCredentials.token_endpoint_auth_method,
+            tokenEndpointAuthMethod:
+              clientCredentials.token_endpoint_auth_method,
           };
         } else {
           res.status(404).json({ error: "MCP has no OAuth configuration" });
@@ -607,7 +608,9 @@ export class McpOAuthModule extends BaseModule {
 
       // Check if we have valid OAuth config
       if (!oauthConfig) {
-        res.status(400).json({ error: "No OAuth configuration available for this MCP" });
+        res
+          .status(400)
+          .json({ error: "No OAuth configuration available for this MCP" });
         return;
       }
 
@@ -720,7 +723,8 @@ export class McpOAuthModule extends BaseModule {
                 scopes: discoveredOAuth.metadata.scopes_supported || [],
                 grantType: "authorization_code",
                 responseType: "code",
-                tokenEndpointAuthMethod: clientCredentials.token_endpoint_auth_method,
+                tokenEndpointAuthMethod:
+                  clientCredentials.token_endpoint_auth_method,
               };
             }
           }
@@ -767,7 +771,7 @@ export class McpOAuthModule extends BaseModule {
       logger.error("Failed to handle OAuth callback", {
         error,
         errorMessage: error instanceof Error ? error.message : String(error),
-        errorStack: error instanceof Error ? error.stack : undefined
+        errorStack: error instanceof Error ? error.stack : undefined,
       });
       res
         .status(500)

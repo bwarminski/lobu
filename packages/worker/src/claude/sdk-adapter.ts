@@ -332,7 +332,8 @@ export async function runClaudeWithSDK(
 
       const messagePromise = messageIterator.next();
 
-      const result = await Promise.race([messagePromise, 
+      const result = await Promise.race([
+        messagePromise,
         // timeoutPromise
       ]);
 

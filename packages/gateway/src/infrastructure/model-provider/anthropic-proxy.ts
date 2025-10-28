@@ -183,13 +183,10 @@ export class AnthropicProxy {
         const isExpired = credentials.expiresAt <= Date.now() + expiryBuffer;
 
         if (isExpired) {
-          logger.info(
-            `Token expired for user ${userId}, attempting refresh`,
-            {
-              expiresAt: new Date(credentials.expiresAt).toISOString(),
-              now: new Date().toISOString(),
-            }
-          );
+          logger.info(`Token expired for user ${userId}, attempting refresh`, {
+            expiresAt: new Date(credentials.expiresAt).toISOString(),
+            now: new Date().toISOString(),
+          });
 
           // Attempt to refresh the token
           const refreshedToken = await this.refreshUserToken(userId);

@@ -45,6 +45,55 @@ class StreamSession {
     this.teamId = teamId;
   }
 
+  /**
+   * Set "is running..." status indicator
+   */
+  private async setRunningStatus(): Promise<void> {
+    try {
+      await this.slackClient.apiCall("assistant.threads.setStatus", {
+        channel_id: this.channelId,
+        thread_ts: this.threadTs,
+        status: "is running..",
+        loading_messages: [
+          "working on it...",
+          "thinking...",
+          "processing...",
+          "cooking something up...",
+          "crafting a response...",
+          "figuring it out...",
+          "on the case...",
+          "analyzing...",
+          "computing...",
+        ],
+      });
+      logger.info(
+        `Set "is running" status for channel ${this.channelId}, thread ${this.threadTs}`
+      );
+    } catch (error) {
+      // Non-critical
+      logger.warn(`Failed to set running status: ${error}`);
+    }
+  }
+
+  /**
+   * Clear status indicator
+   */
+  private async clearStatus(): Promise<void> {
+    try {
+      await this.slackClient.apiCall("assistant.threads.setStatus", {
+        channel_id: this.channelId,
+        thread_ts: this.threadTs,
+        status: "",
+      });
+      logger.info(
+        `Cleared status for channel ${this.channelId}, thread ${this.threadTs}`
+      );
+    } catch (error) {
+      // Non-critical
+      logger.warn(`Failed to clear status: ${error}`);
+    }
+  }
+
   async appendDelta(
     delta: string,
     isFullReplacement: boolean = false
@@ -101,6 +150,8 @@ class StreamSession {
       logger.info(
         `✅ Stream started with initial content (${delta.length} chars) streamTs=${streamTs}, messageTs=${this.messageTs}`
       );
+
+      await this.setRunningStatus();
 
       return this.messageTs ?? this.streamTs;
     } else {
@@ -176,6 +227,9 @@ class StreamSession {
       logger.info(
         `Stopped Slack stream for channel ${this.channelId}, thread ${this.threadTs}`
       );
+
+      // Clear status indicator now that stream is complete
+      await this.clearStatus();
     }
   }
 
@@ -265,29 +319,6 @@ export class ThreadResponseConsumer {
     this.streamSessionManager = new StreamSessionManager(this.slackClient);
     // Get Redis client from queue connection pool (queue must be started)
     this.redis = this.queue.getRedisClient();
-  }
-
-  /**
-   * Clear thread status indicator
-   */
-  private async clearThreadStatus(
-    channelId: string,
-    threadId: string
-  ): Promise<void> {
-    try {
-      logger.info(
-        `Clearing thread status for channel ${channelId}, thread ${threadId}`
-      );
-      await this.slackClient.apiCall("assistant.threads.setStatus", {
-        channel_id: channelId,
-        thread_ts: threadId,
-        status: "",
-      });
-      logger.info(`Successfully cleared thread status`);
-    } catch (error) {
-      // Non-critical - just log
-      logger.warn(`Failed to clear thread status: ${error}`);
-    }
   }
 
   /**
@@ -418,6 +449,20 @@ export class ThreadResponseConsumer {
           botMessageTs
         );
       }
+
+      // Clear status even if no session exists (handles "is scheduling..." status)
+      try {
+        await this.slackClient.apiCall("assistant.threads.setStatus", {
+          channel_id: data.channelId,
+          thread_ts: data.threadId,
+          status: "",
+        });
+        logger.info(
+          `Cleared status for channel ${data.channelId}, thread ${data.threadId}`
+        );
+      } catch (error) {
+        logger.warn(`Failed to clear status: ${error}`);
+      }
     }
   }
 
@@ -514,8 +559,13 @@ export class ThreadResponseConsumer {
       } else if (data.error) {
         const botMessageTs = existingBotMessageTs || data.botResponseId;
         await this.handleError(data, isFirstResponse, botMessageTs);
-        // Clear status indicator on error
-        await this.clearThreadStatus(data.channelId, data.threadId);
+        // Clean up session and clear status indicator on error
+        await this.completeStreamingSession(
+          data,
+          sessionKey,
+          existingBotMessageTs,
+          isFirstResponse
+        );
       }
 
       // Handle completion
@@ -532,8 +582,7 @@ export class ThreadResponseConsumer {
           existingBotMessageTs,
           isFirstResponse
         );
-        // Clear status indicator
-        await this.clearThreadStatus(data.channelId, data.threadId);
+        // Status is cleared automatically by StreamSession.stop()
       }
     } catch (error: unknown) {
       // Log the error details
@@ -566,9 +615,15 @@ export class ThreadResponseConsumer {
           // 2. The content has validation issues that would likely fail again
           // 3. The worker should handle showing errors in its own stream content
 
-          // Clear status indicator on validation error
-          if (data?.channelId && data?.threadId) {
-            await this.clearThreadStatus(data.channelId, data.threadId);
+          // Clean up session and clear status on validation error
+          if (
+            data?.channelId &&
+            data?.threadId &&
+            data?.userId &&
+            data?.messageId
+          ) {
+            const sessionKey = `${data.userId}:${data.originalMessageId || data.messageId}`;
+            await this.completeStreamingSession(data, sessionKey, null, false);
           }
           return;
         }
@@ -576,9 +631,15 @@ export class ThreadResponseConsumer {
 
       logger.error(`Failed to process thread response job ${job.id}:`, error);
 
-      // Clear status indicator on error
-      if (data?.channelId && data?.threadId) {
-        await this.clearThreadStatus(data.channelId, data.threadId);
+      // Clean up session and clear status on error
+      if (
+        data?.channelId &&
+        data?.threadId &&
+        data?.userId &&
+        data?.messageId
+      ) {
+        const sessionKey = `${data.userId}:${data.originalMessageId || data.messageId}`;
+        await this.completeStreamingSession(data, sessionKey, null, false);
       }
 
       throw error; // Let the queue handle retry logic for other errors

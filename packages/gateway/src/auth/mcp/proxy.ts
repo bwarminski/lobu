@@ -160,6 +160,8 @@ export class McpProxy {
                 scopes: discoveredOAuth.metadata.scopes_supported || [],
                 grantType: "authorization_code",
                 responseType: "code",
+                tokenEndpointAuthMethod:
+                  clientCredentials.token_endpoint_auth_method,
               };
             }
 
@@ -190,6 +192,9 @@ export class McpProxy {
           } catch (error) {
             logger.error("Failed to refresh MCP access token", {
               error,
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+              errorStack: error instanceof Error ? error.stack : undefined,
               userId: tokenData.userId,
               mcpId,
             });

@@ -44,6 +44,16 @@ export class MessageHandler {
         channel_id: channelId,
         thread_ts: threadTs,
         status,
+        loading_messages: [
+          "warming up...",
+          "getting ready...",
+          "thinking about it...",
+          "on it...",
+          "loading...",
+          "waking up...",
+          "brewing some thoughts...",
+          "putting on thinking cap...",
+        ],
       });
       logger.info(`Successfully set thread status "${status}"`);
     } catch (error) {
@@ -185,7 +195,7 @@ export class MessageHandler {
         await this.setThreadStatus(
           context.channelId,
           threadTs,
-          "is thinking..."
+          "is scheduling.."
         );
 
         logger.info(
@@ -228,7 +238,7 @@ export class MessageHandler {
         await this.setThreadStatus(
           context.channelId,
           threadTs,
-          "is thinking..."
+          "is scheduling.."
         );
 
         logger.info(

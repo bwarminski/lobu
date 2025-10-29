@@ -130,11 +130,9 @@ export async function runClaudeWithSDK(
       .join("\n\n");
 
     if (options.systemPrompt && mergedInstructions) {
-      sdkOptions.systemPrompt = {
-        type: "preset",
-        preset: "claude_code",
-        append: mergedInstructions,
-      };
+      // Use custom instructions without Claude Code preset
+      // The preset was not appending our custom instructions correctly
+      sdkOptions.systemPrompt = mergedInstructions;
       logger.info(
         `Using merged instructions: gateway (${gatewayInstructions.length} chars) + worker (${options.appendSystemPrompt?.length || 0} chars)`
       );

@@ -8,7 +8,7 @@ export class SlackInstructionProvider implements InstructionProvider {
   priority = 20;
 
   getInstructions(_context: InstructionContext): string {
-    return `## Slack Formatting & Interactivity
+    return `## Interactivity
 
 **NEVER create HTML files** - always use BlockKit for forms/UIs.
 

@@ -3,13 +3,13 @@
 import type { IModuleRegistry } from "@peerbot/core";
 import { createLogger } from "@peerbot/core";
 import type { App } from "@slack/bolt";
-import type { WebClient } from "@slack/web-api";
 import type {
   FileDeletedEvent,
   FileSharedEvent,
   GenericMessageEvent,
   View,
 } from "@slack/types";
+import type { WebClient } from "@slack/web-api";
 import type { QueueProducer } from "../infrastructure/queue";
 import type { InteractionService } from "../interactions";
 import type { PlatformAdapter } from "../platform";

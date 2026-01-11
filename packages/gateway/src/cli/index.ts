@@ -4,10 +4,11 @@ import { ConfigError, createLogger, initSentry } from "@peerbot/core";
 import { Command } from "commander";
 import {
   buildGatewayConfig,
-  buildSlackConfig,
-  displayConfig,
+  displayGatewayConfig,
   loadEnvFile,
 } from "../config";
+import { buildSlackConfig, displaySlackConfig } from "../slack/config";
+import { buildWhatsAppConfig, displayWhatsAppConfig } from "../whatsapp/config";
 import { startGateway } from "./gateway";
 
 const logger = createLogger("cli");
@@ -24,7 +25,30 @@ async function main() {
   program
     .name("peerbot-gateway")
     .description("Peerbot gateway service - connects Slack to Claude workers")
-    .version("1.0.0")
+    .version("1.0.0");
+
+  // WhatsApp setup command
+  program
+    .command("whatsapp-setup")
+    .description(
+      "One-time WhatsApp QR code setup - outputs WHATSAPP_CREDENTIALS"
+    )
+    .action(async () => {
+      try {
+        const { runWhatsAppSetup } = await import("../whatsapp/setup");
+        await runWhatsAppSetup();
+        process.exit(0);
+      } catch (error) {
+        logger.error(
+          "WhatsApp setup failed:",
+          error instanceof Error ? error.message : String(error)
+        );
+        process.exit(1);
+      }
+    });
+
+  // Main gateway command (default)
+  program
     .option("--env <path>", "Path to .env file (default: .env)")
     .option("--validate", "Validate configuration and exit")
     .option("--show-config", "Display parsed configuration and exit")
@@ -36,22 +60,27 @@ async function main() {
         // Build configuration from environment
         const config = buildGatewayConfig();
         const slackConfig = buildSlackConfig();
+        const whatsappConfig = buildWhatsAppConfig();
 
         // Handle --validate flag
         if (options.validate) {
           console.log("✅ Configuration is valid");
-          displayConfig(config, slackConfig);
+          displayGatewayConfig(config);
+          displaySlackConfig(slackConfig);
+          displayWhatsAppConfig(whatsappConfig);
           process.exit(0);
         }
 
         // Handle --show-config flag
         if (options.showConfig) {
-          displayConfig(config, slackConfig);
+          displayGatewayConfig(config);
+          displaySlackConfig(slackConfig);
+          displayWhatsAppConfig(whatsappConfig);
           process.exit(0);
         }
 
         // Start the gateway
-        await startGateway(config, slackConfig);
+        await startGateway(config, slackConfig, whatsappConfig);
       } catch (error) {
         if (error instanceof ConfigError) {
           logger.error("❌ Configuration error:", error.message);

@@ -1,9 +1,20 @@
 import type Redis from "ioredis";
 import { OAuthStateStore } from "../oauth/state-store";
 
+/**
+ * Context for routing auth completion back to the originating platform.
+ */
+export interface OAuthPlatformContext {
+  platform: string;
+  channelId: string; // chatJid for WhatsApp, channel for Slack
+  threadId?: string;
+}
+
 interface ClaudeOAuthStateData {
   userId: string;
+  spaceId: string;
   codeVerifier: string;
+  context?: OAuthPlatformContext;
 }
 
 interface OAuthState extends ClaudeOAuthStateData {
@@ -32,8 +43,13 @@ export class ClaudeOAuthStateStore {
    * Create a new OAuth state with PKCE code verifier
    * Returns the state string to use in OAuth flow
    */
-  async create(userId: string, codeVerifier: string): Promise<string> {
-    return this.store.create({ userId, codeVerifier });
+  async create(
+    userId: string,
+    spaceId: string,
+    codeVerifier: string,
+    context?: OAuthPlatformContext
+  ): Promise<string> {
+    return this.store.create({ userId, spaceId, codeVerifier, context });
   }
 
   /**

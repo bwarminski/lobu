@@ -1,8 +1,19 @@
-import type {
-  OAuthErrorResponse,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { OAuth2Config } from "../mcp/config-service";
+
+// Local type definitions to avoid dependency on MCP SDK internal paths
+interface OAuthTokens {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  refresh_token?: string;
+  scope?: string;
+}
+
+interface OAuthErrorResponse {
+  error: string;
+  error_description?: string;
+  error_uri?: string;
+}
 import type { McpCredentialRecord } from "../mcp/credential-store";
 import { BaseOAuth2Client } from "./base-client";
 

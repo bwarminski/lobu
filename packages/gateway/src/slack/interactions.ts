@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 import {
   createLogger,
   type FieldSchema,
@@ -9,52 +7,13 @@ import {
 import type { Block } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type { InteractionService } from "../interactions";
+import {
+  getFieldLabel,
+  getInteractionType,
+} from "../platform/interaction-utils";
 import { convertMarkdownToSlack } from "./converters/markdown";
 
 const logger = createLogger("slack-interactions");
-
-// ============================================================================
-// SHARED UTILITIES
-// ============================================================================
-
-/**
- * Determine interaction type from options
- */
-function getInteractionType(
-  options: any
-): "radio" | "single-form" | "multi-section" {
-  if (Array.isArray(options)) {
-    // Check if it's an array of strings (simple radio) or array of form objects (multi-section)
-    if (options.length === 0) {
-      return "radio";
-    }
-
-    const firstItem = options[0];
-
-    // Multi-form workflow: Array<{label: string, fields: Record<string, FieldSchema>}>
-    if (
-      typeof firstItem === "object" &&
-      firstItem !== null &&
-      "label" in firstItem &&
-      "fields" in firstItem
-    ) {
-      // If there's only one section, treat it as single-form (no need for section navigation)
-      return options.length === 1 ? "single-form" : "multi-section";
-    }
-
-    // Simple radio buttons: string[]
-    return "radio";
-  }
-
-  // Check if it's a single form (Record<string, FieldSchema>)
-  const firstValue = Object.values(options)[0];
-  if (firstValue && typeof firstValue === "object" && "type" in firstValue) {
-    return "single-form"; // Record<string, FieldSchema>
-  }
-
-  // Multi-section form (Record<string, Record<string, FieldSchema>>)
-  return "multi-section";
-}
 
 /**
  * Build Slack input block from field schema
@@ -64,8 +23,7 @@ function buildFieldBlock(
   fieldSchema: FieldSchema,
   value?: any
 ): any {
-  const label =
-    fieldSchema.label || fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+  const label = getFieldLabel(fieldName, fieldSchema);
   const blockId = `field_${fieldName}`;
 
   if (fieldSchema.type === "text" || fieldSchema.type === "textarea") {
@@ -244,6 +202,29 @@ function extractFormData(stateValues: any): Record<string, any> {
   return formData;
 }
 
+/**
+ * Extract fields from interaction options.
+ * Handles both direct Record format and array with single item format.
+ */
+function extractFieldsFromOptions(
+  options: unknown
+): Record<string, FieldSchema> {
+  if (Array.isArray(options) && options.length === 1) {
+    const firstItem = options[0];
+    if (
+      typeof firstItem === "object" &&
+      firstItem !== null &&
+      "fields" in firstItem
+    ) {
+      return (
+        firstItem as { label: string; fields: Record<string, FieldSchema> }
+      ).fields;
+    }
+    return {};
+  }
+  return options as Record<string, FieldSchema>;
+}
+
 // ============================================================================
 // SLACK INTERACTION RENDERER
 // ============================================================================
@@ -417,28 +398,7 @@ export class SlackInteractionRenderer {
     interaction: UserInteraction,
     question: string
   ): { text: string; blocks: Block[] } {
-    // Handle both formats: direct Record or array with one item
-    let fields: Record<string, FieldSchema>;
-
-    if (
-      Array.isArray(interaction.options) &&
-      interaction.options.length === 1
-    ) {
-      const firstItem = interaction.options[0];
-      if (
-        typeof firstItem === "object" &&
-        firstItem !== null &&
-        "fields" in firstItem
-      ) {
-        fields = (
-          firstItem as { label: string; fields: Record<string, FieldSchema> }
-        ).fields;
-      } else {
-        fields = {};
-      }
-    } else {
-      fields = interaction.options as Record<string, FieldSchema>;
-    }
+    const fields = extractFieldsFromOptions(interaction.options);
 
     const blocks: any[] = [
       {
@@ -618,30 +578,7 @@ export class SlackInteractionRenderer {
         },
       });
     } else if (type === "single-form") {
-      // Show form data as disabled fields
-      // Handle both formats: direct Record or array with one item
-      let fields: Record<string, FieldSchema>;
-
-      if (
-        Array.isArray(interaction.options) &&
-        interaction.options.length === 1
-      ) {
-        const firstItem = interaction.options[0];
-        if (
-          typeof firstItem === "object" &&
-          firstItem !== null &&
-          "fields" in firstItem
-        ) {
-          fields = (
-            firstItem as { label: string; fields: Record<string, FieldSchema> }
-          ).fields;
-        } else {
-          fields = {};
-        }
-      } else {
-        fields = interaction.options as Record<string, FieldSchema>;
-      }
-
+      const fields = extractFieldsFromOptions(interaction.options);
       const formData = interaction.response?.formData || {};
 
       const fieldDisplays = Object.entries(fields)
@@ -676,15 +613,17 @@ export class SlackInteractionRenderer {
           )
         : (interaction.options as Record<string, Record<string, FieldSchema>>);
 
+      // Note: formData is FLATTENED by submitAllForms (all fields in one object)
+      // not nested by section like { Section1: { field1: "val" } }
       const allData = interaction.response?.formData || {};
 
       for (const [sectionName, fields] of Object.entries(sections)) {
-        const sectionData = allData[sectionName] || {};
+        // Access fields directly from flattened allData, not from nested structure
         const fieldDisplays = Object.entries(fields)
           .map(([fieldName, fieldSchema]) =>
             buildDisabledFieldDisplay(
               fieldName,
-              sectionData[fieldName],
+              allData[fieldName], // Changed from allData[sectionName][fieldName]
               fieldSchema.label
             )
           )

@@ -7,11 +7,13 @@ import type {
 } from "@peerbot/core";
 import type { ClaudeCredentialStore } from "./auth/claude/credential-store";
 import type { ClaudeModelPreferenceStore } from "./auth/claude/model-preference-store";
+import type { ClaudeOAuthStateStore } from "./auth/claude/oauth-state-store";
 import type { McpProxy } from "./auth/mcp/proxy";
 import type { WorkerGateway } from "./gateway";
 import type { AnthropicProxy } from "./infrastructure/model-provider";
 import type { IMessageQueue, QueueProducer } from "./infrastructure/queue";
 import type { InteractionService } from "./interactions";
+import type { ResponseRenderer } from "./platform/response-renderer";
 import type { InstructionService } from "./services/instruction-service";
 import type { ISessionManager } from "./session";
 
@@ -31,6 +33,8 @@ export interface CoreServices {
   getMcpProxy(): McpProxy | undefined;
   getClaudeCredentialStore(): ClaudeCredentialStore | undefined;
   getClaudeModelPreferenceStore(): ClaudeModelPreferenceStore | undefined;
+  getClaudeOAuthStateStore(): ClaudeOAuthStateStore | undefined;
+  getPublicGatewayUrl(): string;
   getSessionManager(): ISessionManager;
   getInstructionService(): InstructionService | undefined;
   getInteractionService(): InteractionService;
@@ -189,6 +193,15 @@ export interface PlatformAdapter {
       metadata?: Record<string, any>;
     }>
   ): Promise<void>;
+
+  /**
+   * Get the response renderer for this platform.
+   * Used by the unified thread response consumer to route responses
+   * to platform-specific rendering logic.
+   *
+   * @returns ResponseRenderer instance or undefined if platform handles responses differently
+   */
+  getResponseRenderer?(): ResponseRenderer | undefined;
 }
 
 // ============================================================================

@@ -12,13 +12,21 @@ import { WebClient } from "@slack/web-api";
 import type { NextFunction, Request, Response } from "express";
 import type { MessagePayload } from "../infrastructure/queue/queue-producer";
 import type { CoreServices, PlatformAdapter } from "../platform";
-import { FileHandler } from "../services/file-handler";
+import {
+  type AgentOptions as FactoryAgentOptions,
+  type PlatformConfigs,
+  type PlatformFactory,
+  platformFactoryRegistry,
+} from "../platform/platform-factory";
+import type { ResponseRenderer } from "../platform/response-renderer";
+import { resolveSpace } from "../spaces";
 import type { AgentOptions, SlackPlatformConfig } from "./config";
 import { SlackEventHandlers } from "./event-router";
+import { SlackFileHandler } from "./file-handler";
 import { SocketHealthMonitor } from "./health/socket-health-monitor";
 import { SlackInstructionProvider } from "./instructions/provider";
 import { SlackInteractionRenderer } from "./interactions";
-import { ThreadResponseConsumer } from "./thread-processor";
+import { SlackResponseRenderer } from "./response-renderer";
 
 const logger = createLogger("slack-platform");
 
@@ -32,10 +40,10 @@ export class SlackPlatform implements PlatformAdapter {
 
   private app!: App;
   private receiver?: ExpressReceiver;
-  private threadResponseConsumer?: ThreadResponseConsumer;
+  private responseRenderer?: SlackResponseRenderer;
   private socketHealthMonitor?: SocketHealthMonitor;
   private services!: CoreServices;
-  private fileHandler?: FileHandler;
+  private fileHandler?: SlackFileHandler;
   private interactionRenderer?: SlackInteractionRenderer;
 
   constructor(
@@ -126,12 +134,12 @@ export class SlackPlatform implements PlatformAdapter {
     await this.initializeBotInfo();
 
     // Create file handler
-    this.fileHandler = new FileHandler(this.app.client);
+    this.fileHandler = new SlackFileHandler(this.app.client);
 
-    // Create thread response consumer
-    this.threadResponseConsumer = new ThreadResponseConsumer(
+    // Create response renderer for unified thread consumer
+    this.responseRenderer = new SlackResponseRenderer(
       services.getQueue(),
-      this.config.slack.token,
+      this.app.client,
       moduleRegistry
     );
 
@@ -150,10 +158,7 @@ export class SlackPlatform implements PlatformAdapter {
         logger.info(
           `Stopping stream for thread ${threadId} before creating interaction`
         );
-        await this.threadResponseConsumer?.stopStreamForThread(
-          userId,
-          threadId
-        );
+        await this.responseRenderer?.stopStreamForThread(userId, threadId);
       }
     );
     logger.info("✅ Stream stop hook registered for interactions");
@@ -191,11 +196,6 @@ export class SlackPlatform implements PlatformAdapter {
   async start(): Promise<void> {
     logger.info("Starting Slack platform...");
 
-    // Start thread response consumer
-    if (this.threadResponseConsumer) {
-      await this.threadResponseConsumer.start();
-    }
-
     // Start Slack app
     if (this.config.slack.socketMode === false) {
       await this.initializeHttpMode();
@@ -223,11 +223,6 @@ export class SlackPlatform implements PlatformAdapter {
     // Stop Slack app
     await this.app.stop();
 
-    // Stop thread response consumer
-    if (this.threadResponseConsumer) {
-      await this.threadResponseConsumer.stop();
-    }
-
     logger.info("✅ Slack platform stopped");
   }
 
@@ -247,9 +242,16 @@ export class SlackPlatform implements PlatformAdapter {
   }
 
   /**
+   * Get the response renderer for unified thread consumer
+   */
+  getResponseRenderer(): ResponseRenderer | undefined {
+    return this.responseRenderer;
+  }
+
+  /**
    * Get file handler for this platform
    */
-  getFileHandler(): FileHandler | undefined {
+  getFileHandler(): SlackFileHandler | undefined {
     return this.fileHandler;
   }
 
@@ -639,6 +641,15 @@ export class SlackPlatform implements PlatformAdapter {
     const testUserId =
       process.env.TEST_USER_ID || process.env.SLACK_ADMIN_USER_ID || botUserId;
 
+    // Resolve spaceId for multi-tenant isolation
+    const isDirectMessage = channelId.startsWith("D");
+    const { spaceId } = resolveSpace({
+      platform: "slack",
+      userId: testUserId,
+      channelId,
+      isGroup: !isDirectMessage,
+    });
+
     // Build payload matching MessagePayload structure
     const payload: MessagePayload = {
       platform: "slack",
@@ -646,6 +657,7 @@ export class SlackPlatform implements PlatformAdapter {
       botId: this.config.slack.botId || "",
       threadId,
       teamId: teamId || "",
+      spaceId,
       messageId,
       messageText: message,
       channelId,
@@ -983,3 +995,38 @@ export class SlackPlatform implements PlatformAdapter {
     process.on("SIGTERM", cleanup);
   }
 }
+
+/**
+ * Slack platform factory for declarative registration.
+ */
+const slackFactory: PlatformFactory = {
+  name: "slack",
+
+  isEnabled(configs: PlatformConfigs): boolean {
+    return !!configs.slack?.token;
+  },
+
+  create(
+    configs: PlatformConfigs,
+    agentOptions: FactoryAgentOptions,
+    sessionTimeoutMinutes: number
+  ) {
+    const platformConfig: SlackPlatformConfig = {
+      slack: configs.slack,
+      logLevel: configs.logLevel || configs.slack?.logLevel,
+      health: configs.health || {
+        checkIntervalMs: 30000,
+        staleThresholdMs: 300000,
+        protectActiveWorkers: true,
+      },
+    };
+    return new SlackPlatform(
+      platformConfig,
+      agentOptions as AgentOptions,
+      sessionTimeoutMinutes
+    );
+  },
+};
+
+// Register factory on module load
+platformFactoryRegistry.register(slackFactory);

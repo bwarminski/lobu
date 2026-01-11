@@ -54,33 +54,37 @@ export class McpOAuthModule extends BaseModule {
 
   /**
    * Generate a secure token for OAuth init URL
-   * Token contains encrypted userId, mcpId, and expiry
+   * Token contains encrypted userId, spaceId, mcpId, and expiry
    */
-  private generateSecureToken(userId: string, mcpId: string): string {
+  private generateSecureToken(
+    userId: string,
+    spaceId: string,
+    mcpId: string
+  ): string {
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-    const payload = JSON.stringify({ userId, mcpId, expiresAt });
+    const payload = JSON.stringify({ userId, spaceId, mcpId, expiresAt });
     return encrypt(payload);
   }
 
   /**
    * Validate and decode a secure token
-   * Returns { userId, mcpId } if valid, null if invalid or expired
+   * Returns { userId, spaceId, mcpId } if valid, null if invalid or expired
    */
   private validateSecureToken(
     token: string
-  ): { userId: string; mcpId: string } | null {
+  ): { userId: string; spaceId: string; mcpId: string } | null {
     try {
       const decrypted = decrypt(token);
       const data = JSON.parse(decrypted);
-      const { userId, mcpId, expiresAt } = data;
+      const { userId, spaceId, mcpId, expiresAt } = data;
 
       // Check expiry
       if (Date.now() > expiresAt) {
-        logger.warn("Token expired", { userId, mcpId });
+        logger.warn("Token expired", { userId, spaceId, mcpId });
         return null;
       }
 
-      return { userId, mcpId };
+      return { userId, spaceId, mcpId };
     } catch (error) {
       logger.error("Failed to validate token", { error });
       return null;
@@ -116,7 +120,10 @@ export class McpOAuthModule extends BaseModule {
    * Get platform-agnostic authentication status for all MCP servers
    * Returns abstract provider data that can be rendered by any platform adapter
    */
-  async getAuthStatus(userId: string): Promise<
+  async getAuthStatus(
+    userId: string,
+    spaceId: string
+  ): Promise<
     Array<{
       id: string;
       name: string;
@@ -127,7 +134,7 @@ export class McpOAuthModule extends BaseModule {
     }>
   > {
     try {
-      const mcpStatuses = await this.getMcpStatuses(userId);
+      const mcpStatuses = await this.getMcpStatuses(spaceId);
 
       return mcpStatuses.map((mcp) => {
         const provider: {
@@ -153,14 +160,14 @@ export class McpOAuthModule extends BaseModule {
           !mcp.isAuthenticated &&
           (mcp.authType === "oauth" || mcp.authType === "discovered-oauth")
         ) {
-          const token = this.generateSecureToken(userId, mcp.id);
+          const token = this.generateSecureToken(userId, spaceId, mcp.id);
           provider.loginUrl = `${this.publicGatewayUrl}/mcp/oauth/init/${mcp.id}?token=${encodeURIComponent(token)}`;
         }
 
         return provider;
       });
     } catch (error) {
-      logger.error("Failed to get MCP auth status", { error, userId });
+      logger.error("Failed to get MCP auth status", { error, userId, spaceId });
       return [];
     }
   }
@@ -173,6 +180,12 @@ export class McpOAuthModule extends BaseModule {
     userId: string,
     context: any
   ): Promise<boolean> {
+    const spaceId = context.spaceId;
+    if (!spaceId) {
+      logger.error("Missing spaceId in action context", { actionId, userId });
+      return false;
+    }
+
     // Handle configure button (inputs)
     if (actionId.startsWith("mcp_configure_")) {
       const mcpId = actionId.replace("mcp_configure_", "");
@@ -188,8 +201,8 @@ export class McpOAuthModule extends BaseModule {
           return false;
         }
 
-        // Build modal with input fields
-        const modal = this.buildInputModal(mcpId, httpServer.inputs);
+        // Build modal with input fields (include spaceId in metadata)
+        const modal = this.buildInputModal(mcpId, spaceId, httpServer.inputs);
 
         // Open modal
         if (context.client && context.body?.trigger_id) {
@@ -199,13 +212,16 @@ export class McpOAuthModule extends BaseModule {
           });
         }
 
-        logger.info(`Opened input modal for user ${userId}, MCP ${mcpId}`);
+        logger.info(
+          `Opened input modal for user ${userId}, space ${spaceId}, MCP ${mcpId}`
+        );
         return true;
       } catch (error) {
         logger.error("Failed to handle configure action", {
           error,
           mcpId,
           userId,
+          spaceId,
         });
         return false;
       }
@@ -216,10 +232,10 @@ export class McpOAuthModule extends BaseModule {
       const mcpId = actionId.replace("mcp_logout_", "");
 
       // Delete both OAuth credentials and input values
-      await this.credentialStore.deleteCredentials(userId, mcpId);
-      await this.inputStore.deleteInputs(userId, mcpId);
+      await this.credentialStore.deleteCredentials(spaceId, mcpId);
+      await this.inputStore.deleteInputs(spaceId, mcpId);
 
-      logger.info(`User ${userId} logged out/cleared from ${mcpId}`);
+      logger.info(`Space ${spaceId} logged out/cleared from ${mcpId}`);
 
       // Update home tab
       if (context.updateAppHome) {
@@ -242,12 +258,14 @@ export class McpOAuthModule extends BaseModule {
     privateMetadata: string
   ): Promise<void> {
     try {
-      // Parse metadata to get mcpId
+      // Parse metadata to get mcpId and spaceId
       const metadata = JSON.parse(privateMetadata);
-      const mcpId = metadata.mcpId;
+      const { mcpId, spaceId } = metadata;
 
-      if (!mcpId) {
-        logger.error("No mcpId in modal metadata");
+      if (!mcpId || !spaceId) {
+        logger.error("Missing mcpId or spaceId in modal metadata", {
+          metadata,
+        });
         return;
       }
 
@@ -264,9 +282,9 @@ export class McpOAuthModule extends BaseModule {
         }
       }
 
-      // Store input values
-      await this.inputStore.setInputs(userId, mcpId, inputValues);
-      logger.info(`Stored input values for user ${userId}, MCP ${mcpId}`);
+      // Store input values using spaceId
+      await this.inputStore.setInputs(spaceId, mcpId, inputValues);
+      logger.info(`Stored input values for space ${spaceId}, MCP ${mcpId}`);
     } catch (error) {
       logger.error("Failed to handle view submission", { error, userId });
       throw error;
@@ -276,7 +294,7 @@ export class McpOAuthModule extends BaseModule {
   /**
    * Build Slack modal for collecting input values
    */
-  private buildInputModal(mcpId: string, inputs: any[]): any {
+  private buildInputModal(mcpId: string, spaceId: string, inputs: any[]): any {
     const blocks: any[] = [];
 
     // Add input blocks for each required input
@@ -302,7 +320,7 @@ export class McpOAuthModule extends BaseModule {
     return {
       type: "modal",
       callback_id: `mcp_input_modal_${mcpId}`,
-      private_metadata: JSON.stringify({ mcpId }),
+      private_metadata: JSON.stringify({ mcpId, spaceId }),
       title: {
         type: "plain_text",
         text: `Configure ${formatMcpName(mcpId)}`,
@@ -320,11 +338,13 @@ export class McpOAuthModule extends BaseModule {
   }
 
   /**
-   * Get status of all configured MCP servers for a user
+   * Get status of all configured MCP servers for a space
    */
-  private async getMcpStatuses(userId: string): Promise<McpStatus[]> {
+  private async getMcpStatuses(spaceId: string): Promise<McpStatus[]> {
     const httpServers = await this.configService.getAllHttpServers();
-    logger.info(`getMcpStatuses: Found ${httpServers.size} HTTP servers`);
+    logger.info(
+      `getMcpStatuses: Found ${httpServers.size} HTTP servers for space ${spaceId}`
+    );
 
     const statuses: McpStatus[] = [];
 
@@ -359,7 +379,7 @@ export class McpOAuthModule extends BaseModule {
         // Check OAuth credentials (works for static and discovered OAuth)
         authType = hasOAuth ? "oauth" : "discovered-oauth";
         const credentials = await this.credentialStore.getCredentials(
-          userId,
+          spaceId,
           id
         );
         // Show as authenticated if credentials exist, even if expired
@@ -369,7 +389,7 @@ export class McpOAuthModule extends BaseModule {
       } else {
         // Input-based authentication
         authType = "inputs";
-        const inputValues = await this.inputStore.getInputs(userId, id);
+        const inputValues = await this.inputStore.getInputs(spaceId, id);
         isAuthenticated = !!inputValues;
       }
 
@@ -416,7 +436,7 @@ export class McpOAuthModule extends BaseModule {
       return;
     }
 
-    const userId = tokenData.userId;
+    const { userId, spaceId } = tokenData;
 
     try {
       // Get MCP config
@@ -513,8 +533,8 @@ export class McpOAuthModule extends BaseModule {
         return;
       }
 
-      // Generate and store state
-      const state = await this.stateStore.create({ userId, mcpId });
+      // Generate and store state (include spaceId for credential storage)
+      const state = await this.stateStore.create({ userId, spaceId, mcpId });
 
       // Build OAuth URL
       const loginUrl = this.oauth2Client.buildAuthUrl(
@@ -525,7 +545,9 @@ export class McpOAuthModule extends BaseModule {
 
       // Redirect to OAuth provider
       res.redirect(loginUrl);
-      logger.info(`Initiated OAuth for user ${userId}, MCP ${mcpId}`);
+      logger.info(
+        `Initiated OAuth for user ${userId}, space ${spaceId}, MCP ${mcpId}`
+      );
     } catch (error) {
       logger.error("Failed to init OAuth", { error, mcpId, userId });
       res.status(500).json({ error: "Failed to initialize OAuth" });
@@ -655,13 +677,13 @@ export class McpOAuthModule extends BaseModule {
       // Store credentials without TTL to preserve refresh token
       // Even if access token expires, we keep credentials so we can refresh
       await this.credentialStore.setCredentials(
-        stateData.userId,
+        stateData.spaceId,
         stateData.mcpId,
         credentials
       );
 
       logger.info(
-        `OAuth successful for user ${stateData.userId}, MCP ${stateData.mcpId}`
+        `OAuth successful for space ${stateData.spaceId}, MCP ${stateData.mcpId}`
       );
 
       // Show success page
@@ -688,19 +710,19 @@ export class McpOAuthModule extends BaseModule {
    */
   private async handleLogout(req: Request, res: Response): Promise<void> {
     const { mcpId } = req.params;
-    const userId = req.body.userId || req.query.userId;
+    const spaceId = req.body.spaceId || req.query.spaceId;
 
-    if (!userId) {
-      res.status(400).json({ error: "Missing userId" });
+    if (!spaceId) {
+      res.status(400).json({ error: "Missing spaceId" });
       return;
     }
 
     try {
-      await this.credentialStore.deleteCredentials(userId as string, mcpId!);
-      logger.info(`User ${userId} logged out from ${mcpId}`);
+      await this.credentialStore.deleteCredentials(spaceId as string, mcpId!);
+      logger.info(`Space ${spaceId} logged out from ${mcpId}`);
       res.json({ success: true });
     } catch (error) {
-      logger.error("Failed to logout", { error, mcpId, userId });
+      logger.error("Failed to logout", { error, mcpId, spaceId });
       res.status(500).json({ error: "Failed to logout" });
     }
   }

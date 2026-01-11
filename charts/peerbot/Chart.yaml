@@ -43,3 +43,8 @@ dependencies:
     version: "0.4.0"
     repository: oci://ghcr.io/spegel-org/helm-charts
     condition: spegel.enabled
+  # Redis for message queues and state management
+  - name: redis
+    version: "~20.x"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: redis.enabled

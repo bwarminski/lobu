@@ -16,6 +16,7 @@ export interface MessagePayload {
   messageId: string; // Individual message ID
   channelId: string; // Platform channel ID
   teamId: string; // Team/workspace ID (required for all platforms)
+  spaceId: string; // Space ID for multi-tenant isolation (user-{hash} or group-{hash})
 
   // Bot & platform info (passed through to worker)
   botId: string; // Bot identifier

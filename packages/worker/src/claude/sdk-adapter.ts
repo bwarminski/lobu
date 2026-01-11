@@ -66,6 +66,7 @@ const TOOL_APPROVAL_OPTIONS = [
 // Also auto-allow AskUserQuestion since it's specifically for asking the user questions
 // File operations (Write, Edit) are safe in sandboxed environment
 const AUTO_ALLOW_TOOLS = [
+  "Bash",
   "Read",
   "Write",
   "Edit",
@@ -147,7 +148,7 @@ export async function runClaudeWithSDK(
     const sdkOptions: SDKOptions = {
       model: options.model,
       cwd: workingDirectory || process.cwd(),
-      permissionMode: "plan", // Start in plan mode - Claude plans without executing
+      permissionMode: "default", // Normal execution mode - tools run with canUseTool callback
       strictMcpConfig: false, // Allow MCP failures without stopping execution
       env: {
         ...process.env,
@@ -336,9 +337,27 @@ export async function runClaudeWithSDK(
 
         try {
           isWaitingForInteraction = true;
+
+          // Format tool input for display
+          let inputSummary = "";
+          if (input) {
+            if (typeof input === "string") {
+              inputSummary = input;
+            } else if (input.command) {
+              // Bash tool
+              inputSummary = `\`${input.command}\``;
+            } else if (input.file_path) {
+              // File operations
+              inputSummary = input.file_path;
+            } else {
+              // Generic JSON display
+              inputSummary = JSON.stringify(input, null, 2);
+            }
+          }
+
           const toolResponse = await client.askUser({
             interactionType: "tool_approval",
-            question: `Claude wants to execute the \`${toolName}\` tool. Do you want to allow this?`,
+            question: `Claude wants to execute \`${toolName}\`:\n${inputSummary}\n\nAllow this?`,
             options: TOOL_APPROVAL_OPTIONS as any,
             metadata: {
               toolName,

@@ -14,19 +14,24 @@ const logger = createLogger("orchestrator");
 /**
  * Generate a consistent deployment name from user ID and thread ID
  * This ensures all messages in the same thread use the same worker
+ * K8s names must be lowercase alphanumeric with hyphens only
  */
 export function generateDeploymentName(
   userId: string,
   threadId: string
 ): string {
-  const shortThreadId = threadId.replace(".", "-").slice(-10);
-  const shortUserId = userId.toLowerCase().slice(0, 8);
+  // Sanitize threadId: replace dots with hyphens, lowercase, take last 10 chars
+  const shortThreadId = threadId.replace(".", "-").toLowerCase().slice(-10);
+  // Sanitize userId: remove non-alphanumeric, lowercase, take first 8 chars
+  const sanitizedUserId = userId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  const shortUserId = sanitizedUserId.slice(0, 8);
   return `peerbot-worker-${shortUserId}-${shortThreadId}`;
 }
 
 // Type for module environment variable builder function
 export type ModuleEnvVarsBuilder = (
   userId: string,
+  spaceId: string,
   envVars: Record<string, string>
 ) => Promise<Record<string, string>>;
 
@@ -44,7 +49,7 @@ export interface OrchestratorConfig {
       tag: string;
       pullPolicy: string;
     };
-    runtimeClassName: string;
+    runtimeClassName?: string; // Optional - if not set or unavailable, uses default container runtime
     resources: {
       requests: { cpu: string; memory: string };
       limits: { cpu: string; memory: string };
@@ -215,11 +220,18 @@ export abstract class BaseDeploymentManager {
     }
 
     // Generate worker authentication token with platform info
+    // Check both top-level teamId (WhatsApp) and platformMetadata.teamId (Slack)
+    const teamId = messageData.teamId || platformMetadata?.teamId;
+    const spaceId = messageData.spaceId || threadId; // Fall back to threadId for backwards compatibility
     const workerToken = generateWorkerToken(userId, threadId, deploymentName, {
       channelId,
-      teamId: platformMetadata?.teamId,
+      teamId,
       platform: messageData.platform,
+      spaceId,
     });
+
+    // Get the dispatcher host for proxy configuration
+    const dispatcherHost = this.getDispatcherHost();
 
     let envVars: { [key: string]: string } = {
       USER_ID: userId,
@@ -231,9 +243,20 @@ export abstract class BaseDeploymentManager {
       LOG_LEVEL: "info",
       WORKSPACE_DIR: "/workspace",
       THREAD_ID: threadId,
+      SPACE_ID: spaceId,
       // Worker authentication and communication
       WORKER_TOKEN: workerToken,
       DISPATCHER_URL: this.getDispatcherUrl(),
+      // Node environment - always production for workers (they have read-only filesystem)
+      NODE_ENV: "production",
+      // Enable SDK debugging for crash investigation
+      DEBUG: "1",
+      // HTTP proxy configuration for network isolation
+      // Workers must route all external traffic through the gateway proxy
+      HTTP_PROXY: `http://${dispatcherHost}:8118`,
+      HTTPS_PROXY: `http://${dispatcherHost}:8118`,
+      // Don't proxy internal services
+      NO_PROXY: `${dispatcherHost},redis,localhost,127.0.0.1`,
     };
 
     // Add optional environment variables only if they exist
@@ -245,7 +268,7 @@ export abstract class BaseDeploymentManager {
     if (includeSecrets && this.moduleEnvVarsBuilder) {
       // Add module-specific environment variables
       try {
-        envVars = await this.moduleEnvVarsBuilder(userId, envVars);
+        envVars = await this.moduleEnvVarsBuilder(userId, spaceId, envVars);
       } catch (error) {
         logger.warn("Failed to build module environment variables:", error);
       }

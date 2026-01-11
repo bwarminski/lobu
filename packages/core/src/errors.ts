@@ -77,10 +77,26 @@ export class WorkspaceError extends OperationError {
 }
 
 /**
- * Error class for Slack-related operations
+ * Error class for platform-related operations (Slack, WhatsApp, etc.)
  */
-export class SlackError extends OperationError {
-  override readonly name = "SlackError";
+export class PlatformError extends OperationError {
+  override readonly name = "PlatformError";
+
+  constructor(
+    public platform: string,
+    operation: string,
+    message: string,
+    cause?: Error
+  ) {
+    super(operation, message, cause);
+  }
+
+  override toJSON(): Record<string, any> {
+    return {
+      ...super.toJSON(),
+      platform: this.platform,
+    };
+  }
 }
 
 /**

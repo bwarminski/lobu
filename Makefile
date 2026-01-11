@@ -5,19 +5,18 @@
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  peerbot setup                              - Interactive setup for Slack bot development"
-	@echo "  peerbot build-packages                     - Build all TypeScript packages (core, gateway, worker)"
-	@echo "  peerbot check-build                        - Check if packages need rebuilding"
-	@echo "  peerbot watch-packages                     - Watch packages and rebuild on changes (for development)"
-	@echo "  peerbot dev                                - Start development with Docker Compose (hot reload)"
-	@echo "  peerbot prod                               - Start production with Docker Compose"
-	@echo "  peerbot down                               - Stop all services including dynamic workers"
-	@echo "  peerbot logs                               - View Docker Compose service logs"
-	@echo "  peerbot deploy                             - Deploy to K8s using values-local.yaml"
-	@echo "  peerbot deploy --target=production         - Deploy to K8s using values-production.yaml"
-	@echo "  peerbot deploy --target=path/to/values.yaml - Deploy to K8s using custom values file"
-	@echo "  peerbot test                               - Run test bot"
-	@echo "  peerbot clean                              - Stop all services and clean up all resources"
+	@echo "  make setup                                 - Setup development environment (run once)"
+	@echo "  make build-packages                        - Build all TypeScript packages"
+	@echo "  make build-worker                          - Build worker Docker image"
+	@echo "  make watch-packages                        - Watch packages and rebuild on changes"
+	@echo "  make deploy                                - Deploy to K8s using values-local.yaml"
+	@echo "  make deploy TARGET=production              - Deploy to K8s using values-production.yaml"
+	@echo "  make test                                  - Run test bot"
+	@echo "  make clean                                 - Stop all services and clean up"
+	@echo "  make clean-workers                         - Remove worker containers only"
+	@echo ""
+	@echo "Development:"
+	@echo "  Use /process-management to start/stop sidecar processes (redis, packages, gateway)"
 
 # Build all TypeScript packages in dependency order
 build-packages:
@@ -40,41 +39,14 @@ check-build:
 watch-packages:
 	@./scripts/watch-packages.sh
 
-# Start local development with Docker Compose in foreground
-dev:
-	@if [ ! -f .env ]; then \
-		echo "❌ .env file not found!"; \
-		echo ""; \
-		echo "Please run setup first:"; \
-		echo "  make setup"; \
-		echo ""; \
-		exit 1; \
-	fi
-	@echo "ℹ️  Loading environment overrides from .env"
-	@echo ""
-	@echo "📦 Step 1/2: Building TypeScript packages..."
-	@$(MAKE) build-packages
-	@echo ""
-	@echo "🚀 Step 2/2: Starting local development mode with Docker Compose..."
-	@echo "   This will:"
-	@echo "   - Build all services including worker image"
-	@echo "   - Start services with hot reload"
-	@echo "   - Mount source code for live changes"
-	@echo ""
-	@echo "🔨 Building all services..."
-	@DETACH_FLAG=""; [ "$(DETACH)" = "1" ] && DETACH_FLAG="-d"; \
-	if [ -n "$$DETACH_FLAG" ]; then echo "🧩 Running in detached mode"; fi; \
-	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker compose -f docker-compose.dev.yml up $$DETACH_FLAG --build gateway redis
+# Setup development environment (run once)
+setup:
+	@./scripts/setup-dev.sh
 
-# Build the worker image on demand
+# Build the worker image
 build-worker:
 	@echo "📦 Building worker image..."
-	@COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker compose -f docker-compose.dev.yml build worker
-
-# Convenience alias for detached dev
-.PHONY: dev-d dev-detached
-dev-d dev-detached:
-	@$(MAKE) dev DETACH=1
+	@docker build -t peerbot-worker:latest -f Dockerfile.worker --build-arg NODE_ENV=development .
 
 # Catch-all target to prevent errors when passing arguments
 %:
@@ -179,22 +151,19 @@ logs:
 		echo ""; \
 		echo "View logs with:"; \
 		echo "  kubectl logs -f <pod-name> -n peerbot"; \
-	elif docker compose -f docker-compose.dev.yml ps --services 2>/dev/null | grep -q .; then \
-		docker compose -f docker-compose.dev.yml logs -f; \
 	else \
-		docker compose logs -f; \
+		echo "For development, use /process-management to view logs:"; \
+		echo "  get_logs(\"gateway\")"; \
+		echo "  get_logs(\"redis\")"; \
 	fi
 
-# Stop all services without removing volumes
+# Stop worker containers
 down:
-	@echo "🛑 Stopping all peerbot services and workers..."
-	@# Stop and remove all containers with the peerbot project label (includes dynamic workers)
-	@docker ps -q --filter "label=com.docker.compose.project=peerbot" | xargs -r docker stop 2>/dev/null || true
-	@docker ps -aq --filter "label=com.docker.compose.project=peerbot" | xargs -r docker rm 2>/dev/null || true
-	@# Use docker compose to clean up networks and remaining resources
-	@docker compose -f docker-compose.dev.yml down --remove-orphans 2>/dev/null || true
-	@docker compose down --remove-orphans 2>/dev/null || true
-	@echo "✅ All peerbot services stopped"
+	@echo "🛑 Stopping peerbot worker containers..."
+	@docker ps -q --filter "label=app.kubernetes.io/component=worker" | xargs -r docker stop 2>/dev/null || true
+	@docker ps -aq --filter "label=app.kubernetes.io/component=worker" | xargs -r docker rm 2>/dev/null || true
+	@echo "✅ Worker containers stopped"
+	@echo "Note: For sidecar processes (redis, gateway), use /process-management"
 
 # Clean up everything including volumes
 clean:
@@ -211,13 +180,11 @@ clean:
 		kubectl delete namespace peerbot --wait=false 2>/dev/null || true; \
 		echo "✅ Kubernetes resources cleaned up"; \
 	else \
-		echo "🐳 Cleaning Docker Compose resources..."; \
-		docker ps -q --filter "label=com.docker.compose.project=peerbot" | xargs -r docker stop 2>/dev/null || true; \
-		docker ps -aq --filter "label=com.docker.compose.project=peerbot" | xargs -r docker rm 2>/dev/null || true; \
+		echo "🐳 Cleaning Docker worker containers..."; \
 		docker ps -q --filter "label=app.kubernetes.io/component=worker" | xargs -r docker stop 2>/dev/null || true; \
 		docker ps -aq --filter "label=app.kubernetes.io/component=worker" | xargs -r docker rm 2>/dev/null || true; \
-		docker compose -f docker-compose.dev.yml down -v --remove-orphans 2>/dev/null || true; \
-		docker compose down -v --remove-orphans 2>/dev/null || true; \
+		docker volume ls -q --filter "name=peerbot-workspace-" | xargs -r docker volume rm 2>/dev/null || true; \
+		docker network rm peerbot-internal 2>/dev/null || true; \
 		echo "✅ Docker containers and volumes cleaned up"; \
 	fi
 

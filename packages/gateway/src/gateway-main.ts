@@ -3,6 +3,7 @@
 import { createLogger } from "@peerbot/core";
 import type { GatewayConfig } from "./config";
 import { type PlatformAdapter, platformRegistry } from "./platform";
+import { UnifiedThreadResponseConsumer } from "./platform/unified-thread-consumer";
 import { CoreServices } from "./services/core-services";
 
 const logger = createLogger("gateway");
@@ -23,6 +24,7 @@ const logger = createLogger("gateway");
 export class Gateway {
   private coreServices: CoreServices;
   private platforms: Map<string, PlatformAdapter> = new Map();
+  private unifiedConsumer?: UnifiedThreadResponseConsumer;
   private isRunning = false;
 
   constructor(private readonly config: GatewayConfig) {
@@ -90,6 +92,16 @@ export class Gateway {
       await platform.start();
     }
 
+    // 5. Start unified thread response consumer
+    // Single consumer routes responses to platforms via registry
+    logger.info("Starting unified thread response consumer");
+    this.unifiedConsumer = new UnifiedThreadResponseConsumer(
+      this.coreServices.getQueue(),
+      platformRegistry
+    );
+    await this.unifiedConsumer.start();
+    logger.info("✅ Unified thread response consumer started");
+
     this.isRunning = true;
     logger.info(
       `✅ Gateway started successfully with ${this.platforms.size} platform(s)`
@@ -98,11 +110,22 @@ export class Gateway {
 
   /**
    * Stop the gateway gracefully
-   * 1. Stop all platforms
-   * 2. Shutdown core services
+   * 1. Stop unified consumer if running
+   * 2. Stop all platforms
+   * 3. Shutdown core services
    */
   async stop(): Promise<void> {
     logger.info("Stopping gateway...");
+
+    // Stop unified consumer if running
+    if (this.unifiedConsumer) {
+      logger.info("Stopping unified thread response consumer");
+      try {
+        await this.unifiedConsumer.stop();
+      } catch (error) {
+        logger.error("Failed to stop unified consumer:", error);
+      }
+    }
 
     // Stop all platforms
     for (const [name, platform] of this.platforms) {

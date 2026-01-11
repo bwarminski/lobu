@@ -14,7 +14,6 @@ import {
 } from "@peerbot/core";
 import { config as dotenvConfig } from "dotenv";
 import type { OrchestratorConfig } from "../orchestration/base-deployment-manager";
-import type { SlackConfig } from "../slack";
 
 const logger = createLogger("cli-config");
 
@@ -32,8 +31,6 @@ const logger = createLogger("cli-config");
 const GATEWAY_DEFAULTS = {
   /** Default HTTP server port */
   HTTP_PORT: 3000,
-  /** Default Slack API URL */
-  SLACK_API_URL: "https://slack.com/api",
   /** Default public gateway URL */
   PUBLIC_GATEWAY_URL: "http://localhost:8080",
   /** Default queue names */
@@ -151,25 +148,6 @@ export function loadEnvFile(envPath?: string): void {
   } else {
     logger.debug("No .env file found; relying on process environment.");
   }
-}
-
-/**
- * Build Slack-specific configuration from environment variables
- */
-export function buildSlackConfig(): SlackConfig {
-  const botToken = getRequiredEnv("SLACK_BOT_TOKEN");
-  const socketMode = process.env.SLACK_HTTP_MODE !== "true";
-
-  return {
-    token: botToken,
-    appToken: process.env.SLACK_APP_TOKEN,
-    signingSecret: process.env.SLACK_SIGNING_SECRET,
-    socketMode,
-    port: getOptionalNumber("PORT", DEFAULTS.HTTP_PORT),
-    botUserId: process.env.SLACK_BOT_USER_ID,
-    botId: undefined, // Will be set during initialization
-    apiUrl: getOptionalEnv("SLACK_API_URL", DEFAULTS.SLACK_API_URL),
-  };
 }
 
 /**
@@ -351,28 +329,14 @@ export function buildGatewayConfig(): GatewayConfig {
 }
 
 /**
- * Validate configuration and display it
+ * Display gateway configuration (platform-agnostic parts only)
+ * Platform-specific display should be handled by platform modules
  */
-export function displayConfig(
-  config: GatewayConfig,
-  slackConfig: SlackConfig
-): void {
+export function displayGatewayConfig(config: GatewayConfig): void {
   const separator = "=".repeat(DISPLAY.SEPARATOR_LENGTH);
 
   console.log("Gateway Configuration:");
   console.log(separator);
-  console.log("\nSlack:");
-  console.log(
-    `  Mode: ${slackConfig.socketMode ? "Socket Mode" : "HTTP Mode"}`
-  );
-  console.log(`  Port: ${slackConfig.port}`);
-  console.log(
-    `  Bot Token: ${slackConfig.token?.substring(0, DISPLAY.TOKEN_PREVIEW_LENGTH)}... (${slackConfig.token.length} chars)`
-  );
-  console.log(
-    `  App Token: ${slackConfig.appToken ? `${slackConfig.appToken.substring(0, DISPLAY.TOKEN_PREVIEW_LENGTH)}... (${slackConfig.appToken.length} chars)` : "not set"}`
-  );
-  console.log(`  API URL: ${slackConfig.apiUrl}`);
 
   console.log("\nQueues:");
   console.log(

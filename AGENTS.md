@@ -14,7 +14,7 @@
 
 ### Repository Layout
 - Monorepo managed by Bun workspaces: `packages/gateway`, `packages/orchestrator`, `packages/worker`, `packages/core`.
-- Top-level: `Makefile`, `bin/` (CLI/setup), `docker-compose*.yml`, `charts/peerbot` (Helm), `workspaces/`, `.env*`.
+- Top-level: `Makefile`, `bin/` (CLI/setup), `sidecar.yaml`, `charts/peerbot` (Helm), `workspaces/`, `.env*`.
 - TypeScript sources under `packages/*/src`. Tests in `packages/*/src/__tests__` and `packages/core/tests`.
 - **ALWAYS prefer `bun` commands over `npm`**
 - When fixing unused parameter errors, remove the parameter entirely if possible rather than prefixing with underscore
@@ -23,7 +23,7 @@
 ### Architecture
 
 #### Platform
-We currently only support Slack as messaging app.
+We currently use WhatsApp as the messaging platform (Slack support also available but not configured).
 There is also a public endpoint in gateway to trigger running the agent.
 
 #### Orchestration
@@ -64,7 +64,7 @@ TypeScript packages must be compiled from `src/` → `dist/`. If you modify any 
 - The "is running" thread status indicator (with rotating messages) provides user feedback during processing; visible "Still processing" heartbeat messages are not sent to avoid clutter.
 - Anytime you make changes in the code, you MUST:
 
-1. Have the bot running via `make dev` running in the background for development. This uses Docker Compose with hot reload enabled when NODE_ENV=development.
+1. Have the bot running via sidecar (`/process-management`) for development.
 2. Test the bot using the test script:
 ```bash
 ./scripts/test-bot.sh "@me test prompt"
@@ -73,7 +73,7 @@ The script automatically handles sending the message, waiting for response, and 
 ```bash
 ./scripts/test-bot.sh "@me first message" "follow up question" "another question"
 ```
-3. Check logs using `docker compose logs` or `make logs` to verify the bot works properly.
+3. Check logs using `get_logs("gateway")` via `/process-management` to verify the bot works properly.
 
 - If you create ephemeral files, you MUST delete them when you're done with them.
 - Use Docker to build and run the Slack bot in development mode, K8S for production.
@@ -87,33 +87,88 @@ File attachments are fully supported in all message contexts (DM, app mentions, 
 
 ## Development Mode
 
-- **Docker Compose**: Run `make dev` to start all services with hot reload enabled (uses docker-compose.dev.yml)
-- **Logs**: View logs with `make logs` or `docker compose -f docker-compose.dev.yml logs -f [service]`
-- **Hot Reload**: Source code changes are automatically detected when NODE_ENV=development
-  - **Gateway**: Source files are mounted as volumes and Bun runs with `--watch` flag
-    - Changes to `packages/gateway/src/`, `packages/core/src/`, or `packages/github/src/` trigger immediate restart
-    - Built dependencies (`packages/core/dist/`, `packages/github/dist/`) are also mounted
-    - Just save the file and watch logs for "Restarting..." message
-  - **Worker**: Worker image is rebuilt automatically in Docker mode (no rebuild needed for code changes)
-  - If hot reload isn't working, verify you're using `make dev` not `docker compose up`
+### Prerequisites
+- Redis: `brew install redis`
+- Bun: installed
+- Docker Desktop: running
 
-### Automatic Build on `make dev`
--  `make dev` now automatically runs `make build-packages` before starting services, so you don't have to remember. 
-- However, if you're testing changes without restarting:
--  1. **Option A(Recommended)**: Use `make watch-packages` in a separate terminal for auto-rebuild
--  2. **Option B**: Manually run `make build-packages` after each change
--  3. **Option C**: Restart with `make dev` to rebuild everything
+### First-time Setup
+```bash
+./scripts/setup-dev.sh
+```
+
+### Starting Development
+**Automatic!** Just open this project in Claude Code - sidecar auto-starts:
+1. Redis server (port 6379)
+2. Package watcher (rebuilds on changes)
+3. Gateway with hot reload (port 8080)
+
+A tmux session opens showing all process output.
+
+### Managing Processes
+Use `/process-management` if needed:
+- `list_processes` - See status
+- `get_logs("gateway")` - View logs
+- `restart_process("gateway")` - Restart
+
+### Hot Reload
+- **Gateway**: Runs with `bun --watch`, auto-restarts on source changes
+- **Packages**: The `packages` process watches and rebuilds TypeScript packages
+- **Worker**: Run `make clean-workers` after worker code changes
+
+### Testing
+```bash
+./scripts/test-bot.sh "@me test prompt"
+```
 
 ## Deployment Instructions
 
 When making changes to the Slack bot:
-1. **Development**: Use `make dev` to start the server if it's not running. Use docker compose (for docker mode) or kubectl (for kubernetes mode) to pull the logs.
+1. **Development**: Open project in Claude Code (auto-starts). View logs with `get_logs("gateway")`
 2. **Kubernetes deployment**: Use `make deploy` for production deployment
+
+## Environment Configuration
+
+The `.env` file is the single source of truth for all secrets and configuration.
+
+### Local Development
+- Sidecar automatically reloads gateway when `.env` changes (via `envFile: .env`)
+- No manual action needed
+
+### Kubernetes Deployment
+When `.env` changes, sync secrets to K8s using Sealed Secrets:
+
+```bash
+# Seal and apply secrets from .env
+./scripts/seal-env.sh --apply
+
+# Or output to file for review
+./scripts/seal-env.sh -o sealed-secrets.yaml
+kubectl apply -f sealed-secrets.yaml
+```
+
+**Prerequisites for Sealed Secrets:**
+```bash
+# Install controller (once per cluster)
+helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
+
+# Install CLI
+brew install kubeseal
+```
+
+The gateway deployment has a checksum annotation that triggers automatic pod restart when secrets change via `helm upgrade`.
 
 ## Development Configuration
 
 - Rate limiting is disabled in local development
-- Worker image is built automatically when running `make dev`
+- Worker image built with `make build-worker` or `make setup`
+
+### Docker Compose (Alternative)
+For quick demos without sidecar, docker-compose.yml is available:
+```bash
+docker compose up
+```
 ## Persistent Storage
 
 Worker deployments use persistent volumes for session continuity across scale-to-zero:
@@ -208,6 +263,10 @@ export GOOGLE_CLIENT_SECRET=your_google_client_secret
 
 Use the `test-bot.sh` script for easy bot testing. No manual curl commands needed.
 
+**Platform self-testing behavior:**
+- **Slack**: Cannot trigger its own event handlers (Slack filters bot-to-self messages). The test script uses `/api/messaging/send` endpoint which posts via bot token, then gateway receives as normal Slack events.
+- **WhatsApp**: Supports self-chat mode! Set `WHATSAPP_SELF_CHAT=true` and send to the bot's own phone number. The gateway detects self-messages and queues them directly to workers, bypassing event handler filters.
+
 ### Basic Test
 ```bash
 ./scripts/test-bot.sh "@me hello"
@@ -241,6 +300,7 @@ curl -X POST http://localhost:8080/api/messaging/send \
 ```
 
 ### Check Logs
-```bash
-docker compose -f docker-compose.dev.yml logs gateway --tail 50
+Use `/process-management`:
+```
+get_logs("gateway", tail=50)
 ```

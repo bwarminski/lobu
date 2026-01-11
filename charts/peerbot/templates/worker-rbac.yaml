@@ -8,40 +8,46 @@ metadata:
     app.kubernetes.io/component: worker
 
 ---
+# SECURITY: Use namespace-scoped Role instead of ClusterRole
+# Workers should ONLY have permissions within the peerbot namespace
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: {{ include "peerbot.fullname" . }}-worker
+  namespace: {{ .Values.kubernetes.namespace }}
   labels:
     {{- include "peerbot.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 rules:
-# Minimal permissions for worker pods
+# Minimal permissions for worker pods (read-only)
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list"]
+# Read-only access to configmaps (no secrets access for workers)
 - apiGroups: [""]
-  resources: ["configmaps", "secrets"]
-  verbs: ["get", "list"]
-# Additional permissions for worker cleanup cronjob
+  resources: ["configmaps"]
+  verbs: ["get"]
+# Self-cleanup: workers can delete their own deployment/PVC on shutdown
+# Note: This is namespace-scoped, so workers cannot affect other namespaces
 - apiGroups: ["apps"]
   resources: ["deployments"]
-  verbs: ["get", "list", "delete", "patch"]
+  verbs: ["get", "delete"]
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
-  verbs: ["get", "list", "delete"]
+  verbs: ["get", "delete"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: {{ include "peerbot.fullname" . }}-worker
+  namespace: {{ .Values.kubernetes.namespace }}
   labels:
     {{- include "peerbot.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: {{ include "peerbot.fullname" . }}-worker
 subjects:
 - kind: ServiceAccount

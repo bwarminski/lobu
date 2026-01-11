@@ -2,8 +2,8 @@ import { moduleRegistry } from "@peerbot/core";
 import { platformRegistry } from "../platform";
 import type {
   DeploymentInfo,
-  OrchestratorConfig,
   MessagePayload,
+  OrchestratorConfig,
 } from "./base-deployment-manager";
 
 /**
@@ -65,6 +65,7 @@ export class ResourceParser {
  */
 export async function buildModuleEnvVars(
   userId: string,
+  spaceId: string,
   baseEnv: Record<string, string>
 ): Promise<Record<string, string>> {
   let envVars = { ...baseEnv };
@@ -72,7 +73,7 @@ export async function buildModuleEnvVars(
   const orchestratorModules = moduleRegistry.getOrchestratorModules();
   for (const module of orchestratorModules) {
     if (module.buildEnvVars) {
-      envVars = await module.buildEnvVars(userId, envVars);
+      envVars = await module.buildEnvVars(userId, spaceId, envVars);
     }
   }
 
@@ -83,6 +84,18 @@ export const BASE_WORKER_LABELS = {
   "app.kubernetes.io/name": "peerbot",
   "app.kubernetes.io/component": "worker",
   "peerbot/managed-by": "orchestrator",
+} as const;
+
+/**
+ * Worker security constants - must match Dockerfile.worker user configuration
+ * The 'claude' user is created with UID/GID 1001 in the worker image
+ */
+export const WORKER_SECURITY = {
+  USER_ID: 1001,
+  GROUP_ID: 1001,
+  // Tmpfs volume sizes (in-memory, matches Docker Tmpfs settings)
+  TMP_SIZE_LIMIT: "100Mi",
+  BUN_CACHE_SIZE_LIMIT: "200Mi",
 } as const;
 
 export const WORKER_SELECTOR_LABELS = {
@@ -116,7 +129,7 @@ export function resolvePlatformDeploymentMetadata(
 }
 
 export function getVeryOldThresholdDays(config: OrchestratorConfig): number {
-  return (config.cleanup?.veryOldDays as number | undefined) || 7;
+  return config.cleanup?.veryOldDays ?? 7;
 }
 
 export function buildDeploymentInfoSummary({

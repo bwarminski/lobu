@@ -6,6 +6,7 @@ import {
 } from "@peerbot/core";
 import * as Sentry from "@sentry/node";
 import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
+import { platformAuthRegistry } from "../auth/platform-auth";
 import type {
   IMessageQueue,
   QueueJob as SharedQueueJob,
@@ -14,8 +15,8 @@ import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
 import {
   type BaseDeploymentManager,
   generateDeploymentName,
-  type OrchestratorConfig,
   type MessagePayload,
+  type OrchestratorConfig,
 } from "./base-deployment-manager";
 
 const logger = createLogger("orchestrator");
@@ -129,45 +130,65 @@ export class MessageConsumer {
             `User ${data.userId} has no credentials - sending authentication prompt`
           );
 
-          // Send ephemeral authentication prompt via thread_response queue
-          await this.queue.createQueue("thread_response");
-          // TODO: use Platform Abstraction to render the authentication prompt
-          await this.queue.send("thread_response", {
-            messageId: data.messageId,
-            userId: data.userId,
-            channelId: data.channelId,
-            threadId: data.threadId,
-            ephemeral: true,
-            content: JSON.stringify({
-              blocks: [
-                {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: "🔐 *Authentication Required*\n\nYou need to login with your Claude account to use this bot. Please visit the app home tab to authenticate.",
-                  },
-                },
-                {
-                  type: "actions",
-                  elements: [
-                    {
-                      type: "button",
-                      text: {
-                        type: "plain_text",
-                        text: "Login with Claude",
-                      },
-                      style: "primary",
-                      action_id: "claude_auth_start",
-                      value: "start_auth",
+          // Use platform auth adapter if available
+          const authAdapter = platformAuthRegistry.get(data.platform);
+          if (authAdapter) {
+            // Platform-specific auth prompt (e.g., WhatsApp numbered list)
+            await authAdapter.sendAuthPrompt(
+              data.userId,
+              data.channelId,
+              data.threadId,
+              [{ id: "claude", name: "Claude" }],
+              data.platformMetadata
+            );
+            logger.info(
+              `✅ Sent platform-specific auth prompt to user ${data.userId} via ${data.platform} adapter`
+            );
+          } else {
+            // Fallback: Send Slack-style ephemeral message for platforms without adapter
+            const responseQueue = "thread_response";
+            await this.queue.createQueue(responseQueue);
+            await this.queue.send(responseQueue, {
+              messageId: data.messageId,
+              userId: data.userId,
+              channelId: data.channelId,
+              threadId: data.threadId,
+              platform: data.platform,
+              platformMetadata: data.platformMetadata,
+              ephemeral: true,
+              content: JSON.stringify({
+                blocks: [
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: "🔐 *Authentication Required*\n\nYou need to login with your Claude account to use this bot. Please visit the app home tab to authenticate.",
                     },
-                  ],
-                },
-              ],
-            }),
-            processedMessageIds: [data.messageId],
-          });
+                  },
+                  {
+                    type: "actions",
+                    elements: [
+                      {
+                        type: "button",
+                        text: {
+                          type: "plain_text",
+                          text: "Login with Claude",
+                        },
+                        style: "primary",
+                        action_id: "claude_auth_start",
+                        value: "start_auth",
+                      },
+                    ],
+                  },
+                ],
+              }),
+              processedMessageIds: [data.messageId],
+            });
+            logger.info(
+              `✅ Sent Slack-style auth prompt to user ${data.userId}`
+            );
+          }
 
-          logger.info(`✅ Sent authentication prompt to user ${data.userId}`);
           return; // Don't create worker
         }
       }

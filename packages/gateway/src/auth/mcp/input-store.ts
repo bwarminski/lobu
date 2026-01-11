@@ -19,41 +19,41 @@ export class McpInputStore extends BaseRedisStore<InputValues> {
   }
 
   /**
-   * Store input values for a user and MCP server
+   * Store input values for a space and MCP server
    * No TTL - these are persistent until explicitly deleted
    */
   async setInputs(
-    userId: string,
+    spaceId: string,
     mcpId: string,
     inputs: InputValues
   ): Promise<void> {
-    const key = this.buildKey(userId, mcpId);
+    const key = this.buildKey(spaceId, mcpId);
     await this.set(key, inputs);
-    this.logger.info(`Stored inputs for user ${userId}, MCP ${mcpId}`);
+    this.logger.info(`Stored inputs for space ${spaceId}, MCP ${mcpId}`);
   }
 
   /**
-   * Retrieve input values for a user and MCP server
+   * Retrieve input values for a space and MCP server
    */
-  async getInputs(userId: string, mcpId: string): Promise<InputValues | null> {
-    const key = this.buildKey(userId, mcpId);
+  async getInputs(spaceId: string, mcpId: string): Promise<InputValues | null> {
+    const key = this.buildKey(spaceId, mcpId);
     return this.get(key);
   }
 
   /**
-   * Delete input values for a user and MCP server
+   * Delete input values for a space and MCP server
    */
-  async deleteInputs(userId: string, mcpId: string): Promise<void> {
-    const key = this.buildKey(userId, mcpId);
+  async deleteInputs(spaceId: string, mcpId: string): Promise<void> {
+    const key = this.buildKey(spaceId, mcpId);
     await this.delete(key);
-    this.logger.info(`Deleted inputs for user ${userId}, MCP ${mcpId}`);
+    this.logger.info(`Deleted inputs for space ${spaceId}, MCP ${mcpId}`);
   }
 
   /**
-   * Check if user has inputs stored for an MCP server
+   * Check if space has inputs stored for an MCP server
    */
-  async has(userId: string, mcpId: string): Promise<boolean> {
-    const values = await this.getInputs(userId, mcpId);
+  async has(spaceId: string, mcpId: string): Promise<boolean> {
+    const values = await this.getInputs(spaceId, mcpId);
     return values !== null;
   }
 }

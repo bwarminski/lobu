@@ -1,21 +1,21 @@
 FROM node:20-alpine
 
-# Install bun and docker-cli for build and runtime
+# Install bun for fast dependency installation, docker-cli for runtime
 RUN apk add --no-cache curl bash docker-cli && \
-    curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash && \
+    chmod +x /usr/local/bin/bun
+ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
-# Only set up a minimal workspace for gateway + core + github to avoid cache busts
+# Set up workspace for gateway + core + github
 COPY tsconfig.json ./
 RUN echo '{ "name": "@peerbot/gateway-build", "private": true, "workspaces": [ "packages/core", "packages/github", "packages/gateway" ] }' > package.json
 COPY packages/core/package.json ./packages/core/
 COPY packages/github/package.json ./packages/github/
 COPY packages/gateway/package.json ./packages/gateway/
 
-# Install dependencies for gateway + core + github
-# Allow some packages to fail (post-install scripts) but keep others
+# Install dependencies with Bun (faster than npm)
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install || true
 
 # Copy source code
@@ -23,28 +23,25 @@ COPY packages/core/ ./packages/core/
 COPY packages/github/ ./packages/github/
 COPY packages/gateway/ ./packages/gateway/
 
-# Build core first
+# Build core and github packages (gateway has type errors, run from source)
 WORKDIR /app/packages/core
 RUN bun run build
 
-# Build github module
 WORKDIR /app/packages/github
 RUN bun run build
 
-# Build gateway - Skip build due to pre-existing type errors, run from source
-# Gateway build has type errors that are pre-existing
-WORKDIR /app/packages/gateway
-# RUN bun run build
+# Install tsx for running TypeScript with Node.js
+WORKDIR /app
+RUN npm install -g tsx
 
-# Runtime
+# Runtime configuration
 ENV NODE_ENV=production
 EXPOSE 3000
 
-# Runtime user setup is handled by node:20-alpine
+# Fix permissions for non-root K8s execution (user 1001)
+RUN chmod -R a+rX /app
 
-# Set working directory back to /app for runtime to resolve modules correctly
-WORKDIR /app
-
-# Use Bun to run from source (better WebSocket compatibility)
-# In development, docker-compose overrides this with --watch flag
-CMD ["bun", "packages/gateway/src/index.ts"]
+# Run with Node.js + tsx for TypeScript support
+# This gives us Node.js compatibility while running .ts files directly
+ENTRYPOINT []
+CMD ["tsx", "packages/gateway/src/index.ts"]

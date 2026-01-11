@@ -3,12 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger, verifyWorkerToken } from "@peerbot/core";
 import { z } from "zod";
-import type { McpCredentialStore } from "./credential-store";
-import type { McpInputStore } from "./input-store";
 import type {
   DiscoveredOAuthMetadata,
   OAuthDiscoveryService,
 } from "../oauth/discovery";
+import type { McpCredentialStore } from "./credential-store";
+import type { McpInputStore } from "./input-store";
 
 const logger = createLogger("mcp-config-service");
 
@@ -157,9 +157,9 @@ export class McpConfigService {
   }
 
   /**
-   * Get status of all MCPs for a specific user (auth/config state)
+   * Get status of all MCPs for a specific space (auth/config state)
    */
-  async getMcpStatus(userId: string): Promise<McpStatus[]> {
+  async getMcpStatus(spaceId: string): Promise<McpStatus[]> {
     const config = await this.loadConfig();
     const statuses: McpStatus[] = [];
 
@@ -180,7 +180,7 @@ export class McpConfigService {
       let authenticated = false;
       if (requiresAuth && this.credentialStore) {
         const credentials = await this.credentialStore.getCredentials(
-          userId,
+          spaceId,
           id
         );
         authenticated = !!credentials?.accessToken;
@@ -189,7 +189,7 @@ export class McpConfigService {
       // Check configuration status
       let configured = false;
       if (requiresInput && this.inputStore) {
-        const inputs = await this.inputStore.getInputs(userId, id);
+        const inputs = await this.inputStore.getInputs(spaceId, id);
         configured = !!inputs;
       }
 

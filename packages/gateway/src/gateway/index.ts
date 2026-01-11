@@ -183,12 +183,14 @@ export class WorkerGateway {
     }
 
     try {
-      const { userId, platform, sessionKey, threadId } = auth.tokenData;
+      const { userId, platform, sessionKey, threadId, spaceId } =
+        auth.tokenData;
       const baseUrl = this.getRequestBaseUrl(req);
 
       // Build instruction context
       const instructionContext: InstructionContext = {
         userId,
+        spaceId: spaceId || threadId || "", // Fall back to threadId for backwards compatibility
         sessionKey: sessionKey || "", // Use empty string if sessionKey is undefined
         workingDirectory: "/workspace",
         availableProjects: [],

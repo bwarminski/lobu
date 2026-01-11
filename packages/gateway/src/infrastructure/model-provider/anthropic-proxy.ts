@@ -17,7 +17,7 @@ export class AnthropicProxy {
   private config: AnthropicProxyConfig;
   private credentialStore?: ClaudeCredentialStore;
   private oauthClient: ClaudeOAuthClient;
-  private refreshLocks: Map<string, Promise<string | null>>; // userId -> refresh promise
+  private refreshLocks: Map<string, Promise<string | null>>; // spaceId -> refresh promise
 
   constructor(
     config: AnthropicProxyConfig,
@@ -36,35 +36,35 @@ export class AnthropicProxy {
   }
 
   /**
-   * Refresh an expired OAuth token for a user
-   * Uses locking to prevent concurrent refresh attempts for the same user
+   * Refresh an expired OAuth token for a space
+   * Uses locking to prevent concurrent refresh attempts for the same space
    * Returns the new access token or null if refresh failed
    */
-  private async refreshUserToken(userId: string): Promise<string | null> {
-    // Check if there's already a refresh in progress for this user
-    const existingRefresh = this.refreshLocks.get(userId);
+  private async refreshSpaceToken(spaceId: string): Promise<string | null> {
+    // Check if there's already a refresh in progress for this space
+    const existingRefresh = this.refreshLocks.get(spaceId);
     if (existingRefresh) {
-      logger.info(`Waiting for existing token refresh for user ${userId}`);
+      logger.info(`Waiting for existing token refresh for space ${spaceId}`);
       return existingRefresh;
     }
 
     // Create a new refresh promise and store it
-    const refreshPromise = this.performTokenRefresh(userId);
-    this.refreshLocks.set(userId, refreshPromise);
+    const refreshPromise = this.performTokenRefresh(spaceId);
+    this.refreshLocks.set(spaceId, refreshPromise);
 
     try {
       const result = await refreshPromise;
       return result;
     } finally {
       // Clean up the lock after refresh completes (success or failure)
-      this.refreshLocks.delete(userId);
+      this.refreshLocks.delete(spaceId);
     }
   }
 
   /**
    * Perform the actual token refresh
    */
-  private async performTokenRefresh(userId: string): Promise<string | null> {
+  private async performTokenRefresh(spaceId: string): Promise<string | null> {
     if (!this.credentialStore) {
       logger.error("Cannot refresh token: credential store not available");
       return null;
@@ -72,13 +72,13 @@ export class AnthropicProxy {
 
     try {
       // Get current credentials to access refresh token
-      const credentials = await this.credentialStore.getCredentials(userId);
+      const credentials = await this.credentialStore.getCredentials(spaceId);
       if (!credentials || !credentials.refreshToken) {
-        logger.warn(`No refresh token available for user ${userId}`);
+        logger.warn(`No refresh token available for space ${spaceId}`);
         return null;
       }
 
-      logger.info(`Refreshing expired token for user ${userId}`);
+      logger.info(`Refreshing expired token for space ${spaceId}`);
 
       // Use ClaudeOAuthClient to refresh the token
       const newCredentials = await this.oauthClient.refreshToken(
@@ -86,17 +86,17 @@ export class AnthropicProxy {
       );
 
       // Store the new credentials
-      await this.credentialStore.setCredentials(userId, newCredentials);
+      await this.credentialStore.setCredentials(spaceId, newCredentials);
 
-      logger.info(`Successfully refreshed token for user ${userId}`);
+      logger.info(`Successfully refreshed token for space ${spaceId}`);
       return newCredentials.accessToken;
     } catch (error) {
-      logger.error(`Failed to refresh token for user ${userId}`, { error });
+      logger.error(`Failed to refresh token for space ${spaceId}`, { error });
 
       // If refresh failed, delete the invalid credentials
       try {
-        await this.credentialStore.deleteCredentials(userId);
-        logger.info(`Deleted invalid credentials for user ${userId}`);
+        await this.credentialStore.deleteCredentials(spaceId);
+        logger.info(`Deleted invalid credentials for space ${spaceId}`);
       } catch (deleteError) {
         logger.error(`Failed to delete invalid credentials`, { deleteError });
       }
@@ -143,13 +143,13 @@ export class AnthropicProxy {
   private async forwardToAnthropic(req: Request, res: Response): Promise<void> {
     // Authentication flow:
     // 1. Worker sends encrypted worker token via Claude SDK in x-api-key header
-    // 2. Validate token and extract userId
-    // 3. Use userId to get user's OAuth token (if available) or fall back to system API key
+    // 2. Validate token and extract spaceId
+    // 3. Use spaceId to get space's OAuth token (if available) or fall back to system API key
     // 4. Forward request to Anthropic with real credentials
     const workerToken = req.headers["x-api-key"] as string | undefined;
 
-    // Validate worker token and extract userId
-    let userId: string | undefined;
+    // Validate worker token and extract spaceId
+    let spaceId: string | undefined;
     if (workerToken && !workerToken.startsWith("sk-ant-")) {
       // This is a worker token, not an Anthropic API key
       const { verifyWorkerToken } = await import("@peerbot/core");
@@ -166,43 +166,49 @@ export class AnthropicProxy {
         return;
       }
 
-      userId = tokenData.userId;
-      logger.info(`Authenticated worker request for user: ${userId}`);
+      // Use spaceId from token for credential lookup (fall back to userId for backwards compat)
+      spaceId = tokenData.spaceId || tokenData.userId;
+      logger.info(`Authenticated worker request for space: ${spaceId}`);
     }
 
-    // Resolve API key/token: user token > system token > error
+    // Resolve API key/token: space token > system token > error
     let apiKey: string | undefined;
-    let tokenSource: "user" | "system" | "none" = "none";
+    let tokenSource: "space" | "system" | "none" = "none";
 
-    // Check for user credentials first
-    if (userId && this.credentialStore) {
-      const credentials = await this.credentialStore.getCredentials(userId);
+    // Check for space credentials first
+    if (spaceId && this.credentialStore) {
+      const credentials = await this.credentialStore.getCredentials(spaceId);
       if (credentials) {
         // Check if token is expired (with 5 minute buffer)
         const expiryBuffer = 5 * 60 * 1000; // 5 minutes in milliseconds
         const isExpired = credentials.expiresAt <= Date.now() + expiryBuffer;
 
         if (isExpired) {
-          logger.info(`Token expired for user ${userId}, attempting refresh`, {
-            expiresAt: new Date(credentials.expiresAt).toISOString(),
-            now: new Date().toISOString(),
-          });
+          logger.info(
+            `Token expired for space ${spaceId}, attempting refresh`,
+            {
+              expiresAt: new Date(credentials.expiresAt).toISOString(),
+              now: new Date().toISOString(),
+            }
+          );
 
           // Attempt to refresh the token
-          const refreshedToken = await this.refreshUserToken(userId);
+          const refreshedToken = await this.refreshSpaceToken(spaceId);
           if (refreshedToken) {
             apiKey = refreshedToken;
-            tokenSource = "user";
-            logger.info(`Using refreshed OAuth token for ${userId}`);
+            tokenSource = "space";
+            logger.info(`Using refreshed OAuth token for space ${spaceId}`);
           } else {
             // Refresh failed - will fall back to system token or return error
-            logger.warn(`Token refresh failed for ${userId}, falling back`);
+            logger.warn(
+              `Token refresh failed for space ${spaceId}, falling back`
+            );
           }
         } else {
           // Token is still valid
           apiKey = credentials.accessToken;
-          tokenSource = "user";
-          logger.info(`Using user OAuth token for ${userId}`);
+          tokenSource = "space";
+          logger.info(`Using space OAuth token for ${spaceId}`);
         }
       }
     }
@@ -216,7 +222,7 @@ export class AnthropicProxy {
 
     // No credentials available - return error
     if (!apiKey) {
-      logger.warn(`No API key available for request`, { userId });
+      logger.warn(`No API key available for request`, { spaceId });
       res.status(401).json({
         error: {
           type: "authentication_error",

@@ -41,14 +41,12 @@ fi
 # Setup workspace directory
 echo "📁 Setting up workspace directory..."
 WORKSPACE_DIR="/workspace"
-mkdir -p "$WORKSPACE_DIR"
 
-# Fix permissions for bind-mounted workspace
-# This is needed because bind mounts inherit host permissions
-if [ -d "$WORKSPACE_DIR" ] && [ "$(stat -c %U "$WORKSPACE_DIR")" = "root" ]; then
-    echo "🔧 Fixing workspace permissions (bind mount detected)..."
-    sudo chown -R claude:claude "$WORKSPACE_DIR" 2>/dev/null || echo "⚠️  Could not change workspace ownership"
-    chmod 755 "$WORKSPACE_DIR" 2>/dev/null || echo "⚠️  Could not change workspace permissions"
+# Workspace permissions are fixed by gateway before container starts
+# Just verify we can write to it
+if [ ! -w "$WORKSPACE_DIR" ]; then
+    echo "❌ Error: Cannot write to workspace directory $WORKSPACE_DIR"
+    exit 1
 fi
 
 cd "$WORKSPACE_DIR"

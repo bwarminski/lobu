@@ -102,16 +102,16 @@ export class McpProxy {
     const discoveredOAuth = await this.configService.getDiscoveredOAuth(mcpId!);
     const hasDiscoveredOAuth = !!discoveredOAuth;
 
+    // Get spaceId from token data (fallback to userId for backwards compatibility)
+    const spaceId = tokenData.spaceId || tokenData.userId;
+
     // Try OAuth credentials first (supports both static and discovered OAuth)
     if (hasOAuth || hasDiscoveredOAuth) {
-      credentials = await this.credentialStore.getCredentials(
-        tokenData.userId,
-        mcpId!
-      );
+      credentials = await this.credentialStore.getCredentials(spaceId, mcpId!);
 
       if (!credentials || !credentials.accessToken) {
         logger.info("MCP OAuth credentials missing", {
-          userId: tokenData.userId,
+          spaceId,
           mcpId,
         });
         this.sendJsonRpcError(
@@ -125,7 +125,7 @@ export class McpProxy {
       // Check if token is expired and attempt refresh
       if (credentials.expiresAt && credentials.expiresAt <= Date.now()) {
         logger.info("MCP access token expired, attempting refresh", {
-          userId: tokenData.userId,
+          spaceId,
           mcpId,
           hasRefreshToken: !!credentials.refreshToken,
         });
@@ -177,7 +177,7 @@ export class McpProxy {
 
             // Store the new credentials (without TTL)
             await this.credentialStore.setCredentials(
-              tokenData.userId,
+              spaceId,
               mcpId!,
               refreshedCredentials
             );
@@ -186,7 +186,7 @@ export class McpProxy {
             credentials = refreshedCredentials;
 
             logger.info("Successfully refreshed MCP access token", {
-              userId: tokenData.userId,
+              spaceId,
               mcpId,
             });
           } catch (error) {
@@ -195,7 +195,7 @@ export class McpProxy {
               errorMessage:
                 error instanceof Error ? error.message : String(error),
               errorStack: error instanceof Error ? error.stack : undefined,
-              userId: tokenData.userId,
+              spaceId,
               mcpId,
             });
             this.sendJsonRpcError(
@@ -207,7 +207,7 @@ export class McpProxy {
           }
         } else {
           logger.warn("MCP credentials expired with no refresh token", {
-            userId: tokenData.userId,
+            spaceId,
             mcpId,
           });
           this.sendJsonRpcError(
@@ -222,11 +222,11 @@ export class McpProxy {
 
     // Load input values if MCP uses inputs
     if (httpServer.inputs && httpServer.inputs.length > 0) {
-      inputValues = await this.inputStore.getInputs(tokenData.userId, mcpId!);
+      inputValues = await this.inputStore.getInputs(spaceId, mcpId!);
 
       if (!inputValues) {
         logger.info("MCP input values missing", {
-          userId: tokenData.userId,
+          spaceId,
           mcpId,
         });
         this.sendJsonRpcError(
@@ -245,7 +245,7 @@ export class McpProxy {
         httpServer,
         credentials,
         inputValues || {},
-        tokenData.userId,
+        spaceId,
         mcpId!
       );
     } catch (error) {
@@ -305,10 +305,10 @@ export class McpProxy {
     httpServer: any,
     credentials: { accessToken: string; tokenType?: string } | null,
     inputValues: Record<string, string>,
-    userId: string,
+    spaceId: string,
     mcpId: string
   ): Promise<void> {
-    const sessionKey = `mcp:session:${userId}:${mcpId}`;
+    const sessionKey = `mcp:session:${spaceId}:${mcpId}`;
     const sessionId = await this.getSession(sessionKey);
 
     // Get request body
@@ -316,7 +316,7 @@ export class McpProxy {
 
     logger.info("Proxying MCP request", {
       mcpId,
-      userId,
+      spaceId,
       method: req.method,
       hasSession: !!sessionId,
       bodyLength: bodyText.length,
@@ -355,7 +355,7 @@ export class McpProxy {
 
           logger.debug("Applied input substitution to request body", {
             mcpId,
-            userId,
+            spaceId,
           });
         } catch {
           // If body is not JSON, apply string substitution directly
@@ -377,7 +377,7 @@ export class McpProxy {
       await this.setSession(sessionKey, newSessionId);
       logger.debug("Stored MCP session ID", {
         mcpId,
-        userId,
+        spaceId,
         sessionId: newSessionId,
       });
     }

@@ -1,6 +1,13 @@
-import { createLogger } from "./logger";
+import { createLogger, type Logger } from "./logger";
 
-const logger = createLogger("shared");
+// Lazy logger initialization to avoid circular dependency
+let _logger: Logger | null = null;
+function getLogger(): Logger {
+  if (!_logger) {
+    _logger = createLogger("sentry");
+  }
+  return _logger;
+}
 
 let sentryInstance: typeof import("@sentry/node") | null = null;
 
@@ -29,9 +36,9 @@ export async function initSentry() {
       ],
     });
 
-    logger.info("✅ Sentry monitoring initialized");
+    getLogger().info("✅ Sentry monitoring initialized");
   } catch (error) {
-    logger.warn(
+    getLogger().warn(
       "⚠️ Sentry initialization failed (continuing without monitoring):",
       error
     );

@@ -1,3 +1,7 @@
+// Detect if we're in an environment where Winston Console transport doesn't work
+// Must be declared before any imports to avoid circular dependency issues
+const USE_SIMPLE_LOGGER = process.env.USE_SIMPLE_LOGGER === "true";
+
 import winston from "winston";
 import { getSentry } from "./sentry";
 
@@ -6,6 +10,88 @@ export interface Logger {
   warn: (message: any, ...args: any[]) => void;
   info: (message: any, ...args: any[]) => void;
   debug: (message: any, ...args: any[]) => void;
+}
+
+// Simple console logger fallback for environments where Winston doesn't work (Bun + Alpine)
+// Supports both formats: logger.info("message", data) AND pino-style logger.info({ data }, "message")
+function createConsoleLogger(serviceName: string): Logger {
+  const level = process.env.LOG_LEVEL || "info";
+  const levels: Record<string, number> = {
+    error: 0,
+    warn: 1,
+    info: 2,
+    debug: 3,
+  };
+  const currentLevel = levels[level] ?? 2;
+
+  const formatMessage = (lvl: string, message: any, ...args: any[]): string => {
+    const timestamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+    let msgStr: string;
+    let meta: any = null;
+
+    // Handle pino-style format: logger.info({ key: value }, "message")
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      !Array.isArray(message) &&
+      !(message instanceof Error)
+    ) {
+      if (args.length > 0 && typeof args[0] === "string") {
+        // First arg is metadata object, second arg is the actual message
+        msgStr = args[0];
+        meta = message;
+        args = args.slice(1);
+      } else {
+        // Just an object, stringify it
+        try {
+          msgStr = JSON.stringify(message);
+        } catch {
+          msgStr = "[object]";
+        }
+      }
+    } else {
+      msgStr = String(message);
+    }
+
+    // Append remaining args
+    if (args.length > 0) {
+      try {
+        msgStr += ` ${JSON.stringify(args.length === 1 ? args[0] : args)}`;
+      } catch {
+        msgStr += " [unserializable]";
+      }
+    }
+
+    // Append metadata object
+    if (meta) {
+      try {
+        msgStr += ` ${JSON.stringify(meta)}`;
+      } catch {
+        msgStr += " [meta unserializable]";
+      }
+    }
+
+    return `[${timestamp}] [${lvl}] [${serviceName}] ${msgStr}`;
+  };
+
+  return {
+    error: (message: any, ...args: any[]) => {
+      if (currentLevel >= 0)
+        console.error(formatMessage("error", message, ...args));
+    },
+    warn: (message: any, ...args: any[]) => {
+      if (currentLevel >= 1)
+        console.warn(formatMessage("warn", message, ...args));
+    },
+    info: (message: any, ...args: any[]) => {
+      if (currentLevel >= 2)
+        console.log(formatMessage("info", message, ...args));
+    },
+    debug: (message: any, ...args: any[]) => {
+      if (currentLevel >= 3)
+        console.log(formatMessage("debug", message, ...args));
+    },
+  };
 }
 
 /**
@@ -65,9 +151,14 @@ class SentryTransport extends winston.transports.Stream {
  * Creates a logger instance for a specific service
  * Provides consistent logging format across all packages with level and timestamp
  * @param serviceName The name of the service using the logger
- * @returns A winston logger instance
+ * @returns A winston logger instance (or simple console logger if USE_SIMPLE_LOGGER=true)
  */
 export function createLogger(serviceName: string): Logger {
+  // Use simple console logger if Winston doesn't work in this environment
+  if (USE_SIMPLE_LOGGER) {
+    return createConsoleLogger(serviceName);
+  }
+
   const isProduction = process.env.NODE_ENV === "production";
   const level = process.env.LOG_LEVEL || "info";
 
@@ -115,11 +206,6 @@ export function createLogger(serviceName: string): Logger {
     }),
   ];
 
-  // Add Sentry transport in production or if SENTRY_DSN is set
-  if (isProduction || process.env.SENTRY_DSN) {
-    transports.push(new SentryTransport());
-  }
-
   const logger = winston.createLogger({
     level,
     format: winston.format.combine(
@@ -129,6 +215,20 @@ export function createLogger(serviceName: string): Logger {
     ),
     defaultMeta: { service: serviceName },
     transports,
+  });
+
+  // Add Sentry transport in production or if SENTRY_DSN is set
+  // Deferred to avoid circular dependency with sentry.ts
+  // The check is inside setImmediate to ensure SentryTransport class is fully initialized
+  setImmediate(() => {
+    if (isProduction || process.env.SENTRY_DSN) {
+      try {
+        const transport = new SentryTransport();
+        logger.add(transport);
+      } catch {
+        // Ignore errors during Sentry transport setup
+      }
+    }
   });
 
   return logger;

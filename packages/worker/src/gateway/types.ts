@@ -22,6 +22,7 @@ interface PlatformMetadata {
 export interface MessagePayload {
   botId: string;
   userId: string;
+  spaceId: string;
   threadId: string;
   platform: string;
   channelId: string;
@@ -30,6 +31,7 @@ export interface MessagePayload {
   platformMetadata: PlatformMetadata;
   agentOptions: AgentOptions;
   jobId?: string; // Optional job ID from gateway
+  teamId?: string; // Optional team ID (WhatsApp uses top-level, Slack uses platformMetadata)
 }
 
 /**

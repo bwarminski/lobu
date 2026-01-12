@@ -44,6 +44,11 @@ rules:
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list"]
 
+  # PersistentVolumeClaims for worker storage
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "delete"]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

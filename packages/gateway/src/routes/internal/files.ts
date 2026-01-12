@@ -3,7 +3,7 @@ import { createLogger, verifyWorkerToken } from "@peerbot/core";
 import type { Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
-import type { FileHandler } from "../../services/file-handler";
+import type { IFileHandler } from "../../platform/file-handler";
 import type { ISessionManager } from "../../session";
 
 const logger = createLogger("file-routes");
@@ -19,7 +19,7 @@ const upload = multer({
  * Create internal file routes for worker file operations
  */
 export function createFileRoutes(
-  fileHandler: FileHandler,
+  fileHandler: IFileHandler,
   _sessionManager: ISessionManager
 ): Router {
   const router = Router();

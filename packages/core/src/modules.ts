@@ -48,6 +48,7 @@ export interface OrchestratorModule<TModuleData = unknown>
   /** Build environment variables for worker container */
   buildEnvVars(
     userId: string,
+    spaceId: string,
     baseEnv: Record<string, string>
   ): Promise<Record<string, string>>;
 
@@ -59,7 +60,8 @@ export interface DispatcherContext<TModuleData = unknown> {
   userId: string;
   channelId: string;
   threadTs: string;
-  slackClient?: any;
+  /** Platform-specific client (e.g., Slack WebClient, WhatsApp BaileysClient) */
+  platformClient?: unknown;
   moduleData: TModuleData;
 }
 
@@ -74,6 +76,7 @@ export interface DispatcherModule<TModuleData = unknown>
   handleAction(
     actionId: string,
     userId: string,
+    spaceId: string,
     context: any
   ): Promise<boolean>;
 
@@ -155,6 +158,7 @@ export abstract class BaseModule<TModuleData = unknown>
 
   async buildEnvVars(
     _userId: string,
+    _spaceId: string,
     baseEnv: Record<string, string>
   ): Promise<Record<string, string>> {
     // Default: pass through unchanged
@@ -176,6 +180,7 @@ export abstract class BaseModule<TModuleData = unknown>
   async handleAction(
     _actionId: string,
     _userId: string,
+    _spaceId: string,
     _context: any
   ): Promise<boolean> {
     // Default: not handled

@@ -419,6 +419,7 @@ Note: GitHub authentication is handled via MCP (Model Context Protocol)`;
   async handleAction(
     actionId: string,
     userId: string,
+    _spaceId: string,
     context: HandleActionContext
   ): Promise<boolean> {
     // Handle GitHub PR creation button

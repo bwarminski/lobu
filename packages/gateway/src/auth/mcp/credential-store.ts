@@ -10,7 +10,7 @@ export interface McpCredentialRecord {
 }
 
 /**
- * MCP credential store with multi-part keys (userId, mcpId)
+ * MCP credential store with multi-part keys (spaceId, mcpId)
  * Extends BaseCredentialStore for consistent pattern
  */
 export class McpCredentialStore extends BaseCredentialStore<McpCredentialRecord> {
@@ -23,25 +23,25 @@ export class McpCredentialStore extends BaseCredentialStore<McpCredentialRecord>
   }
 
   async getCredentials(
-    userId: string,
+    spaceId: string,
     mcpId: string
   ): Promise<McpCredentialRecord | null> {
-    const key = this.buildKey(userId, mcpId);
+    const key = this.buildKey(spaceId, mcpId);
     return this.get(key);
   }
 
   async setCredentials(
-    userId: string,
+    spaceId: string,
     mcpId: string,
     record: McpCredentialRecord,
     ttlSeconds?: number
   ): Promise<void> {
-    const key = this.buildKey(userId, mcpId);
+    const key = this.buildKey(spaceId, mcpId);
     await this.set(key, record, ttlSeconds);
   }
 
-  async deleteCredentials(userId: string, mcpId: string): Promise<void> {
-    const key = this.buildKey(userId, mcpId);
+  async deleteCredentials(spaceId: string, mcpId: string): Promise<void> {
+    const key = this.buildKey(spaceId, mcpId);
     await this.delete(key);
   }
 }

@@ -11,7 +11,7 @@ export interface ClaudeCredentials {
 
 /**
  * Store and retrieve Claude OAuth credentials from Redis
- * Pattern: claude:credential:{userId}
+ * Pattern: claude:credential:{spaceId}
  */
 export class ClaudeCredentialStore extends BaseCredentialStore<ClaudeCredentials> {
   constructor(redis: Redis) {
@@ -23,50 +23,50 @@ export class ClaudeCredentialStore extends BaseCredentialStore<ClaudeCredentials
   }
 
   /**
-   * Store Claude credentials for a user
+   * Store Claude credentials for a space
    */
   async setCredentials(
-    userId: string,
+    spaceId: string,
     credentials: ClaudeCredentials
   ): Promise<void> {
-    const key = this.buildKey(userId);
+    const key = this.buildKey(spaceId);
     await this.set(key, credentials);
 
-    this.logger.info(`Stored Claude credentials for user ${userId}`, {
+    this.logger.info(`Stored Claude credentials for space ${spaceId}`, {
       expiresAt: new Date(credentials.expiresAt).toISOString(),
       scopes: credentials.scopes,
     });
   }
 
   /**
-   * Get Claude credentials for a user
+   * Get Claude credentials for a space
    * Returns null if not found or if credentials are missing required fields
    */
-  async getCredentials(userId: string): Promise<ClaudeCredentials | null> {
-    const key = this.buildKey(userId);
+  async getCredentials(spaceId: string): Promise<ClaudeCredentials | null> {
+    const key = this.buildKey(spaceId);
     const credentials = await this.get(key);
 
     if (!credentials) {
-      this.logger.debug(`No Claude credentials found for user ${userId}`);
+      this.logger.debug(`No Claude credentials found for space ${spaceId}`);
     }
 
     return credentials;
   }
 
   /**
-   * Delete Claude credentials for a user
+   * Delete Claude credentials for a space
    */
-  async deleteCredentials(userId: string): Promise<void> {
-    const key = this.buildKey(userId);
+  async deleteCredentials(spaceId: string): Promise<void> {
+    const key = this.buildKey(spaceId);
     await this.delete(key);
-    this.logger.info(`Deleted Claude credentials for user ${userId}`);
+    this.logger.info(`Deleted Claude credentials for space ${spaceId}`);
   }
 
   /**
-   * Check if user has Claude credentials
+   * Check if space has Claude credentials
    */
-  async hasCredentials(userId: string): Promise<boolean> {
-    const key = this.buildKey(userId);
+  async hasCredentials(spaceId: string): Promise<boolean> {
+    const key = this.buildKey(spaceId);
     return this.exists(key);
   }
 }

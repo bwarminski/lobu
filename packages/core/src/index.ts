@@ -16,7 +16,7 @@ export * from "./modules";
 // Redis & worker helpers
 export * from "./redis/base-store";
 // Observability
-export { initSentry, getSentry } from "./sentry";
+export { getSentry, initSentry } from "./sentry";
 // Core types
 export type {
   AgentOptions,

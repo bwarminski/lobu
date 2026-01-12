@@ -901,9 +901,8 @@ services:
       context: .
       dockerfile: ${dockerfilePath}
     image: ${workerImage}
-    command: echo "Worker image built successfully"
-    profiles:
-      - build-only
+    command: echo "Worker image built successfully - this service only builds, does not run"
+    restart: "no"
 
 networks:
   # Public network with internet access (gateway only)

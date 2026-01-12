@@ -50,6 +50,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
  */
 export interface InstructionContext {
   userId: string;
+  spaceId: string;
   sessionKey: string;
   workingDirectory: string;
   availableProjects?: string[];

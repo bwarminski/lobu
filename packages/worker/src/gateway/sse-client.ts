@@ -28,6 +28,7 @@ const PlatformMetadataSchema = z
   })
   .and(
     z.record(
+      z.string(),
       z.union([
         z.string(),
         z.number(),
@@ -50,6 +51,7 @@ const AgentOptionsSchema = z
   })
   .and(
     z.record(
+      z.string(),
       z.union([
         z.string(),
         z.number(),
@@ -64,6 +66,7 @@ const JobEventSchema = z.object({
   payload: z.object({
     botId: z.string(),
     userId: z.string(),
+    spaceId: z.string(),
     threadId: z.string(),
     platform: z.string(),
     channelId: z.string(),
@@ -72,6 +75,7 @@ const JobEventSchema = z.object({
     platformMetadata: PlatformMetadataSchema,
     agentOptions: AgentOptionsSchema,
     jobId: z.string().optional(),
+    teamId: z.string().optional(), // Optional for WhatsApp (top-level) and Slack (in platformMetadata)
   }),
   processedIds: z.array(z.string()).optional(),
 });
@@ -80,7 +84,7 @@ const InteractionEventSchema = z.object({
   interactionId: z.string(),
   response: z.object({
     answer: z.string().optional(),
-    formData: z.record(z.any()).optional(),
+    formData: z.record(z.string(), z.any()).optional(),
     timestamp: z.number(),
   }),
 });
@@ -552,6 +556,7 @@ export class GatewayClient {
     return {
       sessionKey: `session-${payload.threadId}`,
       userId: payload.userId,
+      spaceId: payload.spaceId,
       channelId: payload.channelId,
       threadId: payload.threadId,
       userPrompt: Buffer.from(payload.messageText).toString("base64"),
@@ -562,9 +567,11 @@ export class GatewayClient {
       botResponseId: platformMetadata.botResponseId
         ? String(platformMetadata.botResponseId)
         : undefined,
-      teamId: platformMetadata.teamId
-        ? String(platformMetadata.teamId)
-        : undefined,
+      // Check both payload.teamId (WhatsApp) and platformMetadata.teamId (Slack)
+      teamId:
+        (payload.teamId ?? platformMetadata.teamId)
+          ? String(payload.teamId ?? platformMetadata.teamId)
+          : undefined,
       platform: payload.platform,
       platformMetadata: platformMetadata, // Include full platformMetadata for files and other metadata
       agentOptions: JSON.stringify(agentOptions),

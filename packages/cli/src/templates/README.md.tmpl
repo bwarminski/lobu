@@ -7,7 +7,7 @@ Peerbot instance created with `@peerbot/cli` v{{CLI_VERSION}}
 Make sure you have Docker CLI installed.
 
 ```bash
-# Start the services
+# Start the services (automatically builds worker image on first run)
 docker compose up -d
 
 # View logs
@@ -16,6 +16,32 @@ docker compose logs -f
 # Stop the services
 docker compose down
 ```
+
+**Note**: The first startup will take a few minutes to build the worker image. Subsequent starts will be much faster.
+
+## Upgrading to Latest Version
+
+### Update Gateway and Pre-built Images
+Pull the latest images and restart services:
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### Rebuild Worker (when Dockerfile.worker changes)
+If you modified your `Dockerfile.worker` or want to use the latest base image:
+```bash
+docker compose build worker
+docker compose restart gateway
+```
+
+### Update Environment Variables
+Check for new environment variables in release notes or the [Peerbot documentation](https://github.com/buremba/peerbot):
+1. Compare your `.env` with the latest `.env.example` from the repository
+2. Add any new required variables
+3. Restart services: `docker compose restart`
+
+**Tip**: Always use `latest` tags to ensure gateway and worker versions stay in sync.
 
 ## Configuration
 

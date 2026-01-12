@@ -18,6 +18,8 @@
     "@peerbot/core": "workspace:*",
     "@sentry/node": "^10.19.0",
     "@slack/bolt": "^4.5.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "qrcode-terminal": "^0.12.0",
     "@slack/types": "^2.17.0",
     "@slack/web-api": "^7.11.0",
     "@types/multer": "^2.0.0",
@@ -31,6 +33,7 @@
     "marked": "^12.0.0",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "pino": "^9.1.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {

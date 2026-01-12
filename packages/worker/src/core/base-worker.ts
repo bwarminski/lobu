@@ -172,6 +172,7 @@ export abstract class BaseWorker implements WorkerExecutor {
         this.getCoreInstructionProvider(),
         {
           userId: this.config.userId,
+          spaceId: this.config.spaceId,
           sessionKey: this.config.sessionKey,
           workingDirectory: this.workspaceManager.getCurrentWorkingDirectory(),
           availableProjects: listAppDirectories(

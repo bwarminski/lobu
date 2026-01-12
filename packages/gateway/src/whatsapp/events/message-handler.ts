@@ -1,0 +1,824 @@
+/**
+ * WhatsApp message handler.
+ * Processes inbound messages and enqueues them for worker processing.
+ * Adapted from clawdbot/src/web/inbound.ts
+ */
+
+import { createLogger } from "@peerbot/core";
+import {
+  type BaileysEventMap,
+  extractMessageContent,
+  normalizeMessageContent,
+  type proto,
+  type WAMessage,
+} from "@whiskeysockets/baileys";
+import type {
+  MessagePayload,
+  QueueProducer,
+} from "../../infrastructure/queue/queue-producer";
+import type { ISessionManager } from "../../session";
+import { resolveSpace } from "../../spaces";
+import type { WhatsAppAuthAdapter } from "../auth-adapter";
+import type { WhatsAppConfig } from "../config";
+import type { BaileysClient } from "../connection/baileys-client";
+import type { ExtractedMedia, WhatsAppFileHandler } from "../file-handler";
+import {
+  isGroupJid,
+  jidToE164,
+  normalizeE164,
+  type WhatsAppContext,
+} from "../types";
+
+const logger = createLogger("whatsapp-message-handler");
+
+interface AgentOptions {
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  timeoutMinutes?: number;
+}
+
+interface StoredMessage {
+  id: string;
+  text: string;
+  fromMe: boolean;
+  senderName?: string;
+  timestamp: number;
+}
+
+interface ConversationHistory {
+  messages: StoredMessage[];
+  lastUpdated: number;
+}
+
+/**
+ * WhatsApp message handler.
+ */
+export class WhatsAppMessageHandler {
+  private seen = new Set<string>();
+  private groupMetaCache = new Map<
+    string,
+    { subject?: string; participants?: string[]; expires: number }
+  >();
+  private conversationHistory = new Map<string, ConversationHistory>();
+  private readonly GROUP_META_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private isRunning = false;
+  private authAdapter?: WhatsAppAuthAdapter;
+  private fileHandler?: WhatsAppFileHandler;
+
+  constructor(
+    private client: BaileysClient,
+    private config: WhatsAppConfig,
+    private queueProducer: QueueProducer,
+    _sessionManager: ISessionManager, // Reserved for future use
+    private agentOptions: AgentOptions
+  ) {}
+
+  /**
+   * Set the file handler for extracting media.
+   */
+  setFileHandler(handler: WhatsAppFileHandler): void {
+    this.fileHandler = handler;
+  }
+
+  /**
+   * Set the auth adapter for handling auth responses.
+   */
+  setAuthAdapter(adapter: WhatsAppAuthAdapter): void {
+    this.authAdapter = adapter;
+  }
+
+  /**
+   * Start listening for messages.
+   */
+  start(): void {
+    if (this.isRunning) return;
+    this.isRunning = true;
+
+    logger.info(
+      `WhatsApp message handler config: selfChatEnabled=${this.config.selfChatEnabled}, allowFrom=${JSON.stringify(this.config.allowFrom)}, requireMention=${this.config.requireMention}`
+    );
+
+    this.client.on("message", (upsert) => {
+      logger.info("Message handler received event from client");
+      this.handleMessagesUpsert(upsert).catch((err) => {
+        logger.error({ error: String(err) }, "Error handling message upsert");
+      });
+    });
+
+    // Handle reactions (for potential future use, e.g., thumbs up = approve)
+    this.client.on("reaction", (reactions) => {
+      this.handleReactions(
+        reactions as BaileysEventMap["messages.reaction"]
+      ).catch((err) => {
+        logger.error({ error: String(err) }, "Error handling reactions");
+      });
+    });
+
+    // Handle message updates (edits, deletes)
+    this.client.on("messageUpdate", (updates) => {
+      this.handleMessageUpdates(
+        updates as BaileysEventMap["messages.update"]
+      ).catch((err) => {
+        logger.error({ error: String(err) }, "Error handling message updates");
+      });
+    });
+
+    // Periodically cleanup expired histories
+    setInterval(() => this.cleanupExpiredHistories(), 60 * 60 * 1000); // Every hour
+
+    logger.info("WhatsApp message handler started");
+  }
+
+  /**
+   * Stop listening for messages.
+   */
+  stop(): void {
+    this.isRunning = false;
+    logger.info("WhatsApp message handler stopped");
+  }
+
+  /**
+   * Handle message upsert events from Baileys.
+   */
+  private async handleMessagesUpsert(
+    upsert: BaileysEventMap["messages.upsert"]
+  ): Promise<void> {
+    logger.info(
+      { type: upsert.type, messageCount: upsert.messages?.length },
+      "handleMessagesUpsert called"
+    );
+
+    if (upsert.type !== "notify" && upsert.type !== "append") {
+      logger.debug({ type: upsert.type }, "Skipping non-notify/append upsert");
+      return;
+    }
+
+    for (const msg of upsert.messages ?? []) {
+      await this.processMessage(msg, upsert.type);
+    }
+  }
+
+  /**
+   * Process a single message.
+   */
+  private async processMessage(
+    msg: WAMessage,
+    upsertType: string
+  ): Promise<void> {
+    const id = msg.key?.id;
+    if (!id) {
+      logger.debug("Skipping message: no ID");
+      return;
+    }
+
+    // Dedupe on message ID (Baileys can emit retries)
+    if (this.seen.has(id)) {
+      logger.debug({ id }, "Skipping duplicate message");
+      return;
+    }
+    this.seen.add(id);
+
+    const remoteJid = msg.key?.remoteJid;
+    if (!remoteJid) {
+      logger.debug({ id }, "Skipping message: no remoteJid");
+      return;
+    }
+
+    // Ignore status/broadcast traffic
+    if (remoteJid.endsWith("@status") || remoteJid.endsWith("@broadcast")) {
+      logger.debug({ id, remoteJid }, "Skipping status/broadcast message");
+      return;
+    }
+
+    const isGroup = isGroupJid(remoteJid);
+    const participantJid = msg.key?.participant;
+
+    // Get sender info
+    const senderJid = isGroup ? participantJid : remoteJid;
+    const senderE164 = senderJid ? jidToE164(senderJid) : null;
+
+    // Get self info
+    const selfJid = this.client.getSelfJid();
+    const selfE164 = this.client.getSelfE164();
+
+    // Check if this is from ourselves
+    const isFromMe = msg.key?.fromMe === true;
+    const isSelfChat = senderE164 === selfE164;
+
+    logger.info(
+      `Processing message: id=${id}, remoteJid=${remoteJid}, isFromMe=${isFromMe}, isSelfChat=${isSelfChat}, senderE164=${senderE164}, selfE164=${selfE164}, selfChatEnabled=${this.config.selfChatEnabled}, messageStubType=${msg.messageStubType}, hasMessage=${!!msg.message}`
+    );
+
+    // Skip stub messages (system notifications, failed decryption, etc.)
+    // messageStubType 2 = CIPHERTEXT (failed to decrypt)
+    if (msg.messageStubType) {
+      logger.info(`Skipping stub message: type=${msg.messageStubType}`);
+      return;
+    }
+
+    // Skip messages with no content (decryption failed)
+    if (!msg.message) {
+      logger.warn(`Message ${id} has no content - possible decryption failure`);
+      return;
+    }
+
+    // Skip protocol messages (not user messages)
+    const messageKeys = Object.keys(msg.message);
+    if (messageKeys.length === 1 && messageKeys[0] === "protocolMessage") {
+      logger.debug(`Skipping protocol message ${id}`);
+      return;
+    }
+    if (
+      messageKeys.includes("protocolMessage") &&
+      !messageKeys.includes("conversation") &&
+      !messageKeys.includes("extendedTextMessage")
+    ) {
+      logger.debug(`Skipping protocol-only message ${id}`);
+      return;
+    }
+
+    // Skip own messages unless self-chat is enabled
+    if (isFromMe && !this.config.selfChatEnabled) {
+      logger.info("Skipping own message - selfChat not enabled");
+      return;
+    }
+
+    // Authorization check for non-group messages
+    if (!isGroup && !this.isAllowedSender(senderE164)) {
+      logger.info(
+        `Blocked unauthorized sender: ${senderE164}, allowFrom=${JSON.stringify(this.config.allowFrom)}`
+      );
+      return;
+    }
+
+    logger.info("Message passed authorization checks");
+
+    // Get group metadata if needed
+    let groupSubject: string | undefined;
+    let groupParticipants: string[] | undefined;
+    if (isGroup) {
+      const meta = await this.getGroupMeta(remoteJid);
+      groupSubject = meta.subject;
+      groupParticipants = meta.participants;
+    }
+
+    // Check mention requirement for groups and self-chat
+    const mentionedJids = this.extractMentionedJids(msg.message);
+    const wasMentioned = selfJid
+      ? (mentionedJids?.includes(selfJid) ?? false)
+      : false;
+
+    // For self-chat, require mention to prevent loops (bot replies don't have mentions)
+    if (isSelfChat && this.config.requireMention && !wasMentioned) {
+      // Check for text trigger patterns like "@bot" in message body
+      const bodyText = this.extractText(msg.message) || "";
+      const hasTriggerPattern = /^@\w+/i.test(bodyText.trim());
+      if (!hasTriggerPattern) {
+        logger.info(
+          `Skipping self-chat message without trigger pattern: ${id}`
+        );
+        return;
+      }
+    }
+
+    if (isGroup && this.config.requireMention && !wasMentioned) {
+      return;
+    }
+
+    // Mark as read (unless self-chat)
+    if (!isSelfChat) {
+      await this.client
+        .markRead(remoteJid, id, participantJid || undefined)
+        .catch((err) => {
+          logger.debug(
+            { error: String(err) },
+            "Failed to mark message as read"
+          );
+        });
+    }
+
+    // Skip history/offline catch-up messages (but allow self-chat messages)
+    if (upsertType === "append" && !isSelfChat) {
+      logger.info(`Skipping history/append message: ${id}`);
+      return;
+    }
+
+    logger.info(
+      `About to extract text from message ${id}, upsertType=${upsertType}`
+    );
+
+    // Debug: Log full message structure
+    const msgJson = JSON.stringify(msg, null, 2);
+    logger.info(`FULL_MESSAGE_DEBUG: ${msgJson.substring(0, 2000)}`);
+
+    // Extract media files if file handler is available
+    let extractedFiles: ExtractedMedia[] = [];
+    if (this.fileHandler) {
+      try {
+        extractedFiles = await this.fileHandler.extractMediaFromMessage(msg);
+        if (extractedFiles.length > 0) {
+          logger.info(
+            { messageId: id, fileCount: extractedFiles.length },
+            "Extracted media files from message"
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { error: String(err), messageId: id },
+          "Failed to extract media"
+        );
+      }
+    }
+
+    // Extract message text
+    let body = this.extractText(msg.message);
+    if (!body) {
+      // If we have files but no text, use a placeholder indicating files
+      if (extractedFiles.length > 0) {
+        const fileNames = extractedFiles.map((f) => f.name).join(", ");
+        body = `[Attached: ${fileNames}]`;
+      } else {
+        body = this.extractMediaPlaceholder(msg.message);
+        if (!body) {
+          logger.info(`No text or media placeholder found in message ${id}`);
+          return;
+        }
+      }
+    }
+
+    logger.info(`Message ${id} has body: ${body.substring(0, 50)}...`);
+
+    // Check if this is an auth response (e.g., "1" to select provider)
+    if (this.authAdapter && !isGroup) {
+      const userId = senderE164 || senderJid || "";
+      try {
+        const handled = await this.authAdapter.handleAuthResponse(
+          remoteJid,
+          userId,
+          body
+        );
+        if (handled) {
+          logger.info({ remoteJid, body }, "Message handled as auth response");
+          return;
+        }
+      } catch (err) {
+        logger.error({ error: String(err) }, "Error handling auth response");
+      }
+    }
+
+    // Extract reply context
+    const replyContext = this.describeReplyContext(msg.message);
+
+    // Build context
+    const context: WhatsAppContext = {
+      senderJid: senderJid || remoteJid,
+      senderE164: senderE164 ?? undefined,
+      senderName: msg.pushName ?? undefined,
+      chatJid: remoteJid,
+      isGroup,
+      groupSubject,
+      groupParticipants,
+      messageId: id,
+      timestamp: msg.messageTimestamp
+        ? Number(msg.messageTimestamp) * 1000
+        : undefined,
+      quotedMessage: replyContext ?? undefined,
+      mentionedJids,
+      wasMentioned,
+      selfJid: selfJid ?? undefined,
+      selfE164: selfE164 ?? undefined,
+    };
+
+    logger.info(
+      {
+        from: senderE164 || senderJid,
+        chatJid: remoteJid,
+        isGroup,
+        body: body.substring(0, 100),
+      },
+      "Inbound message"
+    );
+
+    // Store incoming message in conversation history
+    this.storeMessageInHistory(remoteJid, {
+      id,
+      text: body,
+      fromMe: false,
+      senderName: msg.pushName ?? undefined,
+      timestamp: msg.messageTimestamp
+        ? Number(msg.messageTimestamp) * 1000
+        : Date.now(),
+    });
+
+    // Get conversation history for context
+    const conversationHistory = this.getConversationHistory(remoteJid);
+
+    // Enqueue for processing
+    await this.enqueueMessage(
+      id,
+      body,
+      context,
+      extractedFiles,
+      conversationHistory
+    );
+  }
+
+  /**
+   * Check if sender is allowed.
+   */
+  private isAllowedSender(senderE164: string | null): boolean {
+    if (!senderE164) return false;
+
+    const { allowFrom, selfChatEnabled } = this.config;
+    const selfE164 = this.client.getSelfE164();
+
+    // Self-chat always allowed if enabled
+    if (selfChatEnabled && senderE164 === selfE164) {
+      return true;
+    }
+
+    // Empty allowFrom means allow all
+    if (!allowFrom || allowFrom.length === 0) {
+      return true;
+    }
+
+    // Check wildcard
+    if (allowFrom.includes("*")) {
+      return true;
+    }
+
+    // Check if sender is in allowlist
+    const normalizedAllowFrom = allowFrom.map(normalizeE164);
+    return normalizedAllowFrom.includes(normalizeE164(senderE164));
+  }
+
+  /**
+   * Get group metadata with caching.
+   */
+  private async getGroupMeta(
+    jid: string
+  ): Promise<{ subject?: string; participants?: string[] }> {
+    const cached = this.groupMetaCache.get(jid);
+    if (cached && cached.expires > Date.now()) {
+      return cached;
+    }
+
+    const meta = await this.client.getGroupMetadata(jid);
+    const entry = {
+      ...meta,
+      expires: Date.now() + this.GROUP_META_TTL_MS,
+    };
+    this.groupMetaCache.set(jid, entry);
+    return meta;
+  }
+
+  /**
+   * Enqueue message for worker processing.
+   */
+  private async enqueueMessage(
+    messageId: string,
+    body: string,
+    context: WhatsAppContext,
+    files: ExtractedMedia[] = [],
+    conversationHistory: Array<{
+      role: "user" | "assistant";
+      content: string;
+      name?: string;
+    }> = []
+  ): Promise<void> {
+    // Use chat JID as channel, message ID as thread for routing
+    // For group chats, each message starts a new "thread"
+    const threadId = context.quotedMessage?.id || messageId;
+
+    // Resolve space ID for multi-tenant isolation
+    const { spaceId } = resolveSpace({
+      platform: "whatsapp",
+      userId: context.senderE164 || context.senderJid,
+      channelId: context.chatJid,
+      isGroup: context.isGroup,
+    });
+
+    // Build file metadata for payload
+    const fileMetadata = files.map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimetype: f.mimetype,
+      size: f.size,
+    }));
+
+    const payload: MessagePayload = {
+      platform: "whatsapp",
+      userId: context.senderE164 || context.senderJid,
+      botId: "whatsapp",
+      threadId,
+      teamId: context.isGroup ? context.chatJid : "whatsapp", // Group JID for groups, "whatsapp" for DMs
+      spaceId,
+      messageId,
+      messageText: body,
+      channelId: context.chatJid,
+      platformMetadata: {
+        jid: context.chatJid,
+        senderJid: context.senderJid,
+        senderE164: context.senderE164,
+        senderName: context.senderName,
+        isGroup: context.isGroup,
+        groupSubject: context.groupSubject,
+        quotedMessageId: context.quotedMessage?.id,
+        wasMentioned: context.wasMentioned,
+        responseChannel: context.chatJid,
+        responseId: messageId,
+        files: fileMetadata.length > 0 ? fileMetadata : undefined,
+        conversationHistory:
+          conversationHistory.length > 0 ? conversationHistory : undefined,
+      },
+      agentOptions: {
+        ...this.agentOptions,
+      },
+    };
+
+    await this.queueProducer.enqueueMessage(payload);
+    logger.info(
+      {
+        messageId,
+        threadId,
+        chatJid: context.chatJid,
+        fileCount: files.length,
+        historyCount: conversationHistory.length,
+      },
+      "Message enqueued"
+    );
+  }
+
+  /**
+   * Extract text from message.
+   */
+  private extractText(
+    rawMessage: proto.IMessage | null | undefined
+  ): string | undefined {
+    if (!rawMessage) {
+      logger.info("extractText: rawMessage is null/undefined");
+      return undefined;
+    }
+
+    logger.info(
+      `extractText: rawMessage keys = ${Object.keys(rawMessage).join(", ")}`
+    );
+
+    const message = normalizeMessageContent(rawMessage);
+    if (!message) {
+      logger.info("extractText: normalizeMessageContent returned null");
+      return undefined;
+    }
+
+    logger.info(
+      `extractText: normalized message keys = ${Object.keys(message).join(", ")}`
+    );
+
+    const extracted = extractMessageContent(message);
+    const candidates = [message, extracted !== message ? extracted : undefined];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+
+      // Check conversation
+      if (
+        typeof candidate.conversation === "string" &&
+        candidate.conversation.trim()
+      ) {
+        return candidate.conversation.trim();
+      }
+
+      // Check extended text
+      const extended = candidate.extendedTextMessage?.text;
+      if (extended?.trim()) return extended.trim();
+
+      // Check captions
+      const caption =
+        candidate.imageMessage?.caption ??
+        candidate.videoMessage?.caption ??
+        candidate.documentMessage?.caption;
+      if (caption?.trim()) return caption.trim();
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Extract media placeholder text.
+   */
+  private extractMediaPlaceholder(
+    rawMessage: proto.IMessage | null | undefined
+  ): string | undefined {
+    if (!rawMessage) return undefined;
+
+    const message = normalizeMessageContent(rawMessage);
+    if (!message) return undefined;
+
+    if (message.imageMessage) return "<media:image>";
+    if (message.videoMessage) return "<media:video>";
+    if (message.audioMessage) return "<media:audio>";
+    if (message.documentMessage) return "<media:document>";
+    if (message.stickerMessage) return "<media:sticker>";
+
+    return undefined;
+  }
+
+  /**
+   * Extract mentioned JIDs from message.
+   */
+  private extractMentionedJids(
+    rawMessage: proto.IMessage | null | undefined
+  ): string[] | undefined {
+    if (!rawMessage) return undefined;
+
+    const message = normalizeMessageContent(rawMessage);
+    if (!message) return undefined;
+
+    const candidates: Array<string[] | null | undefined> = [
+      message.extendedTextMessage?.contextInfo?.mentionedJid,
+      message.imageMessage?.contextInfo?.mentionedJid,
+      message.videoMessage?.contextInfo?.mentionedJid,
+      message.documentMessage?.contextInfo?.mentionedJid,
+      message.audioMessage?.contextInfo?.mentionedJid,
+    ];
+
+    const flattened = candidates.flatMap((arr) => arr ?? []).filter(Boolean);
+    if (flattened.length === 0) return undefined;
+
+    return Array.from(new Set(flattened));
+  }
+
+  /**
+   * Extract reply context from message.
+   */
+  private describeReplyContext(
+    rawMessage: proto.IMessage | null | undefined
+  ): { id?: string; body: string; sender: string } | null {
+    if (!rawMessage) return null;
+
+    const message = normalizeMessageContent(rawMessage);
+    if (!message) return null;
+
+    // Get context info from various message types
+    const contextInfo =
+      message.extendedTextMessage?.contextInfo ??
+      message.imageMessage?.contextInfo ??
+      message.videoMessage?.contextInfo ??
+      message.documentMessage?.contextInfo ??
+      message.audioMessage?.contextInfo;
+
+    if (!contextInfo?.quotedMessage) return null;
+
+    const quoted = normalizeMessageContent(contextInfo.quotedMessage);
+    if (!quoted) return null;
+
+    const body =
+      this.extractText(quoted) || this.extractMediaPlaceholder(quoted);
+    if (!body) return null;
+
+    const senderJid = contextInfo.participant;
+    const senderE164 = senderJid ? jidToE164(senderJid) : null;
+
+    return {
+      id: contextInfo.stanzaId || undefined,
+      body,
+      sender: senderE164 || senderJid || "unknown",
+    };
+  }
+
+  /**
+   * Store a message in conversation history.
+   */
+  private storeMessageInHistory(chatJid: string, message: StoredMessage): void {
+    const history = this.conversationHistory.get(chatJid) || {
+      messages: [],
+      lastUpdated: Date.now(),
+    };
+
+    // Add message to history
+    history.messages.push(message);
+    history.lastUpdated = Date.now();
+
+    // Trim to max messages
+    while (history.messages.length > this.config.maxHistoryMessages) {
+      history.messages.shift();
+    }
+
+    this.conversationHistory.set(chatJid, history);
+  }
+
+  /**
+   * Get conversation history for a chat.
+   * Returns messages in chronological order with role annotation.
+   */
+  private getConversationHistory(chatJid: string): Array<{
+    role: "user" | "assistant";
+    content: string;
+    name?: string;
+  }> {
+    const history = this.conversationHistory.get(chatJid);
+    if (!history) return [];
+
+    // Check TTL
+    const ttlMs = this.config.historyTtlSeconds * 1000;
+    if (Date.now() - history.lastUpdated > ttlMs) {
+      this.conversationHistory.delete(chatJid);
+      return [];
+    }
+
+    return history.messages.map((msg) => ({
+      role: msg.fromMe ? ("assistant" as const) : ("user" as const),
+      content: msg.text,
+      name: msg.senderName,
+    }));
+  }
+
+  /**
+   * Store an outgoing (bot) message in history.
+   * Called from response renderer when sending messages.
+   */
+  storeOutgoingMessage(chatJid: string, text: string): void {
+    this.storeMessageInHistory(chatJid, {
+      id: `outgoing_${Date.now()}`,
+      text,
+      fromMe: true,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Cleanup expired conversation histories.
+   */
+  private cleanupExpiredHistories(): void {
+    const now = Date.now();
+    const ttlMs = this.config.historyTtlSeconds * 1000;
+
+    for (const [chatJid, history] of this.conversationHistory) {
+      if (now - history.lastUpdated > ttlMs) {
+        this.conversationHistory.delete(chatJid);
+      }
+    }
+  }
+
+  /**
+   * Handle message reactions.
+   * Could be used to trigger actions based on specific reactions.
+   */
+  private async handleReactions(
+    reactions: BaileysEventMap["messages.reaction"]
+  ): Promise<void> {
+    for (const reaction of reactions) {
+      const { key, reaction: reactionData } = reaction;
+      const emoji = reactionData.text;
+      const messageId = key.id;
+      const chatJid = key.remoteJid;
+
+      logger.info(
+        { emoji, messageId, chatJid, from: key.participant },
+        "Received reaction"
+      );
+
+      // Potential future use cases:
+      // - thumbs up on a tool approval message = approve
+      // - thumbs down = reject
+      // - checkmark = acknowledge
+      // For now, just log the reaction
+    }
+  }
+
+  /**
+   * Handle message updates (edits, deletes).
+   * Could be used to update conversation history when messages are edited.
+   */
+  private async handleMessageUpdates(
+    updates: BaileysEventMap["messages.update"]
+  ): Promise<void> {
+    for (const update of updates) {
+      const { key, update: updateData } = update;
+      const messageId = key.id;
+      const chatJid = key.remoteJid;
+
+      // Check if message was edited
+      if (updateData.message) {
+        logger.info(
+          { messageId, chatJid, hasNewMessage: true },
+          "Message was edited"
+        );
+
+        // Could update the message in conversation history here
+        // For now, just log the event
+      }
+
+      // Check if message was deleted (stub type indicates deletion)
+      if (updateData.messageStubType) {
+        logger.info(
+          { messageId, chatJid, stubType: updateData.messageStubType },
+          "Message was deleted or has stub update"
+        );
+      }
+    }
+  }
+}

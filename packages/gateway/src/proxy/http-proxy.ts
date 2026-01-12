@@ -73,7 +73,7 @@ function isHostnameAllowed(
 function extractConnectHostname(url: string): string | null {
   // CONNECT requests are in format: "host:port"
   const match = url.match(/^([^:]+):\d+$/);
-  return match && match[1] ? match[1] : null;
+  return match?.[1] ? match[1] : null;
 }
 
 /**
@@ -100,10 +100,14 @@ function handleConnect(
   // Check if hostname is allowed
   if (!isHostnameAllowed(hostname, allowedDomains, disallowedDomains)) {
     logger.warn(`Blocked CONNECT to ${hostname} (not in allowlist)`);
-    clientSocket.write(
-      "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nDomain not allowed by proxy policy\r\n"
-    );
-    clientSocket.end();
+    try {
+      clientSocket.write(
+        "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nDomain not allowed by proxy policy\r\n"
+      );
+      clientSocket.end();
+    } catch {
+      // Client may have already disconnected
+    }
     return;
   }
 
@@ -132,13 +136,43 @@ function handleConnect(
   });
 
   targetSocket.on("error", (err) => {
-    logger.error(`Target connection error for ${hostname}:`, err.message);
-    clientSocket.end();
+    logger.debug(`Target connection error for ${hostname}: ${err.message}`);
+    try {
+      clientSocket.end();
+    } catch {
+      // Ignore errors when closing already-closed socket
+    }
   });
 
   clientSocket.on("error", (err) => {
-    logger.error(`Client connection error for ${hostname}:`, err.message);
-    targetSocket.end();
+    // ECONNRESET is common when clients drop connections - don't log as error
+    if ((err as NodeJS.ErrnoException).code === "ECONNRESET") {
+      logger.debug(`Client disconnected for ${hostname} (ECONNRESET)`);
+    } else {
+      logger.debug(`Client connection error for ${hostname}: ${err.message}`);
+    }
+    try {
+      targetSocket.end();
+    } catch {
+      // Ignore errors when closing already-closed socket
+    }
+  });
+
+  // Handle close events to clean up
+  targetSocket.on("close", () => {
+    try {
+      clientSocket.end();
+    } catch {
+      // Ignore
+    }
+  });
+
+  clientSocket.on("close", () => {
+    try {
+      targetSocket.end();
+    } catch {
+      // Ignore
+    }
   });
 }
 
@@ -227,11 +261,14 @@ export function startHttpProxy(port: number = 8118): http.Server {
   });
 
   server.listen(port, "0.0.0.0", () => {
-    const mode = isUnrestrictedMode(allowedDomains)
-      ? "unrestricted"
-      : allowedDomains.length > 0
-        ? "allowlist"
-        : "complete-isolation";
+    let mode: string;
+    if (isUnrestrictedMode(allowedDomains)) {
+      mode = "unrestricted";
+    } else if (allowedDomains.length > 0) {
+      mode = "allowlist";
+    } else {
+      mode = "complete-isolation";
+    }
 
     logger.info(
       `🔒 HTTP proxy started on port ${port} (mode=${mode}, allowed=${allowedDomains.length}, disallowed=${disallowedDomains.length})`

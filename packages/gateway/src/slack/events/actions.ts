@@ -6,6 +6,7 @@ import type { IModuleRegistry } from "@peerbot/core";
 import type { AnyBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type { PlatformAdapter } from "../../platform";
+import { resolveSpace } from "../../spaces";
 import type { SlackActionBody, SlackContext } from "../types";
 import type { MessageHandler } from "./messages";
 
@@ -241,15 +242,30 @@ export class ActionHandler {
     let handled = false;
     const dispatcherModules = this.moduleRegistry.getDispatcherModules();
 
+    // Resolve spaceId from context for module actions
+    const isDirectMessage = channelId.startsWith("D");
+    const { spaceId } = resolveSpace({
+      platform: "slack",
+      userId,
+      channelId,
+      isGroup: !isDirectMessage,
+    });
+
     for (const module of dispatcherModules) {
       if (module.handleAction) {
-        const moduleHandled = await module.handleAction(actionId, userId, {
-          channelId,
-          client,
-          body,
-          updateAppHome: this.updateAppHome.bind(this),
-          messageHandler: this.messageHandler,
-        });
+        const moduleHandled = await module.handleAction(
+          actionId,
+          userId,
+          spaceId,
+          {
+            channelId,
+            client,
+            body,
+            spaceId,
+            updateAppHome: this.updateAppHome.bind(this),
+            messageHandler: this.messageHandler,
+          }
+        );
         if (moduleHandled) {
           handled = true;
           break;
@@ -258,51 +274,28 @@ export class ActionHandler {
     }
 
     if (!handled) {
-      switch (actionId) {
-        default:
-          // Handle blockkit form button clicks
-          if (actionId.startsWith("blockkit_form_")) {
-            await handleBlockkitForm(
-              actionId,
-              channelId,
-              messageTs,
-              body,
-              client
-            );
-          }
-          // Handle executable code block buttons
-          else if (
-            actionId.match(/^(bash|python|javascript|js|typescript|ts|sql|sh)_/)
-          ) {
-            await handleExecutableCodeBlock(
-              actionId,
-              userId,
-              channelId,
-              messageTs,
-              body,
-              client,
-              (context: SlackContext, userRequest: string, client: WebClient) =>
-                this.messageHandler.handleUserRequest(
-                  context,
-                  userRequest,
-                  client
-                )
-            );
-          }
-          // Interaction handlers (radio_, submit_, section_, next_) are registered
-          // via Slack Bolt app.action() in interactions.ts
-          else if (actionId.match(/^(radio|submit|section|next)_/)) {
-            // These are handled by Bolt handlers, don't log as unsupported
-            logger.debug(
-              `Interaction action ${actionId} handled by Bolt handler`
-            );
-          } else {
-            logger.info(
-              `Unsupported action: ${actionId} from user ${userId} in channel ${channelId}`
-            );
-          }
-
-          break;
+      // Handle blockkit form button clicks
+      if (actionId.startsWith("blockkit_form_")) {
+        await handleBlockkitForm(actionId, channelId, messageTs, body, client);
+      }
+      // Handle executable code block buttons
+      else if (
+        actionId.match(/^(bash|python|javascript|js|typescript|ts|sql|sh)_/)
+      ) {
+        await handleExecutableCodeBlock(
+          actionId,
+          userId,
+          channelId,
+          messageTs,
+          body,
+          client,
+          (context: SlackContext, userRequest: string, client: WebClient) =>
+            this.messageHandler.handleUserRequest(context, userRequest, client)
+        );
+      } else {
+        logger.info(
+          `Unsupported action: ${actionId} from user ${userId} in channel ${channelId}`
+        );
       }
     }
   }
@@ -316,6 +309,15 @@ export class ActionHandler {
     );
 
     try {
+      // Resolve spaceId for the user's personal space (used for MCP credentials)
+      // Home tab is a user context, so we use user-{hash} spaceId
+      const { spaceId } = resolveSpace({
+        platform: "slack",
+        userId,
+        channelId: userId, // Use userId as channelId for DM-like context
+        isGroup: false, // Personal/user space
+      });
+
       const blocks: AnyBlock[] = [
         {
           type: "section",
@@ -339,7 +341,10 @@ export class ActionHandler {
               "getAuthStatus" in module &&
               typeof module.getAuthStatus === "function"
             ) {
-              const providers = await (module as any).getAuthStatus(userId);
+              const providers = await (module as any).getAuthStatus(
+                userId,
+                spaceId
+              );
               allProviders.push(...providers);
             } else if ("renderHomeTab" in module) {
               // Fallback for non-OAuth modules
@@ -380,17 +385,93 @@ export class ActionHandler {
               },
             };
 
-            // Add action button if login/logout URL is available
+            // Add login button for OAuth-based providers (URLs)
             if (provider.loginUrl && !provider.isAuthenticated) {
-              sectionBlock.accessory = {
-                type: "button",
-                text: { type: "plain_text", text: "Login" },
-                url: provider.loginUrl,
-                style: "primary",
-              };
+              // Check if it's an action_id (e.g., "action:claude_auth_start")
+              if (provider.loginUrl.startsWith("action:")) {
+                // Extract action_id
+                const actionId = provider.loginUrl.substring(7); // Remove "action:" prefix
+                sectionBlock.accessory = {
+                  type: "button",
+                  text: { type: "plain_text", text: "Login" },
+                  action_id: actionId,
+                  style: "primary",
+                };
+              } else {
+                // Regular URL
+                sectionBlock.accessory = {
+                  type: "button",
+                  text: { type: "plain_text", text: "Login" },
+                  url: provider.loginUrl,
+                  style: "primary",
+                };
+              }
             }
 
             blocks.push(sectionBlock);
+
+            // Render model selector if available (Claude-specific)
+            if (
+              provider.metadata?.availableModels &&
+              Array.isArray(provider.metadata.availableModels) &&
+              provider.metadata.availableModels.length > 0
+            ) {
+              const availableModels = provider.metadata.availableModels;
+              const currentModel = provider.metadata.currentModel;
+
+              const selectedModelInfo = availableModels.find(
+                (m: any) => m.id === currentModel
+              );
+
+              const actionElements: any[] = [
+                {
+                  type: "static_select",
+                  placeholder: {
+                    type: "plain_text",
+                    text: "Select a model",
+                  },
+                  action_id: "claude_select_model",
+                  options: availableModels.map((model: any) => ({
+                    text: {
+                      type: "plain_text",
+                      text: model.display_name,
+                    },
+                    value: model.id,
+                  })),
+                  initial_option:
+                    currentModel && selectedModelInfo
+                      ? {
+                          text: {
+                            type: "plain_text",
+                            text: selectedModelInfo.display_name,
+                          },
+                          value: currentModel,
+                        }
+                      : undefined,
+                },
+              ];
+
+              // Add logout button if authenticated and logout URL available
+              if (provider.isAuthenticated && provider.logoutUrl) {
+                if (provider.logoutUrl.startsWith("action:")) {
+                  const actionId = provider.logoutUrl.substring(7);
+                  actionElements.push({
+                    type: "button",
+                    text: {
+                      type: "plain_text",
+                      text: "Logout",
+                    },
+                    style: "danger",
+                    action_id: actionId,
+                  });
+                }
+              }
+
+              blocks.push({
+                type: "actions",
+                elements: actionElements,
+              });
+            }
           }
 
           blocks.push({ type: "divider" });

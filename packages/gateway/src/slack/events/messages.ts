@@ -1,12 +1,13 @@
 import { createLogger, DEFAULTS } from "@peerbot/core";
 import type { WebClient } from "@slack/web-api";
 import type {
-  QueueProducer,
   MessagePayload,
+  QueueProducer,
 } from "../../infrastructure/queue/queue-producer";
 import type { InteractionService } from "../../interactions";
 import type { ISessionManager, ThreadSession } from "../../session";
 import { generateSessionKey } from "../../session";
+import { resolveSpace } from "../../spaces";
 import type { MessageHandlerConfig } from "../config";
 import type { SlackContext, SlackMessageEvent } from "../types";
 
@@ -103,6 +104,16 @@ export class MessageHandler {
 
     // Check if this is a Direct Message channel (DMs start with 'D')
     const isDirectMessage = context.channelId.startsWith("D");
+
+    // Resolve space ID for multi-tenant isolation
+    const { spaceId } = resolveSpace({
+      platform: "slack",
+      userId: context.userId,
+      channelId: context.channelId,
+      isGroup: !isDirectMessage,
+    });
+
+    logger.info(`Resolved spaceId: ${spaceId} (isGroup: ${!isDirectMessage})`);
 
     // Only check thread ownership for non-DM channels
     if (!isDirectMessage) {
@@ -220,6 +231,7 @@ export class MessageHandler {
           botId: this.getBotId(),
           threadId: threadTs,
           teamId: context.teamId,
+          spaceId,
           platform: "slack",
           messageId: context.messageTs,
           messageText: userRequest,
@@ -261,6 +273,7 @@ export class MessageHandler {
           userId: context.userId,
           threadId: threadTs,
           teamId: context.teamId,
+          spaceId,
           platform: "slack",
           channelId: context.channelId,
           messageId: context.messageTs,

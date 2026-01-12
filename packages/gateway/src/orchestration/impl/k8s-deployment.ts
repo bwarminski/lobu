@@ -3,15 +3,16 @@ import { createLogger, ErrorCode, OrchestratorError } from "@peerbot/core";
 import {
   BaseDeploymentManager,
   type DeploymentInfo,
+  type MessagePayload,
   type ModuleEnvVarsBuilder,
   type OrchestratorConfig,
-  type MessagePayload,
 } from "../base-deployment-manager";
 import {
   BASE_WORKER_LABELS,
   buildDeploymentInfoSummary,
   getVeryOldThresholdDays,
   resolvePlatformDeploymentMetadata,
+  WORKER_SECURITY,
   WORKER_SELECTOR_LABELS,
 } from "../deployment-utils";
 
@@ -75,6 +76,11 @@ interface SimpleDeployment {
             runAsGroup?: number;
             runAsNonRoot?: boolean;
             readOnlyRootFilesystem?: boolean;
+            allowPrivilegeEscalation?: boolean;
+            capabilities?: {
+              drop?: string[];
+              add?: string[];
+            };
           };
           resources?: {
             requests?: Record<string, string>;
@@ -96,6 +102,11 @@ interface SimpleDeployment {
             runAsGroup?: number;
             runAsNonRoot?: boolean;
             readOnlyRootFilesystem?: boolean;
+            allowPrivilegeEscalation?: boolean;
+            capabilities?: {
+              drop?: string[];
+              add?: string[];
+            };
           };
           env?: Array<{
             name: string;
@@ -130,6 +141,7 @@ interface SimpleDeployment {
           };
           emptyDir?: {
             sizeLimit?: string;
+            medium?: string;
           };
           hostPath?: {
             path: string;
@@ -144,6 +156,7 @@ interface SimpleDeployment {
 export class K8sDeploymentManager extends BaseDeploymentManager {
   private appsV1Api: k8s.AppsV1Api;
   private coreV1Api: k8s.CoreV1Api;
+  private nodeV1Api: k8s.NodeV1Api;
 
   constructor(
     config: OrchestratorConfig,
@@ -199,18 +212,121 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     // Configure K8s API clients
     this.appsV1Api = kc.makeApiClient(k8s.AppsV1Api);
     this.coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
+    this.nodeV1Api = kc.makeApiClient(k8s.NodeV1Api);
 
     // API clients are already configured with authentication through makeApiClient
 
     logger.info(
-      `🔧 K8s client initialized with 30s timeout for namespace: ${this.config.kubernetes.namespace}`
+      `🔧 K8s client initialized for namespace: ${this.config.kubernetes.namespace}`
     );
+
+    // Validate namespace exists and we have access
+    this.validateNamespace();
+
+    // Check runtime class availability on initialization (like Docker's gVisor check)
+    this.checkRuntimeClassAvailability();
+  }
+
+  /**
+   * Validate that the target namespace exists and we have access to it
+   */
+  private async validateNamespace(): Promise<void> {
+    const namespace = this.config.kubernetes.namespace;
+
+    try {
+      await this.coreV1Api.readNamespace(namespace);
+      logger.info(`✅ Namespace '${namespace}' validated`);
+    } catch (error) {
+      const k8sError = error as { statusCode?: number };
+
+      if (k8sError.statusCode === 404) {
+        logger.error(
+          `❌ Namespace '${namespace}' does not exist. ` +
+            `Create it with: kubectl create namespace ${namespace}`
+        );
+        throw new OrchestratorError(
+          ErrorCode.DEPLOYMENT_CREATE_FAILED,
+          `Namespace '${namespace}' does not exist`,
+          { namespace },
+          true
+        );
+      } else if (k8sError.statusCode === 403) {
+        // 403 Forbidden for namespace read is expected with namespace-scoped Roles
+        // The gateway can still create resources in the namespace without cluster-level namespace read permission
+        logger.info(
+          `ℹ️  Namespace '${namespace}' access check skipped (namespace-scoped RBAC). ` +
+            `Will validate via resource operations.`
+        );
+        // Don't throw - we're running in this namespace so it exists
+      } else {
+        logger.warn(
+          `⚠️  Could not validate namespace '${namespace}': ${error instanceof Error ? error.message : String(error)}`
+        );
+        // Don't throw - let operations fail with more specific errors
+      }
+    }
+  }
+
+  /**
+   * Check if the configured RuntimeClass exists in the cluster
+   * Similar to Docker's checkGvisorAvailability()
+   */
+  private async checkRuntimeClassAvailability(): Promise<void> {
+    const runtimeClassName = this.config.worker.runtimeClassName || "kata";
+
+    try {
+      await this.nodeV1Api.readRuntimeClass(runtimeClassName);
+      logger.info(
+        `✅ RuntimeClass '${runtimeClassName}' verified and will be used for worker isolation`
+      );
+    } catch (error) {
+      const k8sError = error as { statusCode?: number };
+      if (k8sError.statusCode === 404) {
+        logger.warn(
+          `⚠️  RuntimeClass '${runtimeClassName}' not found in cluster. ` +
+            `Workers will use default runtime. Consider installing ${runtimeClassName} for enhanced isolation.`
+        );
+      } else {
+        logger.warn(
+          `⚠️  Failed to verify RuntimeClass '${runtimeClassName}': ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      // Clear runtime class if not available or verification failed (workers will use default)
+      this.config.worker.runtimeClassName = undefined;
+    }
+  }
+
+  /**
+   * Validate that the worker image exists and is pullable
+   * Called on gateway startup to ensure workers can be created
+   */
+  async validateWorkerImage(): Promise<void> {
+    const imageName = `${this.config.worker.image.repository}:${this.config.worker.image.tag}`;
+
+    // For K8s, we can't directly validate if the image exists without creating a pod
+    // Instead, we log a warning and rely on imagePullPolicy and K8s error handling
+    logger.info(
+      `ℹ️  Worker image configured: ${imageName} (pullPolicy: ${this.config.worker.image.pullPolicy || "Always"})`
+    );
+
+    // If pull policy is "Never", warn that image must be pre-loaded
+    if (this.config.worker.image.pullPolicy === "Never") {
+      logger.warn(
+        `⚠️  Worker image pullPolicy is 'Never'. Ensure image ${imageName} is pre-loaded on all nodes.`
+      );
+    }
   }
 
   async listDeployments(): Promise<DeploymentInfo[]> {
     try {
+      // Only list worker deployments using label selector
       const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
-        this.config.kubernetes.namespace
+        this.config.kubernetes.namespace,
+        undefined, // pretty
+        undefined, // allowWatchBookmarks
+        undefined, // _continue
+        undefined, // fieldSelector
+        "app.kubernetes.io/component=worker" // labelSelector - only worker deployments
       );
 
       const now = Date.now();
@@ -257,9 +373,10 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
   }
 
   /**
-   * Create a PersistentVolumeClaim for a worker deployment
+   * Create a PersistentVolumeClaim for a space.
+   * Multiple threads in the same space share the same PVC.
    */
-  private async createPVC(pvcName: string): Promise<void> {
+  private async createPVC(pvcName: string, spaceId: string): Promise<void> {
     const pvc = {
       apiVersion: "v1",
       kind: "PersistentVolumeClaim",
@@ -269,6 +386,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         labels: {
           ...BASE_WORKER_LABELS,
           "app.kubernetes.io/component": "worker-storage",
+          "peerbot.io/space-id": spaceId,
         },
       },
       spec: {
@@ -285,13 +403,25 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     };
 
     try {
+      logger.debug(
+        `Creating PVC: ${pvcName} in namespace ${this.config.kubernetes.namespace}`
+      );
       await this.coreV1Api.createNamespacedPersistentVolumeClaim(
         this.config.kubernetes.namespace,
         pvc
       );
       logger.info(`✅ Created PVC: ${pvcName}`);
     } catch (error) {
-      const k8sError = error as { statusCode?: number };
+      const k8sError = error as {
+        statusCode?: number;
+        body?: unknown;
+        message?: string;
+      };
+      logger.error(`PVC creation error for ${pvcName}:`, {
+        statusCode: k8sError.statusCode,
+        message: k8sError.message,
+        body: k8sError.body,
+      });
       if (k8sError.statusCode === 409) {
         logger.info(`PVC ${pvcName} already exists (reusing)`);
       } else {
@@ -311,17 +441,21 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
       `🚀 Creating K8s deployment: ${deploymentName} for user ${userId}`
     );
 
-    // Create PVC for this deployment (per-thread persistent storage)
-    const pvcName = `${deploymentName}-pvc`;
-    await this.createPVC(pvcName);
+    // Use spaceId for PVC naming (shared across threads in same space)
+    // Fall back to deployment name for backwards compatibility
+    const threadId = deploymentName.replace("peerbot-worker-", "");
+    const spaceId = messageData?.spaceId || threadId;
+    const pvcName = `peerbot-workspace-${spaceId}`;
+    await this.createPVC(pvcName, spaceId);
 
     // Get environment variables before creating the deployment spec
+    // Include secrets (same as Docker behavior) - secrets are passed via env vars
     const envVars = await this.generateEnvironmentVariables(
       username,
       userId,
       deploymentName,
       messageData,
-      false,
+      true, // Include secrets to match Docker behavior
       userEnvVars
     );
 
@@ -344,14 +478,18 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
               // Add platform-specific metadata
               ...resolvePlatformDeploymentMetadata(messageData),
               "peerbot.io/created": new Date().toISOString(),
+              "peerbot.io/space-id": spaceId,
             },
             labels: { ...BASE_WORKER_LABELS },
           },
           spec: {
             serviceAccountName: "peerbot-worker",
-            runtimeClassName: this.config.worker.runtimeClassName || "kata",
+            // Only set runtimeClassName if configured and available (validated on startup)
+            ...(this.config.worker.runtimeClassName
+              ? { runtimeClassName: this.config.worker.runtimeClassName }
+              : {}),
             securityContext: {
-              fsGroup: 1001,
+              fsGroup: WORKER_SECURITY.GROUP_ID,
               fsGroupChangePolicy: "OnRootMismatch",
             },
             containers: [
@@ -361,23 +499,25 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                 imagePullPolicy:
                   this.config.worker.image.pullPolicy || "Always",
                 securityContext: {
-                  runAsUser: 1001,
-                  runAsGroup: 1001,
+                  runAsUser: WORKER_SECURITY.USER_ID,
+                  runAsGroup: WORKER_SECURITY.GROUP_ID,
                   runAsNonRoot: true,
-                  readOnlyRootFilesystem: false,
+                  // Enable read-only root filesystem for security (matches Docker behavior)
+                  readOnlyRootFilesystem: true,
+                  // Prevent privilege escalation
+                  allowPrivilegeEscalation: false,
+                  // Drop all capabilities (matches Docker CAP_DROP: ALL)
+                  capabilities: {
+                    drop: ["ALL"],
+                  },
                 },
                 env: [
-                  // Common environment variables from base class (includes ANTHROPIC_API_KEY)
+                  // Common environment variables from base class
+                  // (includes HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE_ENV, DEBUG)
                   ...Object.entries(envVars).map(([key, value]) => ({
                     name: key,
                     value: value,
                   })),
-                  // Pass NODE_ENV to worker pods
-                  {
-                    name: "NODE_ENV",
-                    value: process.env.NODE_ENV || "production",
-                  },
-                  // Module-specific environment variables are added through base class
                 ],
                 resources: {
                   requests: this.config.worker.resources.requests,
@@ -388,6 +528,15 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                     name: "workspace",
                     mountPath: "/workspace",
                   },
+                  // Tmpfs mounts for writable directories (matches Docker behavior)
+                  {
+                    name: "tmp",
+                    mountPath: "/tmp",
+                  },
+                  {
+                    name: "bun-cache",
+                    mountPath: "/home/bun/.cache",
+                  },
                 ],
               },
             ],
@@ -397,6 +546,21 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                 // Use per-deployment PVC for session persistence across scale-to-zero
                 persistentVolumeClaim: {
                   claimName: pvcName,
+                },
+              },
+              // Tmpfs volumes for temporary files (in-memory, matches Docker Tmpfs)
+              {
+                name: "tmp",
+                emptyDir: {
+                  medium: "Memory",
+                  sizeLimit: WORKER_SECURITY.TMP_SIZE_LIMIT,
+                },
+              },
+              {
+                name: "bun-cache",
+                emptyDir: {
+                  medium: "Memory",
+                  sizeLimit: WORKER_SECURITY.BUN_CACHE_SIZE_LIMIT,
                 },
               },
             ],
@@ -503,7 +667,11 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
           undefined,
           undefined,
           undefined,
-          { headers: { "Content-Type": "application/json-patch+json" } }
+          {
+            headers: {
+              "Content-Type": "application/strategic-merge-patch+json",
+            },
+          }
         );
       }
     } catch (error) {
@@ -518,13 +686,17 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
 
   async deleteDeployment(deploymentId: string): Promise<void> {
     const deploymentName = `peerbot-worker-${deploymentId}`;
-    const pvcName = `${deploymentName}-pvc`;
 
-    // Delete the deployment
+    // Delete the deployment with propagation policy
     try {
       await this.appsV1Api.deleteNamespacedDeployment(
         deploymentName,
-        this.config.kubernetes.namespace
+        this.config.kubernetes.namespace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "Foreground" // Wait for pods to terminate before returning
       );
       logger.info(`✅ Deleted deployment: ${deploymentName}`);
     } catch (error) {
@@ -538,22 +710,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
       }
     }
 
-    // Delete the PVC
-    try {
-      await this.coreV1Api.deleteNamespacedPersistentVolumeClaim(
-        pvcName,
-        this.config.kubernetes.namespace
-      );
-      logger.info(`✅ Deleted PVC: ${pvcName}`);
-    } catch (error) {
-      const k8sError = error as { statusCode?: number };
-      if (k8sError.statusCode === 404) {
-        logger.info(`⚠️  PVC ${pvcName} not found (already deleted)`);
-      } else {
-        logger.error(`Failed to delete PVC ${pvcName}:`, error);
-        // Don't throw - deployment deletion should succeed even if PVC cleanup fails
-      }
-    }
+    // NOTE: Space PVCs are NOT deleted on deployment deletion
+    // They are shared across threads in the same space and persist
+    // for future conversations. Cleanup is done manually or via separate process.
   }
 
   async updateDeploymentActivity(deploymentName: string): Promise<void> {
@@ -576,7 +735,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         undefined,
         undefined,
         undefined,
-        { headers: { "Content-Type": "application/json-patch+json" } }
+        {
+          headers: { "Content-Type": "application/strategic-merge-patch+json" },
+        }
       );
     } catch (error) {
       logger.error(

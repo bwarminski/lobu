@@ -137,6 +137,11 @@ export class Orchestrator {
       await moduleRegistry.initAll();
       logger.info("✅ Modules initialized for orchestration");
 
+      // Validate worker image exists (Docker mode only)
+      if (this.deploymentManager instanceof DockerDeploymentManager) {
+        await this.deploymentManager.validateWorkerImage();
+      }
+
       // Start queue consumer
       await this.queueConsumer.start();
 

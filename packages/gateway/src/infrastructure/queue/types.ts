@@ -101,6 +101,7 @@ export interface ThreadResponsePayload {
   threadId: string;
   userId: string;
   teamId: string;
+  platform?: string; // Platform identifier (slack, whatsapp, etc.) for multi-platform routing
   content?: string; // Used only for ephemeral messages (OAuth/auth flows)
   delta?: string;
   isFullReplacement?: boolean;

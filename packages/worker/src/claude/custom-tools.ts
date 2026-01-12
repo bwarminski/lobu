@@ -23,16 +23,18 @@ export function createCustomToolsServer(
       "UploadUserFile",
       "Use this whenever you create a visualization, chart, image, document, report, or any file that helps answer the user's request. This is how you share your work with the user.",
       {
+        // @ts-expect-error - SDK tool() typing issue with Zod schemas
         file_path: z
           .string()
           .describe(
             "Path to the file to show (absolute or relative to workspace)"
           ),
+        // @ts-expect-error - SDK tool() typing issue with Zod schemas
         description: z
           .string()
           .optional()
           .describe("Optional description of what the file contains or shows"),
-      },
+      } as const,
       async (args) => {
         try {
           logger.info(
@@ -179,7 +181,9 @@ export function createCustomToolsServer(
         "AskUserQuestion",
         "Ask the user a question with options. Supports three patterns: (1) Simple buttons: pass string array for immediate response. (2) Single form: pass object with field schemas to open a modal. (3) Multi-form workflow: pass array of {label, fields} to let user fill multiple forms before submitting.",
         {
+          // @ts-expect-error - SDK tool() typing issue with Zod schemas
           question: z.string().describe("The question to ask the user"),
+          // @ts-expect-error - SDK tool() typing issue with Zod schemas
           options: z.union([
             z
               .array(z.string())
@@ -188,6 +192,7 @@ export function createCustomToolsServer(
               ),
             z
               .record(
+                z.string(),
                 z.object({
                   type: z.enum([
                     "text",
@@ -210,8 +215,13 @@ export function createCustomToolsServer(
                 z.object({
                   label: z
                     .string()
-                    .describe("Button label that opens this form"),
+                    .describe(
+                      "Short section label (1-2 words max, under 25 chars). " +
+                        "Examples: 'Personal Info', 'Work History', 'Preferences'. " +
+                        "Avoid long descriptive names - keep it concise for button display."
+                    ),
                   fields: z.record(
+                    z.string(),
                     z.object({
                       type: z.enum([
                         "text",
@@ -232,7 +242,7 @@ export function createCustomToolsServer(
               )
               .describe("Array of forms for multi-step workflow"),
           ]),
-        },
+        } as const,
         async (args) => {
           try {
             logger.info(`AskUserQuestion: ${args.question}`);

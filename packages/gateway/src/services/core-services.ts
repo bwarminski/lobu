@@ -8,10 +8,10 @@ import { ClaudeOAuthStateStore } from "../auth/claude/oauth-state-store";
 import { McpConfigService } from "../auth/mcp/config-service";
 import { McpCredentialStore } from "../auth/mcp/credential-store";
 import { McpInputStore } from "../auth/mcp/input-store";
-import { OAuthDiscoveryService } from "../auth/oauth/discovery";
 import { McpOAuthModule } from "../auth/mcp/oauth-module";
 import { McpOAuthStateStore } from "../auth/mcp/oauth-state-store";
 import { McpProxy } from "../auth/mcp/proxy";
+import { OAuthDiscoveryService } from "../auth/oauth/discovery";
 import type { GatewayConfig } from "../config";
 import { WorkerGateway } from "../gateway";
 import { AnthropicProxy } from "../infrastructure/model-provider";
@@ -60,6 +60,7 @@ export class CoreServices {
   // ============================================================================
   private claudeCredentialStore?: ClaudeCredentialStore;
   private claudeModelPreferenceStore?: ClaudeModelPreferenceStore;
+  private claudeOAuthStateStore?: ClaudeOAuthStateStore;
   private anthropicProxy?: AnthropicProxy;
 
   // ============================================================================
@@ -184,10 +185,10 @@ export class CoreServices {
 
     // Register Claude OAuth module
     const systemTokenAvailable = !!this.config.anthropicProxy.anthropicApiKey;
-    const claudeOAuthStateStore = new ClaudeOAuthStateStore(redisClient);
+    this.claudeOAuthStateStore = new ClaudeOAuthStateStore(redisClient);
     const claudeOAuthModule = new ClaudeOAuthModule(
       this.claudeCredentialStore,
-      claudeOAuthStateStore,
+      this.claudeOAuthStateStore,
       this.claudeModelPreferenceStore,
       this.queue,
       this.config.mcp.publicGatewayUrl,
@@ -367,6 +368,14 @@ export class CoreServices {
 
   getClaudeModelPreferenceStore(): ClaudeModelPreferenceStore | undefined {
     return this.claudeModelPreferenceStore;
+  }
+
+  getClaudeOAuthStateStore(): ClaudeOAuthStateStore | undefined {
+    return this.claudeOAuthStateStore;
+  }
+
+  getPublicGatewayUrl(): string {
+    return this.config.mcp.publicGatewayUrl;
   }
 
   getSessionManager(): SessionManager {

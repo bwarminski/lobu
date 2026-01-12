@@ -172,7 +172,7 @@ export class InstructionService {
     if (this.mcpConfigService) {
       try {
         mcpStatus =
-          (await this.mcpConfigService.getMcpStatus(context.userId)) || [];
+          (await this.mcpConfigService.getMcpStatus(context.spaceId)) || [];
         logger.info(`Got MCP status for ${mcpStatus.length} MCPs`);
       } catch (error) {
         logger.error("Failed to get MCP status:", error);

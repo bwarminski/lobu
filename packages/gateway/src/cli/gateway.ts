@@ -5,6 +5,7 @@ import { createLogger } from "@peerbot/core";
 import express from "express";
 import type { GatewayConfig } from "../config";
 import type { SlackConfig } from "../slack";
+import type { WhatsAppConfig } from "../whatsapp/config";
 
 const logger = createLogger("gateway-startup");
 
@@ -20,7 +21,8 @@ function setupHealthEndpoints(
   fileHandler?: any,
   sessionManager?: any,
   interactionService?: any,
-  platformRegistry?: any
+  platformRegistry?: any,
+  coreServices?: any
 ) {
   if (healthServer) return;
 
@@ -44,6 +46,13 @@ function setupHealthEndpoints(
     res.json({ ready: true });
   });
 
+  // Prometheus metrics endpoint for Grafana
+  proxyApp.get("/metrics", (_req, res) => {
+    const { getMetricsText } = require("../metrics/prometheus");
+    res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    res.send(getMetricsText());
+  });
+
   // Test endpoint for Sentry integration
   proxyApp.get("/test/sentry-error", (_req, res) => {
     logger.error("Test error for Sentry integration", {
@@ -53,6 +62,37 @@ function setupHealthEndpoints(
       testData: { foo: "bar", timestamp: Date.now() },
     });
     res.json({ message: "Test error logged. Check Sentry dashboard." });
+  });
+
+  // Test endpoint for simulating incoming messages (dev/test only)
+  proxyApp.post("/test/simulate-message", express.json(), async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res
+        .status(403)
+        .json({ error: "Test endpoint disabled in production" });
+    }
+
+    const { platform, userId, message } = req.body;
+    if (!platform || !userId || !message) {
+      return res
+        .status(400)
+        .json({ error: "Missing required fields: platform, userId, message" });
+    }
+
+    const msgId = `TEST${Date.now()}`;
+    const threadId = msgId;
+
+    logger.info(
+      `[TEST] Simulating incoming ${platform} message from ${userId}: ${message}`
+    );
+
+    // This will be set up after coreServices is available
+    res.json({
+      success: true,
+      messageId: msgId,
+      threadId,
+      note: "Message simulation endpoint. Use with coreServices injection.",
+    });
   });
 
   // Add Anthropic proxy if provided
@@ -133,6 +173,22 @@ function setupHealthEndpoints(
     logger.info("✅ Messaging routes enabled at :8080/api/messaging/send");
   }
 
+  // Setup auth callback routes for WhatsApp and other non-modal platforms
+  if (coreServices) {
+    const stateStore = coreServices.getClaudeOAuthStateStore();
+    const credentialStore = coreServices.getClaudeCredentialStore();
+    if (stateStore && credentialStore) {
+      const { Router } = require("express");
+      const authRouter = Router();
+      // Add form parsing middleware for auth callback
+      authRouter.use(express.urlencoded({ extended: true }));
+      const { registerAuthCallbackRoutes } = require("../routes/auth-callback");
+      registerAuthCallbackRoutes(authRouter, { stateStore, credentialStore });
+      proxyApp.use(authRouter);
+      logger.info("✅ Auth callback routes enabled at :8080/auth/callback");
+    }
+  }
+
   // Create HTTP server with Express app
   healthServer = http.createServer(proxyApp);
 
@@ -150,7 +206,8 @@ function setupHealthEndpoints(
  */
 export async function startGateway(
   config: GatewayConfig,
-  slackConfig: SlackConfig
+  slackConfig: SlackConfig | null,
+  whatsappConfig?: WhatsAppConfig | null
 ): Promise<void> {
   logger.info("🚀 Starting Peerbot Gateway");
 
@@ -161,22 +218,14 @@ export async function startGateway(
   // Import dependencies (after config is loaded)
   const { Orchestrator } = await import("../orchestration");
   const { Gateway } = await import("../gateway-main");
-  const { SlackPlatform } = await import("../slack");
 
   // Create and start orchestrator
   const orchestrator = new Orchestrator(config.orchestration);
   await orchestrator.start();
   logger.info("✅ Orchestrator started");
 
-  // Create Gateway with Slack platform
+  // Create Gateway
   const gateway = new Gateway(config);
-
-  // Construct Slack platform config
-  const slackPlatformConfig = {
-    slack: slackConfig,
-    logLevel: config.logLevel as any, // Core LogLevel is compatible with Slack LogLevel
-    health: config.health,
-  };
 
   const agentOptions = {
     allowedTools: config.claude.allowedTools,
@@ -185,12 +234,44 @@ export async function startGateway(
     timeoutMinutes: config.claude.timeoutMinutes,
   };
 
-  const slackPlatform = new SlackPlatform(
-    slackPlatformConfig,
-    agentOptions,
-    config.sessionTimeoutMinutes
-  );
-  gateway.registerPlatform(slackPlatform);
+  // Register Slack platform if configured
+  let slackPlatform: any = null;
+  if (slackConfig) {
+    const { SlackPlatform } = await import("../slack");
+
+    // Construct Slack platform config
+    const slackPlatformConfig = {
+      slack: slackConfig,
+      logLevel: config.logLevel as any, // Core LogLevel is compatible with Slack LogLevel
+      health: config.health,
+    };
+
+    slackPlatform = new SlackPlatform(
+      slackPlatformConfig,
+      agentOptions,
+      config.sessionTimeoutMinutes
+    );
+    gateway.registerPlatform(slackPlatform);
+    logger.info("✅ Slack platform registered");
+  }
+
+  // Register WhatsApp platform if enabled
+  let whatsappPlatform: any = null;
+  if (whatsappConfig?.enabled) {
+    const { WhatsAppPlatform } = await import("../whatsapp");
+
+    const whatsappPlatformConfig = {
+      whatsapp: whatsappConfig,
+    };
+
+    whatsappPlatform = new WhatsAppPlatform(
+      whatsappPlatformConfig,
+      agentOptions as any,
+      config.sessionTimeoutMinutes
+    );
+    gateway.registerPlatform(whatsappPlatform);
+    logger.info("✅ WhatsApp platform registered");
+  }
 
   // Start gateway (initializes core services + platforms)
   await gateway.start();
@@ -207,7 +288,7 @@ export async function startGateway(
   logger.info("✅ Orchestrator configured with core services");
 
   // Get file handler from Slack platform (if available)
-  const fileHandler = slackPlatform.getFileHandler();
+  const fileHandler = slackPlatform?.getFileHandler() ?? null;
   const sessionManager = coreServices.getSessionManager();
 
   // Setup health endpoints on port 8080
@@ -218,7 +299,8 @@ export async function startGateway(
     fileHandler,
     sessionManager,
     coreServices.getInteractionService(),
-    gateway.getPlatformRegistry()
+    gateway.getPlatformRegistry(),
+    coreServices
   );
 
   logger.info("✅ Peerbot Gateway is running!");

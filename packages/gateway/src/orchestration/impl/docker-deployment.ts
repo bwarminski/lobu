@@ -1,12 +1,13 @@
+import fs from "node:fs";
 import path from "node:path";
 import { createLogger, ErrorCode, OrchestratorError } from "@peerbot/core";
 import Docker from "dockerode";
 import {
   BaseDeploymentManager,
   type DeploymentInfo,
+  type MessagePayload,
   type ModuleEnvVarsBuilder,
   type OrchestratorConfig,
-  type MessagePayload,
 } from "../base-deployment-manager";
 import {
   BASE_WORKER_LABELS,
@@ -53,6 +54,64 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
     } catch (error) {
       logger.warn(
         `⚠️  Failed to check Docker runtime availability: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Check if gateway is running inside a Docker container
+   */
+  private isRunningInContainer(): boolean {
+    return fs.existsSync("/.dockerenv") || process.env.CONTAINER === "true";
+  }
+
+  /**
+   * Get the host address that workers should use to reach the gateway
+   * When gateway runs on host (sidecar mode), workers use host.docker.internal
+   * When gateway runs in container (docker-compose mode), workers use service name
+   */
+  private getHostAddress(): string {
+    if (this.isRunningInContainer()) {
+      return "gateway";
+    }
+    // For host-mode development (sidecar), workers reach gateway via host.docker.internal
+    return "host.docker.internal";
+  }
+
+  /**
+   * Validate that the worker image exists locally
+   * Called on gateway startup to ensure workers can be created
+   */
+  async validateWorkerImage(): Promise<void> {
+    const imageName = `${this.config.worker.image.repository}:${this.config.worker.image.tag}`;
+
+    try {
+      await this.docker.getImage(imageName).inspect();
+      logger.info(`✅ Worker image verified: ${imageName}`);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      // Check if it's a "not found" error
+      if (
+        errorMessage.includes("No such image") ||
+        errorMessage.includes("404")
+      ) {
+        logger.error(
+          `❌ Worker image not found: ${imageName}\n` +
+            `   Please build it with: docker compose build worker\n` +
+            `   Or ensure 'docker compose up' builds the worker service automatically`
+        );
+        throw new OrchestratorError(
+          ErrorCode.DEPLOYMENT_CREATE_FAILED,
+          `Worker image ${imageName} does not exist. Build it first with 'docker compose build worker'`
+        );
+      }
+
+      // Other error - re-throw
+      throw new OrchestratorError(
+        ErrorCode.DEPLOYMENT_CREATE_FAILED,
+        `Failed to validate worker image ${imageName}: ${errorMessage}`
       );
     }
   }
@@ -105,26 +164,69 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
   }
 
   /**
-   * Ensures a Docker volume exists for the given thread ID.
+   * Ensures a Docker volume exists for the given space ID.
    * Uses named volumes for better isolation and security.
+   * Multiple threads in the same space share the same volume.
    */
-  private async ensureVolume(threadId: string): Promise<string> {
-    const volumeName = `peerbot-workspace-${threadId}`;
+  private async ensureVolume(spaceId: string): Promise<string> {
+    const volumeName = `peerbot-workspace-${spaceId}`;
+    let volumeCreated = false;
 
     try {
-      // Check if volume already exists
+      // Check if volume already exists (idempotent for concurrent creation)
       await this.docker.getVolume(volumeName).inspect();
       logger.info(`✅ Volume ${volumeName} already exists`);
     } catch (error) {
       // Volume doesn't exist, create it
-      await this.docker.createVolume({
-        Name: volumeName,
-        Labels: {
-          "peerbot.io/thread-id": threadId,
-          "peerbot.io/created": new Date().toISOString(),
-        },
-      });
-      logger.info(`✅ Created volume: ${volumeName}`);
+      try {
+        await this.docker.createVolume({
+          Name: volumeName,
+          Labels: {
+            "peerbot.io/space-id": spaceId,
+            "peerbot.io/created": new Date().toISOString(),
+          },
+        });
+        logger.info(`✅ Created volume: ${volumeName}`);
+        volumeCreated = true;
+      } catch (createError: any) {
+        // Handle race condition: volume created by another thread
+        if (
+          createError.statusCode === 409 ||
+          createError.message?.includes("already exists")
+        ) {
+          logger.info(`Volume ${volumeName} was created by another thread`);
+        } else {
+          throw createError;
+        }
+      }
+    }
+
+    // Fix volume permissions for new volumes
+    // The claude user in the worker container has UID 1001
+    if (volumeCreated) {
+      try {
+        const initContainer = await this.docker.createContainer({
+          Image: "alpine:latest",
+          Cmd: ["chown", "-R", "1001:1001", "/workspace"],
+          HostConfig: {
+            AutoRemove: true,
+            Mounts: [
+              {
+                Type: "volume",
+                Source: volumeName,
+                Target: "/workspace",
+              },
+            ],
+          },
+        });
+        await initContainer.start();
+        await initContainer.wait();
+        logger.info(`✅ Fixed volume permissions for ${volumeName}`);
+      } catch (permError) {
+        logger.warn(
+          `⚠️ Could not fix volume permissions: ${permError instanceof Error ? permError.message : String(permError)}`
+        );
+      }
     }
 
     return volumeName;
@@ -140,8 +242,12 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       (userEnvVarsRaw as Record<string, string> | undefined) ?? {};
 
     try {
-      // Extract thread ID from deployment name for per-thread workspace isolation
+      // Extract thread ID from deployment name for deployment naming
       const threadId = deploymentName.replace("peerbot-worker-", "");
+
+      // Use spaceId for volume naming (shared across threads in same space)
+      // Fall back to threadId for backwards compatibility
+      const spaceId = messageData?.spaceId || threadId;
 
       // Determine if running in Docker and resolve project paths
       const isRunningInDocker = process.env.DEPLOYMENT_MODE === "docker";
@@ -149,10 +255,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         ? process.env.PEERBOT_DEV_PROJECT_PATH || "/app"
         : path.join(process.cwd(), "..", "..");
 
-      const workspaceDir = `${projectRoot}/workspaces/${threadId}`;
+      const workspaceDir = `${projectRoot}/workspaces/${spaceId}`;
 
-      // Ensure volume exists for production mode
-      const volumeName = await this.ensureVolume(threadId);
+      // Ensure volume exists for production mode (space-scoped)
+      const volumeName = await this.ensureVolume(spaceId);
 
       // Get common environment variables from base class
       const commonEnvVars = await this.generateEnvironmentVariables(
@@ -174,19 +280,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         }
       }
 
-      // Configure HTTP proxy for network-isolated workers
-      // Network isolation is always enabled - workers always use proxy
+      // Environment variables from base class already include:
+      // HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE_ENV, DEBUG
       const envVars = [
         `ANTHROPIC_API_KEY=${username}:`,
-        // Pass NODE_ENV to worker container
-        `NODE_ENV=${process.env.NODE_ENV || "production"}`,
-        // Enable SDK debugging for crash investigation
-        "DEBUG=1",
-        // HTTP proxy configuration (always enabled for network isolation)
-        "HTTP_PROXY=http://gateway:8118",
-        "HTTPS_PROXY=http://gateway:8118",
-        // Don't proxy internal services
-        "NO_PROXY=gateway,redis,localhost,127.0.0.1",
         // Convert common environment variables to Docker format
         ...Object.entries(commonEnvVars).map(
           ([key, value]) => `${key}=${value}`
@@ -203,6 +300,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
         Labels: {
           ...BASE_WORKER_LABELS,
           "peerbot.io/created": new Date().toISOString(),
+          "peerbot.io/space-id": spaceId,
           // Docker Compose labels to associate with the project
           "com.docker.compose.project": composeProjectName,
           "com.docker.compose.service": deploymentName, // Use unique service name
@@ -254,7 +352,17 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
             this.config.worker.resources.limits.cpu
           ),
           // Always connect to internal network (network isolation always enabled)
-          NetworkMode: `${composeProjectName}_peerbot-internal`,
+          // In docker-compose mode: uses compose project prefix
+          // In sidecar mode: uses plain network name (WORKER_NETWORK env var)
+          NetworkMode:
+            process.env.WORKER_NETWORK ||
+            `${composeProjectName}_peerbot-internal`,
+          // Linux support: add host.docker.internal mapping
+          // On macOS/Windows this is automatic, on Linux we need ExtraHosts
+          ...(process.platform === "linux" &&
+            !this.isRunningInContainer() && {
+              ExtraHosts: ["host.docker.internal:host-gateway"],
+            }),
           // Security: Drop all capabilities and only add what's needed
           CapDrop: ["ALL"],
           CapAdd: process.env.WORKER_CAPABILITIES
@@ -338,10 +446,6 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       ? deploymentId
       : `peerbot-worker-${deploymentId}`;
 
-    // Extract thread ID for volume cleanup
-    const threadId = deploymentName.replace("peerbot-worker-", "");
-    const volumeName = `peerbot-workspace-${threadId}`;
-
     try {
       const container = this.docker.getContainer(deploymentName);
 
@@ -368,24 +472,9 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       }
     }
 
-    // Clean up volume (only in production mode with named volumes)
-    if (process.env.NODE_ENV !== "development") {
-      try {
-        const volume = this.docker.getVolume(volumeName);
-        await volume.remove();
-        logger.info(`✅ Removed volume: ${volumeName}`);
-      } catch (error) {
-        const dockerError = error as { statusCode?: number };
-        if (dockerError.statusCode === 404) {
-          logger.warn(`⚠️  Volume ${volumeName} not found (already deleted)`);
-        } else {
-          logger.warn(
-            `⚠️  Failed to remove volume ${volumeName}: ${error instanceof Error ? error.message : String(error)}`
-          );
-          // Don't throw - volume cleanup is best-effort
-        }
-      }
-    }
+    // NOTE: Space volumes are NOT deleted on deployment deletion
+    // They are shared across threads in the same space and persist
+    // for future conversations. Cleanup is done manually or via separate process.
   }
 
   async updateDeploymentActivity(_deploymentName: string): Promise<void> {
@@ -394,7 +483,6 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
   }
 
   protected getDispatcherHost(): string {
-    // Use the Docker Compose service name for reliable network resolution
-    return "gateway";
+    return this.getHostAddress();
   }
 }

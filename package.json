@@ -38,6 +38,7 @@
     "@biomejs/biome": "^2.2.2",
     "@types/bun": "1.2.11",
     "@types/node": "^20.0.0",
+    "@types/qrcode-terminal": "^0.12.2",
     "husky": "^9.1.7",
     "jscpd": "^4.0.5",
     "knip": "^5.66.3",

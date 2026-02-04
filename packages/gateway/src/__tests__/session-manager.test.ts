@@ -4,8 +4,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { ThreadSession } from "@termosdev/core";
 import { RedisSessionStore, SessionManager } from "../services/session-manager";
+import { computeSessionKey, type ThreadSession } from "../session";
 import { cleanupTestEnv, MockMessageQueue, setupTestEnv } from "./setup";
 
 describe("SessionManager", () => {
@@ -27,7 +27,6 @@ describe("SessionManager", () => {
   describe("Session Creation and Retrieval", () => {
     test("creates and retrieves session", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-123",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -39,9 +38,9 @@ describe("SessionManager", () => {
 
       await manager.setSession(session);
 
-      const retrieved = await manager.getSession("session-123");
+      const sessionKey = computeSessionKey(session);
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved).not.toBeNull();
-      expect(retrieved?.sessionKey).toBe("session-123");
       expect(retrieved?.userId).toBe("U123");
       expect(retrieved?.channelId).toBe("C123");
       expect(retrieved?.threadId).toBe("1234567890.123456");
@@ -54,30 +53,25 @@ describe("SessionManager", () => {
 
     test("stores all session fields correctly", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-456",
         channelId: "C456",
         userId: "U456",
         threadId: "9876543210.654321",
         threadCreator: "U456",
-        jobName: "test-job",
         status: "running",
         createdAt: Date.now(),
         lastActivity: Date.now(),
-        botResponseId: "bot-response-123",
       };
 
       await manager.setSession(session);
 
-      const retrieved = await manager.getSession("session-456");
+      const sessionKey = computeSessionKey(session);
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved).toMatchObject({
-        sessionKey: "session-456",
         channelId: "C456",
         userId: "U456",
         threadId: "9876543210.654321",
         threadCreator: "U456",
-        jobName: "test-job",
         status: "running",
-        botResponseId: "bot-response-123",
       });
     });
   });
@@ -85,7 +79,6 @@ describe("SessionManager", () => {
   describe("Session Deletion", () => {
     test("deletes existing session", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-to-delete",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -95,10 +88,11 @@ describe("SessionManager", () => {
       };
 
       await manager.setSession(session);
-      expect(await manager.getSession("session-to-delete")).not.toBeNull();
+      const sessionKey = computeSessionKey(session);
+      expect(await manager.getSession(sessionKey)).not.toBeNull();
 
-      await manager.deleteSession("session-to-delete");
-      expect(await manager.getSession("session-to-delete")).toBeNull();
+      await manager.deleteSession(sessionKey);
+      expect(await manager.getSession(sessionKey)).toBeNull();
     });
 
     test("handles deleting non-existent session gracefully", async () => {
@@ -109,7 +103,6 @@ describe("SessionManager", () => {
 
     test("deletes both session and thread index", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-with-thread",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -119,6 +112,7 @@ describe("SessionManager", () => {
       };
 
       await manager.setSession(session);
+      const sessionKey = computeSessionKey(session);
 
       // Should be able to find by thread
       const byThread = await manager.findSessionByThread(
@@ -128,7 +122,7 @@ describe("SessionManager", () => {
       expect(byThread).not.toBeNull();
 
       // Delete
-      await manager.deleteSession("session-with-thread");
+      await manager.deleteSession(sessionKey);
 
       // Should no longer find by thread
       const afterDelete = await manager.findSessionByThread(
@@ -142,7 +136,6 @@ describe("SessionManager", () => {
   describe("Thread Index Lookup", () => {
     test("finds session by thread ID", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-789",
         channelId: "C789",
         userId: "U789",
         threadId: "1111111111.111111",
@@ -158,7 +151,6 @@ describe("SessionManager", () => {
         "1111111111.111111"
       );
       expect(found).not.toBeNull();
-      expect(found?.sessionKey).toBe("session-789");
       expect(found?.userId).toBe("U789");
     });
 
@@ -172,7 +164,6 @@ describe("SessionManager", () => {
 
     test("handles multiple sessions in different threads", async () => {
       const session1: ThreadSession = {
-        sessionKey: "session-1",
         channelId: "C111",
         userId: "U111",
         threadId: "1111111111.111111",
@@ -182,7 +173,6 @@ describe("SessionManager", () => {
       };
 
       const session2: ThreadSession = {
-        sessionKey: "session-2",
         channelId: "C222",
         userId: "U222",
         threadId: "2222222222.222222",
@@ -203,13 +193,12 @@ describe("SessionManager", () => {
         "2222222222.222222"
       );
 
-      expect(found1?.sessionKey).toBe("session-1");
-      expect(found2?.sessionKey).toBe("session-2");
+      expect(found1?.channelId).toBe("C111");
+      expect(found2?.channelId).toBe("C222");
     });
 
     test("updates session when thread index already exists", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-update",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -246,7 +235,6 @@ describe("SessionManager", () => {
 
     test("allows access when no thread creator is set", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-no-owner",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -269,7 +257,6 @@ describe("SessionManager", () => {
 
     test("allows access when user is thread creator", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-owner",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -293,7 +280,6 @@ describe("SessionManager", () => {
 
     test("denies access when user is not thread creator", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-restricted",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -317,7 +303,6 @@ describe("SessionManager", () => {
 
     test("validates ownership across multiple threads correctly", async () => {
       const session1: ThreadSession = {
-        sessionKey: "session-1",
         channelId: "C111",
         userId: "U111",
         threadId: "1111111111.111111",
@@ -328,7 +313,6 @@ describe("SessionManager", () => {
       };
 
       const session2: ThreadSession = {
-        sessionKey: "session-2",
         channelId: "C222",
         userId: "U222",
         threadId: "2222222222.222222",
@@ -363,24 +347,25 @@ describe("SessionManager", () => {
   describe("Session Activity Tracking", () => {
     test("updates lastActivity timestamp", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-activity",
         channelId: "C123",
         userId: "U123",
+        threadId: "activity.123456",
         status: "running",
         createdAt: Date.now(),
         lastActivity: Date.now() - 1000, // 1 second ago
       };
 
       await manager.setSession(session);
+      const sessionKey = computeSessionKey(session);
 
-      const before = await manager.getSession("session-activity");
+      const before = await manager.getSession(sessionKey);
       const beforeActivity = before?.lastActivity;
 
       // Wait a bit and touch
       await new Promise((resolve) => setTimeout(resolve, 10));
-      await manager.touchSession("session-activity");
+      await manager.touchSession(sessionKey);
 
-      const after = await manager.getSession("session-activity");
+      const after = await manager.getSession(sessionKey);
       expect(after?.lastActivity).toBeGreaterThan(beforeActivity!);
     });
 
@@ -392,25 +377,23 @@ describe("SessionManager", () => {
 
     test("preserves other fields when touching", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-preserve",
         channelId: "C123",
         userId: "U123",
-        threadId: "1234567890.123456",
+        threadId: "preserve.123456",
         threadCreator: "U123",
-        jobName: "important-job",
         status: "running",
         createdAt: Date.now(),
         lastActivity: Date.now(),
       };
 
       await manager.setSession(session);
-      await manager.touchSession("session-preserve");
+      const sessionKey = computeSessionKey(session);
+      await manager.touchSession(sessionKey);
 
-      const updated = await manager.getSession("session-preserve");
+      const updated = await manager.getSession(sessionKey);
       expect(updated?.channelId).toBe("C123");
       expect(updated?.userId).toBe("U123");
-      expect(updated?.threadId).toBe("1234567890.123456");
-      expect(updated?.jobName).toBe("important-job");
+      expect(updated?.threadId).toBe("preserve.123456");
       expect(updated?.status).toBe("running");
     });
   });
@@ -418,20 +401,21 @@ describe("SessionManager", () => {
   describe("Session Status Updates", () => {
     test("updates session status", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-status",
         channelId: "C123",
         userId: "U123",
+        threadId: "status.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
       };
 
       await manager.setSession(session);
+      const sessionKey = computeSessionKey(session);
 
       const updated = { ...session, status: "completed" as const };
       await manager.setSession(updated);
 
-      const retrieved = await manager.getSession("session-status");
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved?.status).toBe("completed");
     });
 
@@ -447,17 +431,18 @@ describe("SessionManager", () => {
 
       for (const status of statuses) {
         const session: ThreadSession = {
-          sessionKey: `session-${status}`,
           channelId: "C123",
           userId: "U123",
+          threadId: `status-${status}.123456`,
           status,
           createdAt: Date.now(),
           lastActivity: Date.now(),
         };
 
         await manager.setSession(session);
+        const sessionKey = computeSessionKey(session);
 
-        const retrieved = await manager.getSession(`session-${status}`);
+        const retrieved = await manager.getSession(sessionKey);
         expect(retrieved?.status).toBe(status);
       }
     });
@@ -482,13 +467,15 @@ describe("SessionManager", () => {
 
     test("handles concurrent session updates", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-concurrent",
         channelId: "C123",
         userId: "U123",
+        threadId: "concurrent.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
       };
+
+      const sessionKey = computeSessionKey(session);
 
       // Simulate concurrent updates
       await Promise.all([
@@ -497,7 +484,7 @@ describe("SessionManager", () => {
       ]);
 
       // Last write wins
-      const retrieved = await manager.getSession("session-concurrent");
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved).not.toBeNull();
       expect(["running", "completed"]).toContain(retrieved?.status);
     });
@@ -506,9 +493,9 @@ describe("SessionManager", () => {
   describe("Session Store Key Formatting", () => {
     test("uses correct key prefix for sessions", async () => {
       const session: ThreadSession = {
-        sessionKey: "test-key",
         channelId: "C123",
         userId: "U123",
+        threadId: "keyformat.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -517,14 +504,13 @@ describe("SessionManager", () => {
       await manager.setSession(session);
 
       const redis = mockQueue.getRedisClient();
-      // Check that key exists with prefix
-      const hasKey = redis.has("session:test-key");
+      // Key format: session:{channelId}:{threadId}
+      const hasKey = redis.has("session:C123:keyformat.123456");
       expect(hasKey).toBe(true);
     });
 
     test("uses correct key format for thread index", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-index",
         channelId: "C123",
         userId: "U123",
         threadId: "1234567890.123456",
@@ -543,12 +529,12 @@ describe("SessionManager", () => {
   });
 
   describe("Edge Cases", () => {
-    test("handles session without threadId", async () => {
+    test("handles API platform sessions (channelId equals threadId)", async () => {
+      const agentId = "agent-123";
       const session: ThreadSession = {
-        sessionKey: "session-no-thread",
-        channelId: "C123",
+        channelId: agentId,
         userId: "U123",
-        // No threadId
+        threadId: agentId, // Same as channelId for API platform
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -556,32 +542,17 @@ describe("SessionManager", () => {
 
       await manager.setSession(session);
 
-      const retrieved = await manager.getSession("session-no-thread");
+      // For API platform, key should just be threadId
+      const sessionKey = computeSessionKey(session);
+      expect(sessionKey).toBe(agentId);
+
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved).not.toBeNull();
-      expect(retrieved?.threadId).toBeUndefined();
-    });
-
-    test("handles very long session keys", async () => {
-      const longKey = "a".repeat(500);
-      const session: ThreadSession = {
-        sessionKey: longKey,
-        channelId: "C123",
-        userId: "U123",
-        status: "pending",
-        createdAt: Date.now(),
-        lastActivity: Date.now(),
-      };
-
-      await manager.setSession(session);
-
-      const retrieved = await manager.getSession(longKey);
-      expect(retrieved).not.toBeNull();
-      expect(retrieved?.sessionKey).toBe(longKey);
+      expect(retrieved?.threadId).toBe(agentId);
     });
 
     test("handles special characters in IDs", async () => {
       const session: ThreadSession = {
-        sessionKey: "session-special-!@#$%",
         channelId: "C-123-test",
         userId: "U_special_123",
         threadId: "1234567890.123456-extra",
@@ -591,8 +562,9 @@ describe("SessionManager", () => {
       };
 
       await manager.setSession(session);
+      const sessionKey = computeSessionKey(session);
 
-      const retrieved = await manager.getSession("session-special-!@#$%");
+      const retrieved = await manager.getSession(sessionKey);
       expect(retrieved).not.toBeNull();
       expect(retrieved?.channelId).toBe("C-123-test");
     });

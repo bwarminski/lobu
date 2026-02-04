@@ -83,6 +83,13 @@ slack:
   enableStatusReactions: true
   enableProgressUpdates: true
 
+# WhatsApp configuration
+whatsapp:
+  enabled: true
+  selfChat: true  # Allow self-chat mode for testing
+  allowGroups: true
+  requireMention: true
+
 # Claude configuration
 claude:
   model: "claude-sonnet-4-20250514"

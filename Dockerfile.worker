@@ -59,7 +59,7 @@ RUN addgroup --gid 1001 claude && \
 # This allows workers to use nix-shell or nix develop for custom environments
 RUN mkdir -p /nix && chown claude:claude /nix
 USER claude
-RUN curl -L https://nixos.org/nix/install | sh -s -- --no-daemon
+RUN curl -L https://nixos.org/nix/install | sh -s -- --no-daemon --extra-conf 'sandbox = false'
 # Add nixpkgs channel for nix-shell -p to work
 RUN /home/claude/.nix-profile/bin/nix-channel --add https://nixos.org/channels/nixpkgs-unstable nixpkgs && \
     /home/claude/.nix-profile/bin/nix-channel --update

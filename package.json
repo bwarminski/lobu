@@ -18,7 +18,7 @@
     "check:fix": "biome check --write .",
     "install-hooks": "bun run scripts/install-hooks.sh",
     "prepare": "husky || true",
-    "test": "bun test",
+    "test": "bun test packages/",
     "typecheck": "tsc --noEmit",
     "jscpd": "bunx jscpd --pattern \"packages/**/*.ts\" --reporters \"console\" --ignore \"**/node_modules/**,**/dist/**,**/coverage/**,**/.bun/**,**/.turbo/**,workspaces/**,charts/**,integration-tests/**,examples/**,bin/**,**/__tests__/**,**/__mocks__/**,**/*.d.ts\"",
     "depcruise": "bunx --bun depcruise --config dependency-cruiser.config.cjs packages",

@@ -178,11 +178,11 @@ describe("WorkerJobRouter", () => {
 
       await routePromise;
 
-      // Original data should be preserved
-      expect(jobEvent?.data?.prompt).toBe("test prompt");
-      expect(jobEvent?.data?.userId).toBe("U123");
-      expect(jobEvent?.data?.customField).toBe("custom value");
-      // JobId should be added
+      // Original data should be preserved in payload
+      expect(jobEvent?.data?.payload?.prompt).toBe("test prompt");
+      expect(jobEvent?.data?.payload?.userId).toBe("U123");
+      expect(jobEvent?.data?.payload?.customField).toBe("custom value");
+      // JobId should be at top level
       expect(jobEvent?.data?.jobId).toBeDefined();
     });
 
@@ -444,7 +444,7 @@ describe("WorkerJobRouter", () => {
       const jobEvent = events.find((e) => e.event === "job");
 
       expect(jobEvent?.data).toHaveProperty("jobId");
-      expect(jobEvent?.data).toHaveProperty("data");
+      expect(jobEvent?.data).toHaveProperty("payload");
 
       if (jobEvent?.data?.jobId) {
         router.acknowledgeJob(jobEvent.data.jobId);
@@ -523,7 +523,7 @@ describe("WorkerJobRouter", () => {
       const events = TestHelpers.parseSSE(res.getAllWrites());
       const jobEvent = events.find((e) => e.event === "job");
 
-      expect(jobEvent?.data?.largeField?.length).toBe(100000);
+      expect(jobEvent?.data?.payload?.largeField?.length).toBe(100000);
 
       if (jobEvent?.data?.jobId) {
         router.acknowledgeJob(jobEvent.data.jobId);

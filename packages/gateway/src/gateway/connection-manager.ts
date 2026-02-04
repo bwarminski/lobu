@@ -136,11 +136,7 @@ export class WorkerConnectionManager {
       );
       return true;
     } catch (error) {
-      logger.error(
-        `[SSE] Failed to send SSE event ${event}:`,
-        error,
-        `data: ${JSON.stringify(data).substring(0, 100)}`
-      );
+      logger.error(`[SSE] Failed to send SSE event ${event}:`, error);
       return false;
     }
   }

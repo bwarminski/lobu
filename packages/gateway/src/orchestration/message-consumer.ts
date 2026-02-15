@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import {
   createChildSpan,
   createLogger,
@@ -9,7 +10,6 @@ import {
   retryWithBackoff,
   SpanStatusCode,
 } from "@termosdev/core";
-import * as Sentry from "@sentry/node";
 import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { platformAuthRegistry } from "../auth/platform-auth";
 import type {
@@ -33,6 +33,7 @@ export class MessageConsumer {
   private isRunning = false;
   private credentialStore?: ClaudeCredentialStore;
   private systemApiKey?: string;
+  private promptThrottle = new Map<string, number>();
 
   constructor(
     config: OrchestratorConfig,
@@ -163,6 +164,40 @@ export class MessageConsumer {
           logger.info(
             `Agent ${data.agentId} has no credentials - sending authentication prompt`
           );
+
+          // Prevent spamming the user if platforms echo our outbound messages or retry deliveries.
+          // Default: one prompt per (platform, channel, agent) per hour.
+          const parsedThrottleSeconds = Number.parseInt(
+            process.env.AUTH_PROMPT_DEBOUNCE_SECONDS || "3600",
+            10
+          );
+          const throttleSeconds = Number.isFinite(parsedThrottleSeconds)
+            ? parsedThrottleSeconds
+            : 3600;
+          const throttleKey = [
+            "prompt:auth_required",
+            data.platform,
+            data.channelId,
+            data.agentId,
+          ].join(":");
+
+          const shouldSend = await this.shouldSendThrottledPrompt(
+            throttleKey,
+            throttleSeconds
+          );
+          if (!shouldSend) {
+            logger.info(
+              {
+                throttleKey,
+                throttleSeconds,
+                platform: data.platform,
+                channelId: data.channelId,
+                agentId: data.agentId,
+              },
+              "Suppressing repeated auth prompt"
+            );
+            return; // Don't create worker
+          }
 
           // Use platform auth adapter if available
           const authAdapter = platformAuthRegistry.get(data.platform);
@@ -320,6 +355,39 @@ export class MessageConsumer {
         { jobId, data, error },
         true
       );
+    }
+  }
+
+  private async shouldSendThrottledPrompt(
+    key: string,
+    ttlSeconds: number
+  ): Promise<boolean> {
+    const now = Date.now();
+    const ttlMs = Math.max(1, ttlSeconds) * 1000;
+
+    // Fast path: local throttle (helps when Redis is unavailable)
+    const nextAllowedAt = this.promptThrottle.get(key);
+    if (nextAllowedAt && nextAllowedAt > now) {
+      return false;
+    }
+
+    try {
+      const redis = this.queue.getRedisClient();
+      // NX ensures only the first request within TTL wins.
+      const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
+      const ok = result === "OK";
+      if (ok) {
+        this.promptThrottle.set(key, now + ttlMs);
+      }
+      return ok;
+    } catch (error) {
+      // Fail open, but keep a best-effort local throttle to avoid tight loops.
+      logger.warn(
+        { error: String(error), key },
+        "Prompt throttle Redis check failed; using local throttle"
+      );
+      this.promptThrottle.set(key, now + ttlMs);
+      return true;
     }
   }
 

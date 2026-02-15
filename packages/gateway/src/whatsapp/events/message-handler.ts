@@ -5,9 +5,9 @@
  */
 
 import {
+  type AgentOptions as CoreAgentOptions,
   createLogger,
   generateTraceId,
-  type AgentOptions as CoreAgentOptions,
 } from "@termosdev/core";
 import {
   type BaileysEventMap,
@@ -28,10 +28,10 @@ import type {
   MessagePayload,
   QueueProducer,
 } from "../../infrastructure/queue/queue-producer";
-import type { ISessionManager } from "../../session";
 import { generateAgentSelectorToken } from "../../routes/public/agent-selector-page";
-import { resolveSpace } from "../../spaces";
 import type { TranscriptionService } from "../../services/transcription-service";
+import type { ISessionManager } from "../../session";
+import { resolveSpace } from "../../spaces";
 import type { WhatsAppAuthAdapter } from "../auth-adapter";
 import type { WhatsAppConfig } from "../config";
 import type { BaileysClient } from "../connection/baileys-client";
@@ -442,10 +442,25 @@ export class WhatsAppMessageHandler {
       return;
     }
 
-    // Skip own messages unless self-chat is enabled
-    if (isFromMe && !this.config.selfChatEnabled) {
-      logger.info("Skipping own message - selfChat not enabled");
-      return;
+    // IMPORTANT: Baileys delivers our own outbound messages back via messages.upsert.
+    // We must never process those as new inbound user messages, otherwise the bot can
+    // respond to itself in a tight loop (and spam).
+    //
+    // Self-chat is the only exception: allow fromMe messages only when the chat is
+    // actually with ourselves.
+    if (isFromMe) {
+      if (!this.config.selfChatEnabled) {
+        logger.info("Skipping own message - selfChat not enabled");
+        return;
+      }
+
+      if (!isSelfChat) {
+        logger.info(
+          { id, remoteJid, responseJid },
+          "Skipping outbound echo message (not self-chat)"
+        );
+        return;
+      }
     }
 
     // Authorization check for non-group messages

@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { WebClient } from "@slack/web-api";
-import { loadCredentialsFromEnv } from "../../whatsapp/connection/auth-state";
 
 type SlackInfo = {
   teamId: string;
@@ -11,10 +10,8 @@ type SlackInfo = {
   dmLink: string;
 };
 
-type WhatsAppInfo = {
-  number: string;
-  label: string;
-  link: string;
+type TelegramInfo = {
+  configured: boolean;
 };
 
 type LandingOptions = {
@@ -102,23 +99,10 @@ async function getSlackInfo(): Promise<SlackInfo | null> {
   return inFlight;
 }
 
-function getWhatsAppInfo(): WhatsAppInfo | null {
-  const raw = process.env.WHATSAPP_CREDENTIALS;
-  if (!raw) return null;
-
-  const state = loadCredentialsFromEnv(raw);
-  const id = state?.creds?.me?.id;
-  if (!id) return null;
-
-  const number = id.split(":")[0]?.split("@")[0] || "";
-  if (!number) return null;
-
-  const label = `+${number}`;
-  return {
-    number,
-    label,
-    link: `https://wa.me/${number}`,
-  };
+function getTelegramInfo(): TelegramInfo {
+  // Keep the public landing page focused on Slack + API + Telegram.
+  // WhatsApp support exists in the codebase but is intentionally not advertised here.
+  return { configured: Boolean(process.env.TELEGRAM_BOT_TOKEN) };
 }
 
 function renderLandingPage(options: {
@@ -126,7 +110,7 @@ function renderLandingPage(options: {
   docsUrl: string;
   publicGatewayUrl?: string;
   slackInfo?: SlackInfo | null;
-  whatsappInfo?: WhatsAppInfo | null;
+  telegramInfo: TelegramInfo;
 }): string {
   const githubUrl = escapeHtml(options.githubUrl);
   const docsUrl = escapeHtml(options.docsUrl);
@@ -135,7 +119,7 @@ function renderLandingPage(options: {
     : "";
 
   const slack = options.slackInfo;
-  const whatsapp = options.whatsappInfo;
+  const telegram = options.telegramInfo;
 
   const slackStatus = slack
     ? `Workspace: ${escapeHtml(slack.teamName)}`
@@ -143,10 +127,7 @@ function renderLandingPage(options: {
   const slackBot = slack ? `Bot: ${escapeHtml(slack.botName)}` : "";
   const slackLink = slack ? slack.dmLink : "";
 
-  const whatsappStatus = whatsapp
-    ? `Number: ${escapeHtml(whatsapp.label)}`
-    : "Not configured";
-  const whatsappLink = whatsapp ? whatsapp.link : "";
+  const telegramStatus = telegram.configured ? "Configured" : "Not configured";
 
   return `<!doctype html>
 <html lang="en">
@@ -277,7 +258,7 @@ function renderLandingPage(options: {
       </div>
       <div class="kicker">Lobu Gateway</div>
       <h1>Docs and Integrations</h1>
-      <div class="subtitle">Use the API docs or connect via WhatsApp and Slack.</div>
+      <div class="subtitle">Use the API docs or connect via Slack and Telegram.</div>
       <div class="grid">
         <div class="card">
           <h3>API Documentation</h3>
@@ -285,9 +266,9 @@ function renderLandingPage(options: {
           <a class="button" href="${docsUrl}">Open API Docs</a>
         </div>
         <div class="card">
-          <h3>WhatsApp</h3>
-          <div class="meta">${whatsappStatus}</div>
-          ${whatsapp ? `<a class="button" href="${whatsappLink}" target="_blank" rel="noreferrer">Open WhatsApp Chat</a>` : ""}
+          <h3>Telegram</h3>
+          <div class="meta">${telegramStatus}</div>
+          <div class="meta">Set <span class="mono">TELEGRAM_BOT_TOKEN</span> to enable.</div>
         </div>
         <div class="card">
           <h3>Slack</h3>
@@ -308,7 +289,7 @@ export function createLandingRoutes(options: LandingOptions) {
 
   app.get("/", async (c) => {
     const slackInfo = await getSlackInfo();
-    const whatsappInfo = getWhatsAppInfo();
+    const telegramInfo = getTelegramInfo();
 
     return c.html(
       renderLandingPage({
@@ -316,7 +297,7 @@ export function createLandingRoutes(options: LandingOptions) {
         docsUrl: "/api/docs",
         publicGatewayUrl: options.publicGatewayUrl,
         slackInfo,
-        whatsappInfo,
+        telegramInfo,
       })
     );
   });

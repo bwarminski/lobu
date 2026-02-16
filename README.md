@@ -49,7 +49,7 @@ Lobu is **built on OpenClaw's embedded runtime**, but the control plane is desig
 - **Claude Code runtime (subscriptions)**: Lobu can run **Claude Code CLI** as a worker runtime, letting teams use Claude subscriptions and OAuth flows rather than managing raw API keys everywhere.
 - **Server-side, multi-tenant gateway**: OpenClaw is typically "one gateway per machine / workspace". Lobu treats each context (channel, thread, DM) as a tenant-scoped environment with separated workspaces and scoped secrets.
 - **Security-first execution model**: Lobu runs execution in sandboxed workers and keeps the gateway as the only component that can talk to external services directly.
-- **Gateway scope**: OpenClaw's gateway implementation is substantial (as of commit `229376f`, `src/gateway` is ~29k TS LoC excluding tests). Lobu's gateway is architecturally different: it focuses on ingestion, policy, and orchestration, while work happens in workers.
+- **Gateway scope**: OpenClaw's gateway implementation is substantial (as of commit `80abb5a`, `src/gateway` is ~49k TS/TSX LoC). Lobu's gateway is architecturally different: it focuses on ingestion, policy, and orchestration, while work happens in workers.
 - **Pi/skills ecosystem**: OpenClaw's harness is powered by pi-mono (pi-agent-core) and a growing set of CLIs. Lobu aims to make those capabilities safe to use in sandboxes via **skills** plus reproducible tooling via **Nix**.
 
 OpenClaw references:

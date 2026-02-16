@@ -17,25 +17,21 @@ const SlackRoutingInfoSchema = z.object({
   team: z.string().optional().describe("Slack team ID"),
 });
 
-const WhatsAppRoutingInfoSchema = z.object({
-  chat: z.string().describe("WhatsApp chat ID"),
-});
-
-const SendMessageRequestSchema = z.object({
-  agentId: z.string().describe("Agent ID to send message to"),
-  message: z.string().describe("Message content"),
-  platform: z
-    .string()
-    .optional()
-    .default("api")
-    .describe("Target platform (api, slack, whatsapp)"),
-  slack: SlackRoutingInfoSchema.optional().describe(
-    "Slack-specific routing info (required when platform=slack)"
-  ),
-  whatsapp: WhatsAppRoutingInfoSchema.optional().describe(
-    "WhatsApp-specific routing info (required when platform=whatsapp)"
-  ),
-});
+const SendMessageRequestSchema = z
+  .object({
+    agentId: z.string().describe("Agent ID to send message to"),
+    message: z.string().describe("Message content"),
+    platform: z
+      .string()
+      .optional()
+      .default("api")
+      .describe("Target platform (api, slack, telegram)"),
+    slack: SlackRoutingInfoSchema.optional().describe(
+      "Slack-specific routing info (required when platform=slack)"
+    ),
+    // Undocumented fields may be passed for internal/hidden platform support.
+  })
+  .passthrough();
 
 const SendMessageResponseSchema = z.object({
   success: z.boolean(),
@@ -138,6 +134,7 @@ interface SendMessageRequest {
     thread?: string;
     team?: string;
   };
+  // Intentionally undocumented (hidden feature).
   whatsapp?: {
     chat: string;
   };
@@ -179,7 +176,7 @@ export function createMessagingRoutes(
           platform: (formData.get("platform") as string) || "api",
         };
 
-        // Handle slack/whatsapp nested objects from form data
+        // Handle nested objects from form data
         const slackChannel = formData.get("slack.channel") as string;
         if (slackChannel) {
           body.slack = {
@@ -189,6 +186,7 @@ export function createMessagingRoutes(
           };
         }
 
+        // Intentionally undocumented (hidden feature): WhatsApp routing info
         const whatsappChat = formData.get("whatsapp.chat") as string;
         if (whatsappChat) {
           body.whatsapp = { chat: whatsappChat };
@@ -230,7 +228,7 @@ export function createMessagingRoutes(
 
       // Extract platform-specific routing info using adapter's method if available
       let channelId = agentId;
-      let threadId = agentId;
+      let threadId: string = platform === "api" ? agentId : "";
       let teamId = "api";
 
       if (adapter?.extractRoutingInfo) {
@@ -239,7 +237,8 @@ export function createMessagingRoutes(
         );
         if (routingInfo) {
           channelId = routingInfo.channelId;
-          threadId = routingInfo.threadId || agentId;
+          threadId =
+            routingInfo.threadId || (platform === "api" ? agentId : "");
           teamId = routingInfo.teamId || "api";
         } else if (platform !== "api") {
           // Platform-specific fields required but not provided

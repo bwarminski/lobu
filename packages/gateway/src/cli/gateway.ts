@@ -455,12 +455,12 @@ Agents can be configured with custom MCP (Model Context Protocol) servers:
       {
         name: "Channels",
         description:
-          "Bind agents to platform channels (Slack, WhatsApp). Messages from bound channels are routed to the agent.",
+          "Bind agents to platform channels (Slack, Telegram). Messages from bound channels are routed to the agent.",
       },
       {
         name: "Messaging",
         description:
-          "Send messages through platform adapters (Slack, WhatsApp, API).",
+          "Send messages through platform adapters (Slack, Telegram, API).",
       },
       {
         name: "GitHub",

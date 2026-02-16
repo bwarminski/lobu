@@ -13,8 +13,7 @@ export async function onSessionStart(
   // Convert to module session context
   const moduleContext: ModuleSessionContext = {
     userId: context.userId,
-    conversationId: context.conversationId || context.threadId || "",
-    threadId: context.conversationId || context.threadId || "",
+    conversationId: context.conversationId || "",
     systemPrompt: context.customInstructions || "",
     workspace: undefined,
   };
@@ -70,7 +69,6 @@ export async function collectModuleData(context: {
   workspaceDir: string;
   userId: string;
   conversationId: string;
-  threadId?: string;
 }): Promise<Record<string, unknown>> {
   const moduleData: Record<string, unknown> = {};
   const workerModules = moduleRegistry.getWorkerModules();

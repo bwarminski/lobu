@@ -15,6 +15,7 @@ secrets:
   encryptionKey: ""  # Optional: 32-char key for AES-GCM at-rest encryption
   claudeCodeOAuthToken: ""  # Required: Claude Code OAuth token
   whatsappCredentials: ""  # Optional: Base64-encoded WhatsApp credentials JSON
+  telegramBotToken: ""  # Optional: Telegram bot token (enables Telegram when set)
   # GitHub App authentication for git workspace support
   githubAppId: ""  # Optional: GitHub App ID for installation tokens
   githubAppPrivateKey: ""  # Optional: GitHub App private key (PEM format)

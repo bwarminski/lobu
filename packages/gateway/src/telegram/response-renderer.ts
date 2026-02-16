@@ -216,7 +216,7 @@ export class TelegramResponseRenderer implements ResponseRenderer {
 
       this.streams.delete(key);
       logger.info(
-        { traceId, chatId, threadId: payload.conversationId },
+        { traceId, chatId, conversationId: payload.conversationId },
         "Sent final response"
       );
     }
@@ -326,7 +326,7 @@ export class TelegramResponseRenderer implements ResponseRenderer {
       {
         traceId,
         chatId,
-        threadId: payload.conversationId,
+        conversationId: payload.conversationId,
         error: payload.error,
       },
       "Sent error response"

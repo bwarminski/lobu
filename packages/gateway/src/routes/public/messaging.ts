@@ -228,7 +228,8 @@ export function createMessagingRoutes(
 
       // Extract platform-specific routing info using adapter's method if available
       let channelId = agentId;
-      let threadId: string = platform === "api" ? agentId : "";
+      let conversationId: string | undefined =
+        platform === "api" ? agentId : undefined;
       let teamId = "api";
 
       if (adapter?.extractRoutingInfo) {
@@ -237,8 +238,9 @@ export function createMessagingRoutes(
         );
         if (routingInfo) {
           channelId = routingInfo.channelId;
-          threadId =
-            routingInfo.threadId || (platform === "api" ? agentId : "");
+          conversationId =
+            routingInfo.conversationId ||
+            (platform === "api" ? agentId : undefined);
           teamId = routingInfo.teamId || "api";
         } else if (platform !== "api") {
           // Platform-specific fields required but not provided
@@ -280,13 +282,13 @@ export function createMessagingRoutes(
       const options: {
         agentId: string;
         channelId: string;
-        threadId: string;
+        conversationId?: string;
         teamId: string;
         files?: Array<{ buffer: Buffer; filename: string }>;
       } = {
         agentId,
         channelId,
-        threadId,
+        conversationId,
         teamId,
       };
 

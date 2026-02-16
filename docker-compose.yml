@@ -4,7 +4,7 @@ services:
   # Redis for queue and state management
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction
     networks:
       - lobu-internal
     restart: unless-stopped
@@ -33,27 +33,16 @@ services:
       dockerfile: Dockerfile.gateway
     image: lobu-gateway:latest
     environment:
-      NODE_ENV: production
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
-      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
-      AGENT_DEFAULT_MODEL: ${AGENT_DEFAULT_MODEL}
-      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-docker}
+      # Docker context overrides (gateway loads mounted .env file via dotenv)
+      NODE_ENV: docker
+      DEPLOYMENT_MODE: docker
       QUEUE_URL: redis://redis:6379
       LOBU_MCP_SERVERS_URL: ${LOBU_MCP_SERVERS_URL:-examples/mcp/oauth.json}
-      PUBLIC_GATEWAY_URL: ${PUBLIC_GATEWAY_URL}
-      # Network isolation settings
-      # Empty/unset: Complete isolation (deny all)
-      # WORKER_ALLOWED_DOMAINS=*: Unrestricted access
-      # WORKER_ALLOWED_DOMAINS=domains: Allowlist mode
-      # WORKER_DISALLOWED_DOMAINS=domains: Blocklist mode (with WORKER_ALLOWED_DOMAINS=*)
-      WORKER_ALLOWED_DOMAINS: ${WORKER_ALLOWED_DOMAINS:-}
-      WORKER_DISALLOWED_DOMAINS: ${WORKER_DISALLOWED_DOMAINS:-}
     volumes:
       # Mount Docker socket
       - /var/run/docker.sock:/var/run/docker.sock
+      # Mount .env so gateway can load it via dotenv (avoids ARG_MAX with large vars)
+      - ./.env:/app/.env:ro
       # Mount MCP config for live editing
       - ./examples:/app/examples:ro
     ports:

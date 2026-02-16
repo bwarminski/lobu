@@ -11,7 +11,6 @@ const logger = createLogger("worker-auth");
 export interface WorkerTokenData {
   userId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   channelId: string;
   teamId?: string; // Optional - not all platforms have teams
   agentId?: string; // Space ID for multi-tenant isolation
@@ -47,7 +46,6 @@ export function generateWorkerToken(
   const payload: WorkerTokenData = {
     userId,
     conversationId,
-    threadId: conversationId,
     channelId: options.channelId,
     teamId: options.teamId, // Can be undefined - that's ok
     agentId: options.agentId, // Space ID for multi-tenant credential lookup
@@ -71,6 +69,11 @@ export function verifyWorkerToken(token: string): WorkerTokenData | null {
     // Decrypt the token
     const decrypted = decrypt(token);
     const data = JSON.parse(decrypted) as WorkerTokenData;
+
+    if (!data.conversationId) {
+      logger.error("Worker token rejected: missing conversationId");
+      return null;
+    }
 
     // No expiration check - workers are ephemeral and short-lived
     return data;

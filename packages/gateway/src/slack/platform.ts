@@ -155,11 +155,14 @@ export class SlackPlatform implements PlatformAdapter {
     // Register beforeCreate hook to stop streams BEFORE interaction is created
     // This ensures interaction message appears after stream stops, not mixed in
     interactionService.setBeforeCreateHook(
-      async (userId: string, threadId: string) => {
+      async (userId: string, conversationId: string) => {
         logger.info(
-          `Stopping stream for thread ${threadId} before creating interaction`
+          `Stopping stream for conversation ${conversationId} before creating interaction`
         );
-        await this.responseRenderer?.stopStreamForThread(userId, threadId);
+        await this.responseRenderer?.stopStreamForConversation(
+          userId,
+          conversationId
+        );
       }
     );
     logger.info("✅ Stream stop hook registered for interactions");
@@ -292,7 +295,7 @@ export class SlackPlatform implements PlatformAdapter {
    * Creates Slack thread URLs and team metadata for deployments
    */
   buildDeploymentMetadata(
-    threadId: string,
+    conversationId: string,
     channelId: string,
     platformMetadata: Record<string, any>
   ): Record<string, string> {
@@ -301,7 +304,7 @@ export class SlackPlatform implements PlatformAdapter {
     // Support both camelCase (from events) and snake_case (from worker)
     const teamId = platformMetadata.teamId || platformMetadata.team_id;
     if (teamId) {
-      metadata.thread_url = `https://app.slack.com/client/${teamId}/${channelId}/thread/${threadId}`;
+      metadata.thread_url = `https://app.slack.com/client/${teamId}/${channelId}/thread/${conversationId}`;
       metadata.team_id = teamId;
     }
 
@@ -331,13 +334,13 @@ export class SlackPlatform implements PlatformAdapter {
    */
   async setThreadStatus(
     channelId: string,
-    threadId: string,
+    conversationId: string,
     status: string | null
   ): Promise<void> {
     if (this.interactionRenderer) {
       await this.interactionRenderer.setThreadStatus(
         channelId,
-        threadId,
+        conversationId,
         status
       );
     }
@@ -360,7 +363,7 @@ export class SlackPlatform implements PlatformAdapter {
     options: {
       agentId: string;
       channelId: string;
-      threadId: string;
+      conversationId?: string;
       teamId: string;
       files?: Array<{ buffer: Buffer; filename: string }>;
     }
@@ -412,9 +415,8 @@ export class SlackPlatform implements PlatformAdapter {
     // because Slack will mark it as from the bot user and our event handler filters those out
     const isSelfMessage = this.isOwnBotToken(token);
 
-    // Thread ID for Slack (use provided or will be set to message ts)
-    const slackThreadId =
-      options.threadId !== options.agentId ? options.threadId : undefined;
+    // Slack thread timestamp. If absent, this starts a new conversation.
+    const slackThreadId = options.conversationId;
 
     // Handle file uploads
     if (options.files && options.files.length > 0) {
@@ -446,12 +448,12 @@ export class SlackPlatform implements PlatformAdapter {
     }
 
     const messageId = response.ts;
-    const threadId = slackThreadId || messageId;
+    const conversationId = slackThreadId || messageId;
 
     // Build thread URL if we have team ID
     let eventsUrl: string | undefined;
     if (resolvedTeamId) {
-      eventsUrl = `https://app.slack.com/client/${resolvedTeamId}/${channelId}/thread/${threadId}`;
+      eventsUrl = `https://app.slack.com/client/${resolvedTeamId}/${channelId}/thread/${conversationId}`;
     }
 
     // If self-messaging, manually queue since Slack won't send webhook
@@ -463,7 +465,7 @@ export class SlackPlatform implements PlatformAdapter {
       await this.queueSelfMessage(
         channelId,
         messageId,
-        threadId,
+        conversationId,
         processedMessage,
         botUserId,
         resolvedTeamId
@@ -523,13 +525,13 @@ export class SlackPlatform implements PlatformAdapter {
     channelId: string,
     message: string,
     files: Array<{ buffer: Buffer; filename: string }>,
-    threadId?: string,
+    conversationId?: string,
     teamId?: string,
     isSelfMessage?: boolean
   ): Promise<{
     channel: string;
     messageId: string;
-    threadId: string;
+    conversationId: string;
     threadUrl?: string;
     queued?: boolean;
   }> {
@@ -590,8 +592,8 @@ export class SlackPlatform implements PlatformAdapter {
       initial_comment: message,
     };
 
-    if (threadId) {
-      completeBody.thread_ts = threadId;
+    if (conversationId) {
+      completeBody.thread_ts = conversationId;
     }
 
     const completeResponse = (await client.apiCall(
@@ -622,12 +624,12 @@ export class SlackPlatform implements PlatformAdapter {
     }
 
     const messageId = historyResponse.messages[0].ts;
-    const finalThreadId = threadId || messageId;
+    const finalConversationId = conversationId || messageId;
 
     // Build thread URL if we have team ID
     let threadUrl: string | undefined;
     if (teamId) {
-      threadUrl = `https://app.slack.com/client/${teamId}/${channelId}/thread/${finalThreadId}`;
+      threadUrl = `https://app.slack.com/client/${teamId}/${channelId}/thread/${finalConversationId}`;
     }
 
     // If self-messaging, manually queue since Slack won't send webhook
@@ -641,7 +643,7 @@ export class SlackPlatform implements PlatformAdapter {
         await this.queueSelfMessage(
           channelId,
           messageId,
-          finalThreadId,
+          finalConversationId,
           message,
           botUserId,
           teamId
@@ -653,7 +655,7 @@ export class SlackPlatform implements PlatformAdapter {
     return {
       channel: channelId,
       messageId,
-      threadId: finalThreadId,
+      conversationId: finalConversationId,
       threadUrl,
       queued,
     };
@@ -679,7 +681,7 @@ export class SlackPlatform implements PlatformAdapter {
   private async queueSelfMessage(
     channelId: string,
     messageId: string,
-    threadId: string,
+    conversationId: string,
     message: string,
     botUserId: string,
     teamId?: string
@@ -703,8 +705,7 @@ export class SlackPlatform implements PlatformAdapter {
       platform: "slack",
       userId: testUserId,
       botId: this.config.slack.botId || "",
-      conversationId: threadId,
-      threadId,
+      conversationId,
       teamId: teamId || "",
       agentId,
       messageId,
@@ -1053,7 +1054,7 @@ export class SlackPlatform implements PlatformAdapter {
    */
   extractRoutingInfo(body: Record<string, unknown>): {
     channelId: string;
-    threadId: string;
+    conversationId?: string;
     teamId?: string;
   } | null {
     const slack = body.slack as
@@ -1063,7 +1064,7 @@ export class SlackPlatform implements PlatformAdapter {
 
     return {
       channelId: slack.channel,
-      threadId: slack.thread || "",
+      conversationId: slack.thread || undefined,
       teamId: slack.team,
     };
   }

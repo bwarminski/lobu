@@ -39,7 +39,7 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      app: claude-worker
+      app: {{ include "lobu.name" . }}
       component: worker
 {{- end }}
 

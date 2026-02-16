@@ -7,7 +7,6 @@ export interface SessionContext {
 
   // Optional context
   conversationId?: string;
-  threadId?: string; // Legacy alias (deprecated)
   teamId?: string; // Platform workspace/team identifier
   userDisplayName?: string; // For logging/display purposes
   workingDirectory?: string;
@@ -24,27 +23,6 @@ export interface ConversationMessage {
 // ============================================================================
 // Conversation History Types
 // ============================================================================
-
-/**
- * History timeframe configuration options for fetching conversation history.
- * Determines how far back to fetch messages when starting a new thread.
- */
-export type HistoryTimeframe = "1d" | "7d" | "30d" | "365d" | "all";
-
-/**
- * Configuration for conversation history fetching per-agent.
- * Controls when and how much historical context is provided to Claude.
- */
-export interface HistoryConfig {
-  /** Enable conversation history fetching on first message in thread */
-  enabled: boolean;
-  /** How far back to fetch history */
-  timeframe: HistoryTimeframe;
-  /** Maximum number of messages to include (default: 100) */
-  maxMessages?: number;
-  /** Include bot's own messages in history (default: true) */
-  includeBotMessages?: boolean;
-}
 
 // ============================================================================
 // Skills Configuration Types
@@ -236,7 +214,6 @@ export interface AgentOptions {
   networkConfig?: Record<string, unknown>;
   gitConfig?: Record<string, unknown>;
   envVars?: Record<string, string>;
-  historyConfig?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -291,7 +268,6 @@ export interface ThreadResponsePayload {
   messageId: string;
   channelId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   userId: string;
   teamId: string;
   platform?: string; // Platform identifier (slack, whatsapp, api, etc.) for routing
@@ -372,7 +348,6 @@ export interface UserInteraction {
   id: string;
   userId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   channelId: string;
   teamId?: string;
 
@@ -425,7 +400,6 @@ export interface UserSuggestion {
   id: string;
   userId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   channelId: string;
   teamId?: string;
 

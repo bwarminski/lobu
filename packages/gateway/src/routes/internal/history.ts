@@ -9,7 +9,7 @@ const logger = createLogger("history-routes");
 type WorkerContext = {
   Variables: {
     worker: {
-      threadId: string;
+      conversationId: string;
       channelId: string;
       platform: string;
       teamId: string;
@@ -54,14 +54,15 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
 
   /**
    * Get channel history
-   * GET /history?platform=slack&channelId=xxx&threadId=xxx&limit=50&before=timestamp
+   * GET /history?platform=slack&channelId=xxx&conversationId=xxx&limit=50&before=timestamp
    */
   router.get("/history", authenticateWorker, async (c) => {
     try {
       const worker = c.get("worker");
       const platform = c.req.query("platform") || worker.platform || "slack";
       const channelId = c.req.query("channelId") || worker.channelId;
-      const threadId = c.req.query("threadId") || worker.threadId;
+      const conversationId =
+        c.req.query("conversationId") || worker.conversationId;
       const limitStr = c.req.query("limit") || "50";
       const before = c.req.query("before"); // ISO timestamp cursor
 
@@ -72,7 +73,7 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
       }
 
       logger.info(`Fetching history for ${platform}/${channelId}`, {
-        threadId,
+        conversationId,
         limit,
         before,
       });
@@ -80,7 +81,7 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
       if (platform === "slack") {
         const response = await fetchSlackHistory(
           channelId,
-          threadId,
+          conversationId,
           limit,
           before
         );
@@ -91,7 +92,7 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
         if (whatsappPlatform?.getConversationHistory) {
           const response = await whatsappPlatform.getConversationHistory(
             channelId,
-            threadId,
+            conversationId,
             limit,
             before
           );
@@ -110,7 +111,7 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
         if (platformAdapter?.getConversationHistory) {
           const response = await platformAdapter.getConversationHistory(
             channelId,
-            threadId,
+            conversationId,
             limit,
             before
           );
@@ -169,7 +170,7 @@ async function resolveUserName(
  */
 async function fetchSlackHistory(
   channelId: string,
-  threadId: string | undefined,
+  conversationId: string | undefined,
   limit: number,
   before: string | undefined
 ): Promise<HistoryResponse> {
@@ -190,7 +191,7 @@ async function fetchSlackHistory(
   }
 
   // Use conversations.replies for threads, conversations.history for channels
-  const endpoint = threadId
+  const endpoint = conversationId
     ? "https://slack.com/api/conversations.replies"
     : "https://slack.com/api/conversations.history";
 
@@ -199,8 +200,8 @@ async function fetchSlackHistory(
     limit: String(limit),
   });
 
-  if (threadId) {
-    params.set("ts", threadId);
+  if (conversationId) {
+    params.set("ts", conversationId);
   }
 
   if (latestTs) {

@@ -20,7 +20,7 @@ const logger = createLogger("scheduled-wakeup");
 export interface ScheduledWakeup {
   id: string;
   deploymentName: string;
-  threadId: string;
+  conversationId: string;
   channelId: string;
   userId: string;
   agentId: string;
@@ -40,7 +40,7 @@ export interface ScheduledWakeup {
 
 export interface ScheduleParams {
   deploymentName: string;
-  threadId: string;
+  conversationId: string;
   channelId: string;
   userId: string;
   agentId: string;
@@ -57,7 +57,7 @@ export interface ScheduleParams {
 interface ScheduledJobPayload {
   scheduleId: string;
   deploymentName: string;
-  threadId: string;
+  conversationId: string;
   channelId: string;
   userId: string;
   agentId: string;
@@ -207,7 +207,7 @@ export class ScheduledWakeupService {
     const schedule: ScheduledWakeup = {
       id: scheduleId,
       deploymentName: params.deploymentName,
-      threadId: params.threadId,
+      conversationId: params.conversationId,
       channelId: params.channelId,
       userId: params.userId,
       agentId: params.agentId,
@@ -243,7 +243,7 @@ export class ScheduledWakeupService {
     const jobPayload: ScheduledJobPayload = {
       scheduleId,
       deploymentName: params.deploymentName,
-      threadId: params.threadId,
+      conversationId: params.conversationId,
       channelId: params.channelId,
       userId: params.userId,
       agentId: params.agentId,
@@ -529,7 +529,7 @@ Schedule ID: ${schedule.id}`;
       "messages",
       {
         userId: schedule.userId,
-        threadId: schedule.threadId,
+        conversationId: schedule.conversationId,
         messageId: `scheduled-${scheduleId}-${schedule.iteration}`,
         channelId: schedule.channelId,
         teamId: schedule.teamId,
@@ -555,7 +555,7 @@ Schedule ID: ${schedule.id}`;
       {
         scheduleId,
         deploymentName,
-        threadId: schedule.threadId,
+        conversationId: schedule.conversationId,
         iteration: schedule.iteration,
         maxIterations: schedule.maxIterations,
         isRecurring: schedule.isRecurring,
@@ -588,7 +588,7 @@ Schedule ID: ${schedule.id}`;
         const jobPayload: ScheduledJobPayload = {
           scheduleId,
           deploymentName: schedule.deploymentName,
-          threadId: schedule.threadId,
+          conversationId: schedule.conversationId,
           channelId: schedule.channelId,
           userId: schedule.userId,
           agentId: schedule.agentId,

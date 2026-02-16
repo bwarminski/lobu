@@ -17,7 +17,7 @@ import { ProgressProcessor } from "./processor";
 import { type ClaudeExecutionOptions, runClaudeWithSDK } from "./sdk-adapter";
 import { getSessionContext } from "./session-manager";
 
-const logger = createLogger("claude-worker");
+const logger = createLogger("lobu-worker");
 
 /**
  * Claude Code worker implementation
@@ -49,16 +49,12 @@ export class ClaudeWorker extends BaseWorker {
     try {
       logger.info(`Creating Claude SDK session ${this.config.sessionKey}`);
 
-      // Parse Claude options (includes historyConfig and verboseLogging from agent settings)
+      // Parse Claude options (includes verboseLogging from agent settings)
       const rawOptions = JSON.parse(this.config.agentOptions) as Record<
         string,
         unknown
       >;
       const agentOptions = rawOptions as ClaudeExecutionOptions;
-      const historyConfig = rawOptions.historyConfig as
-        | { enabled?: boolean }
-        | undefined;
-      const historyEnabled = historyConfig?.enabled ?? false;
       const verboseLogging = rawOptions.verboseLogging === true;
 
       // Configure progress processor with verbose mode
@@ -74,7 +70,7 @@ export class ClaudeWorker extends BaseWorker {
 
       logger.info(
         `Startup state: ${unansweredInteractions.length} unanswered interactions, ` +
-          `session exists: ${sessionExists}, history: ${historyEnabled}`
+          `session exists: ${sessionExists}`
       );
 
       // If there are unanswered interactions, add context note to system prompt
@@ -90,8 +86,8 @@ export class ClaudeWorker extends BaseWorker {
 
       logger.info(
         sessionExists
-          ? `Continuing existing Claude session for conversation ${this.config.conversationId || this.config.threadId}`
-          : `Starting new Claude session for conversation ${this.config.conversationId || this.config.threadId}`
+          ? `Continuing existing Claude session for conversation ${this.config.conversationId}`
+          : `Starting new Claude session for conversation ${this.config.conversationId}`
       );
 
       // Execute Claude with SDK
@@ -108,11 +104,8 @@ export class ClaudeWorker extends BaseWorker {
         this.getWorkingDirectory(),
         {
           channelId: this.config.channelId,
-          conversationId:
-            this.config.conversationId || this.config.threadId || "",
-          threadId: this.config.conversationId || this.config.threadId || "",
+          conversationId: this.config.conversationId,
           platform: this.config.platform,
-          historyEnabled,
         },
         this.interactionClient
       );

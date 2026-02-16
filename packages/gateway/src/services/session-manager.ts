@@ -18,7 +18,7 @@ const logger = createLogger("session-manager");
  */
 export class RedisSessionStore implements SessionStore {
   private readonly SESSION_PREFIX = REDIS_KEYS.SESSION;
-  private readonly THREAD_INDEX_PREFIX = "thread_index:";
+  private readonly THREAD_INDEX_PREFIX = "conversation_index:";
   private readonly DEFAULT_TTL_SECONDS = DEFAULTS.SESSION_TTL_SECONDS;
   private redis: Redis;
 
@@ -155,11 +155,9 @@ export class SessionManager implements ISessionManager {
     conversationId?: string,
     threadCreator?: string
   ): Promise<ThreadSession> {
-    // threadId is required for the new schema
     const effectiveConversationId = conversationId || userId;
     const session: ThreadSession = {
       conversationId: effectiveConversationId,
-      threadId: effectiveConversationId,
       channelId,
       userId,
       threadCreator: threadCreator || userId,

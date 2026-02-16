@@ -84,10 +84,8 @@ export function createOpenClawCustomTools(params: {
   workerToken: string;
   channelId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   interactionClient?: InteractionClient;
   platform?: string;
-  historyEnabled?: boolean;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
 
@@ -163,7 +161,7 @@ export function createOpenClawCustomTools(params: {
             headers: {
               Authorization: `Bearer ${params.workerToken}`,
               "X-Channel-Id": params.channelId,
-              "X-Thread-Id": params.conversationId || params.threadId || "",
+              "X-Conversation-Id": params.conversationId,
               ...headers,
               "Content-Length": formDataBuffer.length.toString(),
             },
@@ -762,7 +760,7 @@ export function createOpenClawCustomTools(params: {
               headers: {
                 Authorization: `Bearer ${params.workerToken}`,
                 "X-Channel-Id": params.channelId,
-                "X-Thread-Id": params.conversationId || params.threadId || "",
+                "X-Conversation-Id": params.conversationId,
                 "X-Voice-Message": "true",
                 ...headers,
                 "Content-Length": formDataBuffer.length.toString(),
@@ -797,8 +795,8 @@ export function createOpenClawCustomTools(params: {
     },
   });
 
-  // GetChannelHistory (conditional on historyEnabled)
-  if (params.historyEnabled) {
+  // GetChannelHistory - always available for conversation context
+  {
     const platform = params.platform || "slack";
     tools.push({
       name: "GetChannelHistory",
@@ -829,7 +827,7 @@ export function createOpenClawCustomTools(params: {
           const queryParams = new URLSearchParams({
             platform,
             channelId: params.channelId,
-            threadId: params.conversationId || params.threadId || "",
+            conversationId: params.conversationId,
             limit: String(limit),
           });
 

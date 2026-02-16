@@ -1,7 +1,8 @@
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: worker-priority
+  # Cluster-scoped resource: must be unique across all Helm releases.
+  name: {{ include "lobu.fullname" . }}-worker-priority
   labels:
     {{- include "lobu.labels" . | nindent 4 }}
 value: 100

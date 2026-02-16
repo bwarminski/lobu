@@ -88,11 +88,11 @@ export function renderSettingsPage(
   <title>Agent Settings - Lobu</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-amber-700 to-amber-900 p-4">
+<body class="min-h-screen bg-gradient-to-br from-slate-700 to-slate-900 p-4">
   <div class="max-w-xl mx-auto bg-white rounded-2xl shadow-2xl p-6">
     <div class="text-center mb-5">
-      <div class="text-4xl mb-1">🦉</div>
-      <h1 class="text-xl font-bold text-amber-900">Agent Settings</h1>
+      <div class="text-4xl mb-1">🦞</div>
+      <h1 class="text-xl font-bold text-slate-900">Agent Settings</h1>
       <p class="text-xs text-gray-500">${getPlatformDisplay(payload.platform).icon} ${escapeHtml(formatUserId(payload.userId))}</p>
     </div>
 
@@ -113,25 +113,25 @@ export function renderSettingsPage(
     ${
       payload.prefillSkills?.length || payload.prefillMcpServers?.length
         ? `<!-- Suggested Additions Section -->
-    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-      <h3 class="text-sm font-medium text-amber-900 mb-3 flex items-center gap-2">
+    <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+      <h3 class="text-sm font-medium text-slate-900 mb-3 flex items-center gap-2">
         <span>⚡</span> Quick Setup
       </h3>
       ${
         payload.prefillSkills?.length
           ? `<div class="mb-3">
-        <p class="text-xs font-medium text-amber-800 mb-2">Suggested Skills:</p>
+        <p class="text-xs font-medium text-slate-800 mb-2">Suggested Skills:</p>
         <div id="prefill-skills-list" class="space-y-2">
           ${payload.prefillSkills
             .map(
               (skill, idx) => `
-          <div class="flex items-center justify-between bg-white rounded-lg p-2 border border-amber-200" id="prefill-skill-${idx}">
+          <div class="flex items-center justify-between bg-white rounded-lg p-2 border border-slate-200" id="prefill-skill-${idx}">
             <div class="flex-1 min-w-0">
               <p class="text-xs font-medium text-gray-800">${escapeHtml(skill.name || skill.repo)}</p>
               ${skill.description ? `<p class="text-xs text-gray-500 truncate">${escapeHtml(skill.description)}</p>` : ""}
               <p class="text-xs text-gray-400 font-mono">${escapeHtml(skill.repo)}</p>
             </div>
-            <button type="button" onclick="addPrefillSkill(${idx})" class="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex-shrink-0">
+            <button type="button" onclick="addPrefillSkill(${idx})" class="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-600 text-white hover:bg-slate-700 transition-all flex-shrink-0">
               Add
             </button>
           </div>`
@@ -144,19 +144,19 @@ export function renderSettingsPage(
       ${
         payload.prefillMcpServers?.length
           ? `<div>
-        <p class="text-xs font-medium text-amber-800 mb-2">Suggested MCP Servers:</p>
+        <p class="text-xs font-medium text-slate-800 mb-2">Suggested External Integrations (MCP):</p>
         <div id="prefill-mcp-list" class="space-y-2">
           ${payload.prefillMcpServers
             .map(
               (mcp, idx) => `
-          <div class="flex items-center justify-between bg-white rounded-lg p-2 border border-amber-200" id="prefill-mcp-${idx}">
+          <div class="flex items-center justify-between bg-white rounded-lg p-2 border border-slate-200" id="prefill-mcp-${idx}">
             <div class="flex-1 min-w-0">
               <p class="text-xs font-medium text-gray-800">${escapeHtml(mcp.name || mcp.id)}</p>
               ${mcp.url ? `<p class="text-xs text-gray-500 truncate">${escapeHtml(mcp.url)}</p>` : ""}
               ${mcp.command ? `<p class="text-xs text-gray-400 font-mono">${escapeHtml(mcp.command)} ${(mcp.args || []).join(" ")}</p>` : ""}
-              ${mcp.envVars?.length ? `<p class="text-xs text-amber-600">Requires: ${mcp.envVars.join(", ")}</p>` : ""}
+              ${mcp.envVars?.length ? `<p class="text-xs text-slate-600">Requires: ${mcp.envVars.join(", ")}</p>` : ""}
             </div>
-            <button type="button" onclick="addPrefillMcp(${idx})" class="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all flex-shrink-0">
+            <button type="button" onclick="addPrefillMcp(${idx})" class="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-600 text-white hover:bg-slate-700 transition-all flex-shrink-0">
               Add
             </button>
           </div>`
@@ -180,7 +180,7 @@ export function renderSettingsPage(
             <p class="text-xs text-gray-500" id="claude-status">Checking...</p>
           </div>
         </div>
-        <button type="button" id="claude-auth-btn" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all bg-amber-100 text-amber-800 hover:bg-amber-200">
+        <button type="button" id="claude-auth-btn" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all bg-slate-100 text-slate-800 hover:bg-slate-200">
           Connect
         </button>
       </div>
@@ -188,8 +188,8 @@ export function renderSettingsPage(
       <div id="claude-code-input" class="hidden mt-3 pt-3 border-t border-gray-200">
         <p class="text-xs text-gray-600 mb-2">Paste the authentication code from Claude:</p>
         <div class="flex gap-2">
-          <input type="text" id="claude-auth-code" placeholder="CODE#STATE" class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
-          <button type="button" id="claude-submit-code" class="px-3 py-2 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-all">
+          <input type="text" id="claude-auth-code" placeholder="CODE#STATE" class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
+          <button type="button" id="claude-submit-code" class="px-3 py-2 text-xs font-medium rounded-lg bg-slate-600 text-white hover:bg-slate-700 transition-all">
             Submit
           </button>
         </div>
@@ -206,7 +206,7 @@ export function renderSettingsPage(
           <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="model-arrow">&#9660;</span>
         </h3>
         <div id="model-content" class="hidden pt-3">
-          <select id="model" name="model" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+          <select id="model" name="model" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
             <option value="">Default</option>
             <option value="claude-sonnet-4" ${s.model === "claude-sonnet-4" ? "selected" : ""}>Claude Sonnet 4</option>
             <option value="claude-sonnet-4-5" ${s.model === "claude-sonnet-4-5" ? "selected" : ""}>Claude Sonnet 4.5</option>
@@ -222,7 +222,7 @@ export function renderSettingsPage(
         <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
           <span>&#128736;</span>
           Skills
-          <span id="skills-loading" class="hidden animate-spin text-amber-600">&#8635;</span>
+          <span id="skills-loading" class="hidden animate-spin text-slate-600">&#8635;</span>
           <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="skills-arrow">&#9660;</span>
         </h3>
         <div id="skills-content" class="hidden pt-3 space-y-3">
@@ -240,7 +240,7 @@ export function renderSettingsPage(
 
             <!-- Search Input -->
             <div class="relative mb-2">
-              <input type="text" id="skillSearchInput" placeholder="Search skills from skills.sh..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+              <input type="text" id="skillSearchInput" placeholder="Search skills from skills.sh..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
               <div id="skillSearchResults" class="hidden absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                 <!-- Search results will be populated here -->
               </div>
@@ -256,22 +256,22 @@ export function renderSettingsPage(
 
             <!-- Manual Entry -->
             <div class="flex gap-2">
-              <input type="text" id="customSkillRepo" placeholder="Or enter repo: owner/repo" class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+              <input type="text" id="customSkillRepo" placeholder="Or enter repo: owner/repo" class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
               <button type="button" id="addCustomSkillBtn" class="px-3 py-2 text-xs font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all">
                 Add
               </button>
             </div>
-            <p class="text-xs text-gray-400 mt-1">Skills from <a href="https://skills.sh" target="_blank" class="text-amber-600 hover:underline">skills.sh</a> extend Claude's capabilities.</p>
+            <p class="text-xs text-gray-400 mt-1">Skills from <a href="https://skills.sh" target="_blank" class="text-slate-600 hover:underline">skills.sh</a> extend Claude's capabilities.</p>
           </div>
         </div>
       </div>
 
-      <!-- MCP Servers Section -->
+      <!-- External Integrations (MCP) Section -->
       <div class="bg-gray-50 rounded-lg p-3">
         <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
           <span>&#128268;</span>
-          MCP Servers
-          <span id="mcps-loading" class="hidden animate-spin text-amber-600">&#8635;</span>
+          External Integrations (MCP)
+          <span id="mcps-loading" class="hidden animate-spin text-slate-600">&#8635;</span>
           <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="mcps-arrow">&#9660;</span>
         </h3>
         <div id="mcps-content" class="hidden pt-3 space-y-3">
@@ -285,11 +285,11 @@ export function renderSettingsPage(
 
           <!-- Add MCP Section -->
           <div class="border-t border-gray-200 pt-3">
-            <p class="text-xs font-medium text-gray-600 mb-2">Add MCP Servers</p>
+            <p class="text-xs font-medium text-gray-600 mb-2">Add Integrations</p>
 
             <!-- Search Input -->
             <div class="relative mb-2">
-              <input type="text" id="mcpSearchInput" placeholder="Search MCP servers..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+              <input type="text" id="mcpSearchInput" placeholder="Search MCP servers..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
               <div id="mcpSearchResults" class="hidden absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
               </div>
             </div>
@@ -303,8 +303,8 @@ export function renderSettingsPage(
 
             <!-- Manual Entry for custom MCPs -->
             <div class="space-y-2">
-              <input type="text" id="customMcpId" placeholder="MCP ID (e.g., my-custom-mcp)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
-              <input type="text" id="customMcpUrl" placeholder="URL (e.g., https://mcp.example.com/sse)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+              <input type="text" id="customMcpId" placeholder="MCP ID (e.g., my-custom-mcp)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
+              <input type="text" id="customMcpUrl" placeholder="URL (e.g., https://mcp.example.com/sse)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
               <button type="button" id="addCustomMcpBtn" class="px-3 py-2 text-xs font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all">
                 Add Custom MCP
               </button>
@@ -313,6 +313,46 @@ export function renderSettingsPage(
           </div>
         </div>
       </div>
+
+      <!-- Scheduled Reminders Section (outside form - read-only display) -->
+      <div class="bg-gray-50 rounded-lg p-3">
+        <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
+          <span>&#9200;</span>
+          Scheduled Reminders
+          <span id="schedules-loading" class="hidden animate-spin text-slate-600">&#8635;</span>
+          <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="schedules-arrow">&#9660;</span>
+        </h3>
+        <div id="schedules-content" class="hidden pt-3">
+          <div id="schedules-error" class="hidden bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs mb-2"></div>
+          <div id="schedules-list">
+            <p class="text-xs text-gray-500">Loading scheduled reminders...</p>
+          </div>
+          <div class="mt-3 pt-3 border-t border-gray-200">
+            <p class="text-xs font-medium text-gray-600 mb-1">Example prompts:</p>
+            <p class="text-xs text-gray-500 mb-1 font-medium">One-time:</p>
+            <ul class="text-xs text-gray-500 space-y-1 mb-2">
+              <li>&bull; "Remind me in 30 minutes to check the build status"</li>
+              <li>&bull; "Set a reminder for 2 hours from now to review the PR"</li>
+            </ul>
+            <p class="text-xs text-gray-500 mb-1 font-medium">Recurring:</p>
+            <ul class="text-xs text-gray-500 space-y-1">
+              <li>&bull; "Check the API status every 30 minutes for the next 2 hours"</li>
+              <li>&bull; "Poll the deployment health every hour until it succeeds (max 12 checks)"</li>
+              <li>&bull; "Send me a morning standup reminder at 9am on weekdays"</li>
+            </ul>
+            <p class="text-xs text-gray-400 mt-2">One-time: max 24 hours. Recurring: min 5 min interval, max 100 iterations.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced Section -->
+      <div class="border border-gray-200 rounded-lg">
+        <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none p-3" onclick="toggleSection(this)">
+          <span>&#9881;</span>
+          Advanced
+          <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="advanced-arrow">&#9660;</span>
+        </h3>
+        <div id="advanced-content" class="hidden px-3 pb-3 space-y-3">
 
       <!-- Network Configuration -->
       <div class="bg-gray-50 rounded-lg p-3">
@@ -324,11 +364,11 @@ export function renderSettingsPage(
         <div id="network-content" class="hidden pt-3 space-y-3">
           <div>
             <label for="allowedDomains" class="block text-xs font-medium text-gray-600 mb-1">Allowed Domains</label>
-            <textarea id="allowedDomains" name="allowedDomains" placeholder="github.com&#10;*.trusted.com" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">${escapeHtml((s.networkConfig?.allowedDomains || []).join("\n"))}</textarea>
+            <textarea id="allowedDomains" name="allowedDomains" placeholder="github.com&#10;*.trusted.com" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml((s.networkConfig?.allowedDomains || []).join("\n"))}</textarea>
           </div>
           <div>
             <label for="deniedDomains" class="block text-xs font-medium text-gray-600 mb-1">Denied Domains</label>
-            <textarea id="deniedDomains" name="deniedDomains" placeholder="malicious.com" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">${escapeHtml((s.networkConfig?.deniedDomains || []).join("\n"))}</textarea>
+            <textarea id="deniedDomains" name="deniedDomains" placeholder="malicious.com" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml((s.networkConfig?.deniedDomains || []).join("\n"))}</textarea>
           </div>
         </div>
       </div>
@@ -339,7 +379,7 @@ export function renderSettingsPage(
           ? `
       <div class="bg-gray-50 rounded-lg p-3" id="git-section">
         <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
-          <span>&#128230;</span>
+          <span>&#128193;</span>
           Git Repository
           <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="git-arrow">&#9660;</span>
         </h3>
@@ -389,7 +429,7 @@ export function renderSettingsPage(
               </a>`
                   : `<p class="text-xs text-gray-400">Contact administrator to install the GitHub App</p>`
               }
-              <button type="button" onclick="refreshGitHub()" class="px-4 py-2 text-xs font-medium rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all">
+              <button type="button" onclick="refreshGitHub()" class="px-4 py-2 text-xs font-medium rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 transition-all">
                 &#8635; Refresh
               </button>
             </div>
@@ -400,25 +440,25 @@ export function renderSettingsPage(
           <div id="git-repo-selection" class="hidden space-y-2">
             <div>
               <label for="gitOrg" class="block text-xs font-medium text-gray-600 mb-1">Organization / User</label>
-              <select id="gitOrg" name="gitOrg" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+              <select id="gitOrg" name="gitOrg" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
                 <option value="">Select...</option>
               </select>
             </div>
             <div>
               <label for="gitRepo" class="block text-xs font-medium text-gray-600 mb-1">Repository</label>
-              <select id="gitRepo" name="gitRepo" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none" disabled>
+              <select id="gitRepo" name="gitRepo" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none" disabled>
                 <option value="">Select organization first...</option>
               </select>
             </div>
             <div>
               <label for="gitBranch" class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
-              <select id="gitBranch" name="gitBranch" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none" disabled>
+              <select id="gitBranch" name="gitBranch" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none" disabled>
                 <option value="">Select repository first...</option>
               </select>
             </div>
             <div>
               <label for="sparse" class="block text-xs font-medium text-gray-600 mb-1">Sparse Checkout (optional)</label>
-              <textarea id="sparse" name="sparse" placeholder="src/&#10;docs/" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[50px] resize-y focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">${escapeHtml((s.gitConfig?.sparse || []).join("\n"))}</textarea>
+              <textarea id="sparse" name="sparse" placeholder="src/&#10;docs/" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[50px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml((s.gitConfig?.sparse || []).join("\n"))}</textarea>
               <p class="text-xs text-gray-400 mt-1">Only checkout specific directories (one per line)</p>
             </div>
           </div>
@@ -430,19 +470,58 @@ export function renderSettingsPage(
         </div>
       </div>
       `
-          : `<!-- Git section hidden - GitHub App not configured -->`
+          : `
+      <div class="bg-gray-50 rounded-lg p-3" id="git-section">
+        <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
+          <span>&#128193;</span>
+          Git Repository
+          <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="git-arrow">&#9660;</span>
+        </h3>
+        <div id="git-content" class="hidden pt-3 space-y-2">
+          <p class="text-xs text-gray-500">GitHub App is not configured. You can still use a manual repository URL.</p>
+          <div>
+            <label for="repoUrl" class="block text-xs font-medium text-gray-600 mb-1">Repository URL</label>
+            <input id="repoUrl" name="repoUrl" type="text" placeholder="https://github.com/owner/repo" value="${escapeHtml(s.gitConfig?.repoUrl || "")}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
+          </div>
+          <div>
+            <label for="branch" class="block text-xs font-medium text-gray-600 mb-1">Branch (optional)</label>
+            <input id="branch" name="branch" type="text" placeholder="main" value="${escapeHtml(s.gitConfig?.branch || "")}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
+          </div>
+          <div>
+            <label for="sparse" class="block text-xs font-medium text-gray-600 mb-1">Sparse Checkout (optional)</label>
+            <textarea id="sparse" name="sparse" placeholder="src/&#10;docs/" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[50px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml((s.gitConfig?.sparse || []).join("\n"))}</textarea>
+            <p class="text-xs text-gray-400 mt-1">Only checkout specific directories (one per line)</p>
+          </div>
+        </div>
+      </div>
+      `
       }
+
+      <!-- System Packages -->
+      <div class="bg-gray-50 rounded-lg p-3">
+        <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
+          <span>&#128230;</span>
+          System Packages
+          <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="nix-arrow">&#9660;</span>
+        </h3>
+        <div id="nix-content" class="hidden pt-3 space-y-3">
+          <div>
+            <label for="nixPackages" class="block text-xs font-medium text-gray-600 mb-1">Packages (one per line)</label>
+            <textarea id="nixPackages" name="nixPackages" placeholder="python311&#10;ffmpeg&#10;jq" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml((s.nixConfig?.packages || []).join("\n"))}</textarea>
+          </div>
+        </div>
+      </div>
 
       <!-- Environment Variables -->
       <div class="bg-gray-50 rounded-lg p-3">
         <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
           <span>&#128203;</span>
           Environment Variables
-          ${payload.prefillEnvVars?.length ? '<span class="text-xs text-amber-600 font-normal">(action needed)</span>' : ""}
+          ${payload.prefillEnvVars?.length ? '<span class="text-xs text-slate-600 font-normal">(action needed)</span>' : ""}
           <span class="ml-auto text-xs text-gray-400 transition-transform ${payload.prefillEnvVars?.length ? "" : "rotate-[-90deg]"}" id="envvars-arrow">&#9660;</span>
         </h3>
         <div id="envvars-content" class="${payload.prefillEnvVars?.length ? "" : "hidden "}pt-3">
-          <textarea id="envVars" name="envVars" placeholder="API_KEY=your_key&#10;DEBUG=true" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">${escapeHtml(
+          <textarea id="envVars" name="envVars" placeholder="API_KEY=your_key&#10;DEBUG=true" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono min-h-[60px] resize-y focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">${escapeHtml(
             (() => {
               const existingEnvVars = s.envVars || {};
               const prefillKeys = payload.prefillEnvVars || [];
@@ -458,61 +537,26 @@ export function renderSettingsPage(
           )}</textarea>
           ${
             payload.prefillEnvVars?.length
-              ? `<p class="text-xs text-amber-600 mt-1">⬆️ Please fill in the values for the highlighted variables above.</p>`
+              ? `<p class="text-xs text-slate-600 mt-1">⬆️ Please fill in the values for the highlighted variables above.</p>`
               : ""
           }
         </div>
       </div>
 
-      <!-- Scheduled Reminders Section (outside form - read-only display) -->
-      <div class="bg-gray-50 rounded-lg p-3">
-        <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" onclick="toggleSection(this)">
-          <span>&#9200;</span>
-          Scheduled Reminders
-          <span id="schedules-loading" class="hidden animate-spin text-amber-600">&#8635;</span>
-          <span class="ml-auto text-xs text-gray-400 transition-transform rotate-[-90deg]" id="schedules-arrow">&#9660;</span>
-        </h3>
-        <div id="schedules-content" class="hidden pt-3">
-          <div id="schedules-error" class="hidden bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs mb-2"></div>
-          <div id="schedules-list">
-            <p class="text-xs text-gray-500">Loading scheduled reminders...</p>
-          </div>
-          <div class="mt-3 pt-3 border-t border-gray-200">
-            <p class="text-xs font-medium text-gray-600 mb-1">Example prompts:</p>
-            <p class="text-xs text-gray-500 mb-1 font-medium">One-time:</p>
-            <ul class="text-xs text-gray-500 space-y-1 mb-2">
-              <li>&bull; "Remind me in 30 minutes to check the build status"</li>
-              <li>&bull; "Set a reminder for 2 hours from now to review the PR"</li>
-            </ul>
-            <p class="text-xs text-gray-500 mb-1 font-medium">Recurring:</p>
-            <ul class="text-xs text-gray-500 space-y-1">
-              <li>&bull; "Check the API status every 30 minutes for the next 2 hours"</li>
-              <li>&bull; "Poll the deployment health every hour until it succeeds (max 12 checks)"</li>
-              <li>&bull; "Send me a morning standup reminder at 9am on weekdays"</li>
-            </ul>
-            <p class="text-xs text-gray-400 mt-2">One-time: max 24 hours. Recurring: min 5 min interval, max 100 iterations.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- History Configuration -->
-      <div class="bg-gray-50 rounded-lg p-3">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" id="historyEnabled" name="historyEnabled" ${s.historyConfig?.enabled ? "checked" : ""} class="w-4 h-4 text-amber-600 rounded focus:ring-amber-500">
-          <span class="text-sm font-medium text-gray-800">Include conversation history</span>
-        </label>
-      </div>
 
       <!-- Verbose Logging -->
       <div class="bg-gray-50 rounded-lg p-3">
         <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" id="verboseLogging" name="verboseLogging" ${s.verboseLogging ? "checked" : ""} class="w-4 h-4 text-amber-600 rounded focus:ring-amber-500">
+          <input type="checkbox" id="verboseLogging" name="verboseLogging" ${s.verboseLogging ? "checked" : ""} class="w-4 h-4 text-slate-600 rounded focus:ring-slate-500">
           <span class="text-sm font-medium text-gray-800">Verbose logging</span>
         </label>
         <p class="text-xs text-gray-500 mt-1 ml-6">Show tool calls, reasoning tokens, and detailed output</p>
       </div>
 
-      <button type="submit" id="save-btn" class="w-full py-3 bg-gradient-to-r from-amber-700 to-amber-800 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none">
+        </div>
+      </div>
+
+      <button type="submit" id="save-btn" class="w-full py-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none">
         Save Settings
       </button>
     </form>
@@ -580,10 +624,27 @@ export function renderSettingsPage(
       const branch = document.getElementById('branch').value.trim();
       const sparse = parseLines(document.getElementById('sparse').value);
       if (repoUrl || branch || sparse.length) {
+        if (!repoUrl) {
+          errorMsg.textContent = 'Repository URL is required when Git config is set';
+          errorMsg.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = 'Save Settings';
+          return;
+        }
         settings.gitConfig = {};
-        if (repoUrl) settings.gitConfig.repoUrl = repoUrl;
+        settings.gitConfig.repoUrl = repoUrl;
         if (branch) settings.gitConfig.branch = branch;
         if (sparse.length) settings.gitConfig.sparse = sparse;
+      } else {
+        settings.gitConfig = null;
+      }
+
+      // System packages (Nix)
+      const nixPackages = parseLines(document.getElementById('nixPackages').value);
+      if (nixPackages.length) {
+        settings.nixConfig = { packages: nixPackages };
+      } else {
+        settings.nixConfig = null;
       }
 
       // Environment variables
@@ -600,10 +661,6 @@ export function renderSettingsPage(
           }
         }
       }
-
-      // History config
-      const historyEnabled = document.getElementById('historyEnabled').checked;
-      settings.historyConfig = { enabled: historyEnabled };
 
       // Verbose logging
       const verboseLogging = document.getElementById('verboseLogging').checked;
@@ -666,7 +723,7 @@ export function renderSettingsPage(
         status.textContent = 'Not connected';
         status.className = 'text-xs text-gray-500';
         btn.textContent = 'Connect';
-        btn.className = 'px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 transition-all';
+        btn.className = 'px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 transition-all';
         btn.onclick = () => connectProvider(provider);
       }
     }
@@ -685,7 +742,7 @@ export function renderSettingsPage(
       const status = document.getElementById(provider + '-status');
       if (status) {
         status.textContent = 'Waiting for code...';
-        status.className = 'text-xs text-amber-600';
+        status.className = 'text-xs text-slate-600';
       }
 
       // Setup submit handler
@@ -1049,9 +1106,9 @@ export function renderSettingsPage(
         chipsContainer.innerHTML = data.skills.map(function(skill) {
           // Check if already added
           const alreadyAdded = currentSkills.some(function(s) { return s.repo === skill.repo; });
-          const disabledClass = alreadyAdded ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-amber-200';
+          const disabledClass = alreadyAdded ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-200';
           return '<button type="button" onclick="addSkillFromChip(\\'' + escapeHtmlJS(skill.repo) + '\\')" ' +
-            'class="px-2 py-1 text-xs rounded-full bg-amber-100 text-amber-800 ' + disabledClass + '" ' +
+            'class="px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-800 ' + disabledClass + '" ' +
             (alreadyAdded ? 'disabled title="Already added"' : 'title="' + escapeHtmlJS(skill.description) + '"') + '>' +
             escapeHtmlJS(skill.name) +
           '</button>';
@@ -1117,7 +1174,7 @@ export function renderSettingsPage(
               '</div>' +
               '<div class="flex items-center gap-2 ml-2">' +
                 '<span class="text-xs text-gray-400">' + formatInstalls(skill.installs) + '</span>' +
-                (alreadyAdded ? '<span class="text-xs text-green-600">Added</span>' : '<span class="text-xs text-amber-600">+ Add</span>') +
+                (alreadyAdded ? '<span class="text-xs text-green-600">Added</span>' : '<span class="text-xs text-slate-600">+ Add</span>') +
               '</div>' +
             '</div>' +
           '</div>';
@@ -1320,7 +1377,7 @@ export function renderSettingsPage(
     initSkills();
 
     // ============================================================================
-    // MCP Servers Management
+    // External Integrations (MCP) Management
     // ============================================================================
 
     let currentMcpServers = ${JSON.stringify(s.mcpServers || {})};
@@ -1335,9 +1392,9 @@ export function renderSettingsPage(
         const chipsContainer = document.getElementById('curatedMcpChips');
         chipsContainer.innerHTML = data.mcps.map(function(mcp) {
           const alreadyAdded = currentMcpServers.hasOwnProperty(mcp.id);
-          const disabledClass = alreadyAdded ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-amber-200';
+          const disabledClass = alreadyAdded ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-200';
           return '<button type="button" onclick="addMcpFromChip(\\'' + escapeHtmlJS(mcp.id) + '\\')" ' +
-            'class="px-2 py-1 text-xs rounded-full bg-amber-100 text-amber-800 ' + disabledClass + '" ' +
+            'class="px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-800 ' + disabledClass + '" ' +
             (alreadyAdded ? 'disabled title="Already added"' : 'title="' + escapeHtmlJS(mcp.description) + '"') + '>' +
             escapeHtmlJS(mcp.name) +
           '</button>';
@@ -1403,7 +1460,7 @@ export function renderSettingsPage(
               '</div>' +
               '<div class="flex items-center gap-2 ml-2">' +
                 '<span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">' + escapeHtmlJS(mcp.type) + '</span>' +
-                (alreadyAdded ? '<span class="text-xs text-green-600">Added</span>' : '<span class="text-xs text-amber-600">+ Add</span>') +
+                (alreadyAdded ? '<span class="text-xs text-green-600">Added</span>' : '<span class="text-xs text-slate-600">+ Add</span>') +
               '</div>' +
             '</div>' +
           '</div>';
@@ -1643,7 +1700,7 @@ export function renderSettingsPage(
         }
 
         const statusClass = schedule.status === 'pending'
-          ? 'bg-amber-100 text-amber-800'
+          ? 'bg-slate-100 text-slate-800'
           : schedule.status === 'triggered'
             ? 'bg-green-100 text-green-800'
             : 'bg-gray-100 text-gray-500';
@@ -1719,7 +1776,7 @@ export function renderSettingsPage(
     initSchedules();
 
     // ============================================================================
-    // Prefill Skills and MCP Servers (from settings link)
+    // Prefill Skills and External Integrations (MCP) (from settings link)
     // ============================================================================
 
     const prefillSkills = ${JSON.stringify(payload.prefillSkills || [])};
@@ -1773,7 +1830,7 @@ export function renderSettingsPage(
           // Update button to show added
           if (btn) {
             btn.textContent = 'Added ✓';
-            btn.className = btn.className.replace('bg-amber-600 hover:bg-amber-700', 'bg-green-600');
+            btn.className = btn.className.replace('bg-slate-600 hover:bg-slate-700', 'bg-green-600');
           }
 
           document.getElementById('success-msg').textContent = 'Skill "' + (skill.name || skill.repo) + '" added!';
@@ -1856,7 +1913,7 @@ export function renderSettingsPage(
           // Update button to show added
           if (btn) {
             btn.textContent = 'Added ✓';
-            btn.className = btn.className.replace('bg-amber-600 hover:bg-amber-700', 'bg-green-600');
+            btn.className = btn.className.replace('bg-slate-600 hover:bg-slate-700', 'bg-green-600');
           }
 
           const mcpName = mcp.name || mcp.id;

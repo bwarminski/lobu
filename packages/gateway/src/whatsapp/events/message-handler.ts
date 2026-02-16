@@ -193,13 +193,12 @@ export class WhatsAppMessageHandler {
     if (settings.gitConfig) {
       mergedOptions.gitConfig = settings.gitConfig;
     }
+    if (settings.nixConfig) {
+      mergedOptions.nixConfig = settings.nixConfig;
+    }
 
     if (settings.envVars) {
       mergedOptions.envVars = settings.envVars;
-    }
-
-    if (settings.historyConfig) {
-      mergedOptions.historyConfig = settings.historyConfig;
     }
 
     if (settings.toolsConfig) {
@@ -736,7 +735,7 @@ export class WhatsAppMessageHandler {
   ): Promise<void> {
     // For 1:1 chats: use chatJid for conversation continuity (all messages share context)
     // For groups: use quoted message ID or message ID (explicit reply threading)
-    const threadId = context.isGroup
+    const conversationId = context.isGroup
       ? context.quotedMessage?.id || messageId
       : context.chatJid;
 
@@ -747,7 +746,7 @@ export class WhatsAppMessageHandler {
       {
         traceId,
         messageId,
-        threadId,
+        conversationId,
         userId: context.senderE164 || context.senderJid,
       },
       "Message received"
@@ -913,15 +912,19 @@ The user sent a voice message but transcription failed. Let them know and sugges
     const agentOptions = await this.getAgentOptionsWithSettings(agentId);
 
     // Extract top-level configs from agentOptions for orchestration
-    const { networkConfig, gitConfig, mcpServers, ...remainingOptions } =
-      agentOptions;
+    const {
+      networkConfig,
+      gitConfig,
+      nixConfig,
+      mcpServers,
+      ...remainingOptions
+    } = agentOptions;
 
     const payload: MessagePayload = {
       platform: "whatsapp",
       userId: context.senderE164 || context.senderJid,
       botId: "whatsapp",
-      conversationId: threadId,
-      threadId,
+      conversationId,
       teamId: context.isGroup ? context.chatJid : "whatsapp", // Group JID for groups, "whatsapp" for DMs
       agentId,
       messageId,
@@ -948,6 +951,7 @@ The user sent a voice message but transcription failed. Let them know and sugges
       // Set top-level configs for orchestration
       networkConfig,
       gitConfig,
+      nixConfig,
       mcpConfig: mcpServers ? { mcpServers } : undefined,
     };
 
@@ -956,7 +960,7 @@ The user sent a voice message but transcription failed. Let them know and sugges
       {
         traceId,
         messageId,
-        threadId,
+        conversationId,
         chatJid: context.chatJid,
         fileCount: files.length,
         historyCount: conversationHistory.length,

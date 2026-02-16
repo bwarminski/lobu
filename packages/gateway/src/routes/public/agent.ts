@@ -693,11 +693,11 @@ export function createAgentApi(
     }
 
     const agentId = requestedAgentId || randomUUID();
-    const threadId = agentId;
+    const conversationId = agentId;
     const channelId = `api-${agentId.slice(0, 8)}`;
     const deploymentName = `api-${agentId.slice(0, 8)}`;
 
-    const token = generateWorkerToken(agentId, threadId, deploymentName, {
+    const token = generateWorkerToken(agentId, conversationId, deploymentName, {
       channelId,
       agentId,
       platform: "api",
@@ -707,8 +707,7 @@ export function createAgentApi(
     const expiresAt = Date.now() + TOKEN_EXPIRATION_MS;
 
     const session: ThreadSession = {
-      conversationId: threadId,
-      threadId,
+      conversationId,
       channelId,
       userId: agentId,
       threadCreator: agentId,
@@ -763,7 +762,7 @@ export function createAgentApi(
     return c.json({
       success: true,
       agent: {
-        agentId: session.threadId,
+        agentId: session.conversationId,
         userId: session.userId,
         status: session.status || "active",
         createdAt: session.createdAt,
@@ -915,7 +914,6 @@ export function createAgentApi(
       const jobId = await queueProducer.enqueueMessage({
         userId: tokenData.userId,
         conversationId: tokenData.conversationId || agentId,
-        threadId: tokenData.conversationId || agentId,
         messageId,
         channelId: tokenData.channelId,
         teamId: tokenData.teamId || "api",
@@ -996,7 +994,6 @@ export function createAgentApi(
       const jobId = await queueProducer.enqueueMessage({
         userId: tokenData.userId,
         conversationId: tokenData.conversationId || agentId,
-        threadId: tokenData.conversationId || agentId,
         messageId: execId,
         channelId: tokenData.channelId,
         teamId: tokenData.teamId || "api",

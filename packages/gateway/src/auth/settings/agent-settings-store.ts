@@ -1,9 +1,9 @@
 import {
   BaseRedisStore,
   type GitConfig,
-  type HistoryConfig,
   type McpServerConfig,
   type NetworkConfig,
+  type NixConfig,
   type SkillsConfig,
   type ToolsConfig,
 } from "@lobu/core";
@@ -20,12 +20,12 @@ export interface AgentSettings {
   networkConfig?: NetworkConfig;
   /** Git repository configuration */
   gitConfig?: GitConfig;
+  /** Nix environment configuration */
+  nixConfig?: NixConfig;
   /** Additional MCP servers */
   mcpServers?: Record<string, McpServerConfig>;
   /** Environment variables passed to worker (KEY=VALUE pairs) */
   envVars?: Record<string, string>;
-  /** Conversation history configuration */
-  historyConfig?: HistoryConfig;
   /** Skills configuration - enabled skills from skills.sh */
   skillsConfig?: SkillsConfig;
   /** Tool permission configuration - allowed/denied tools */

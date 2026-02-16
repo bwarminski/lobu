@@ -17,11 +17,5 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": [
-    "dist",
-    "node_modules",
-    "**/*.test.ts",
-    "**/__tests__/**",
-    "src/claude-worker.ts"
-  ]
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]
 }

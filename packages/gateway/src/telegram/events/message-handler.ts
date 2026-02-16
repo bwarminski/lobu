@@ -124,11 +124,11 @@ export class TelegramMessageHandler {
     if (settings.gitConfig) {
       mergedOptions.gitConfig = settings.gitConfig;
     }
+    if (settings.nixConfig) {
+      mergedOptions.nixConfig = settings.nixConfig;
+    }
     if (settings.envVars) {
       mergedOptions.envVars = settings.envVars;
-    }
-    if (settings.historyConfig) {
-      mergedOptions.historyConfig = settings.historyConfig;
     }
     if (settings.toolsConfig) {
       mergedOptions.toolsConfig = settings.toolsConfig;
@@ -371,7 +371,7 @@ export class TelegramMessageHandler {
       name?: string;
     }>
   ): Promise<void> {
-    const threadId = context.isGroup
+    const conversationId = context.isGroup
       ? context.repliedMessage
         ? String(context.repliedMessage.id)
         : messageId
@@ -381,7 +381,10 @@ export class TelegramMessageHandler {
     const userId = String(context.senderId);
     const chatId = String(context.chatId);
 
-    logger.info({ traceId, messageId, threadId, userId }, "Message received");
+    logger.info(
+      { traceId, messageId, conversationId, userId },
+      "Message received"
+    );
 
     // Resolve agent ID
     let agentId: string;
@@ -448,15 +451,19 @@ export class TelegramMessageHandler {
 
     // Fetch agent settings and merge
     const agentOptions = await this.getAgentOptionsWithSettings(agentId);
-    const { networkConfig, gitConfig, mcpServers, ...remainingOptions } =
-      agentOptions;
+    const {
+      networkConfig,
+      gitConfig,
+      nixConfig,
+      mcpServers,
+      ...remainingOptions
+    } = agentOptions;
 
     const payload: MessagePayload = {
       platform: "telegram",
       userId,
       botId: "telegram",
-      conversationId: threadId,
-      threadId,
+      conversationId,
       teamId: context.isGroup ? chatId : "telegram",
       agentId,
       messageId,
@@ -481,6 +488,7 @@ export class TelegramMessageHandler {
       agentOptions: remainingOptions,
       networkConfig,
       gitConfig,
+      nixConfig,
       mcpConfig: mcpServers ? { mcpServers } : undefined,
     };
 
@@ -489,7 +497,7 @@ export class TelegramMessageHandler {
       {
         traceId,
         messageId,
-        threadId,
+        conversationId,
         chatId,
         historyCount: conversationHistory.length,
       },
@@ -533,22 +541,44 @@ export class TelegramMessageHandler {
       const token = generateAgentSelectorToken(userId, "telegram", chatId);
       const configUrl = `${publicGatewayUrl}/agent-selector?token=${encodeURIComponent(token)}`;
 
-      await this.bot.api.sendMessage(
-        context.chatId,
-        `Welcome! To get started, please configure which agent should handle messages here.\n\nConfigure: ${configUrl}`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: "Configure Agent",
-                  url: configUrl,
-                },
-              ],
-            ],
-          },
+      // Telegram rejects inline keyboard URLs like http://localhost:...; fall back to plain text in that case.
+      let includeButton = true;
+      try {
+        const u = new URL(configUrl);
+        if (
+          u.hostname === "localhost" ||
+          u.hostname === "127.0.0.1" ||
+          u.hostname === "::1"
+        ) {
+          includeButton = false;
         }
-      );
+      } catch {
+        includeButton = false;
+      }
+
+      if (includeButton) {
+        await this.bot.api.sendMessage(
+          context.chatId,
+          `Welcome! To get started, please configure which agent should handle messages here.\n\nConfigure: ${configUrl}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "Configure Agent",
+                    url: configUrl,
+                  },
+                ],
+              ],
+            },
+          }
+        );
+      } else {
+        await this.bot.api.sendMessage(
+          context.chatId,
+          `Welcome! To get started, please configure which agent should handle messages here.\n\nConfigure: ${configUrl}`
+        );
+      }
 
       logger.info(
         { userId, chatId: context.chatId },

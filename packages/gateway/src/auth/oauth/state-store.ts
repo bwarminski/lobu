@@ -92,7 +92,7 @@ export class OAuthStateStore<T extends { userId: string }> {
 export interface OAuthPlatformContext {
   platform: string;
   channelId: string; // chatJid for WhatsApp, channel for Slack
-  threadId?: string;
+  conversationId?: string;
 }
 
 export interface ClaudeOAuthStateData {

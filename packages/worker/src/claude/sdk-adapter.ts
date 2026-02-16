@@ -141,9 +141,7 @@ export async function runClaudeWithSDK(
   customToolsConfig?: {
     channelId: string;
     conversationId: string;
-    threadId?: string; // Legacy alias (deprecated)
     platform?: string;
-    historyEnabled?: boolean;
   },
   interactionClient?: InteractionClient
 ): Promise<ClaudeExecutionResult> {
@@ -227,13 +225,10 @@ export async function runClaudeWithSDK(
       options.appendSystemPrompt, // From worker (core + projects + process manager)
     ];
 
-    // Add history hint if enabled
-    if (customToolsConfig?.historyEnabled) {
-      instructionParts.push(`## Conversation History
+    instructionParts.push(`## Conversation History
 
 You have access to GetChannelHistory to view previous messages in this thread.
 Use it when the user references past discussions or you need context.`);
-    }
 
     const mergedInstructions = instructionParts.filter(Boolean).join("\n\n");
 
@@ -257,18 +252,14 @@ Use it when the user references past discussions or you need context.`);
         dispatcherUrl,
         workerToken,
         customToolsConfig.channelId,
-        customToolsConfig.conversationId ?? customToolsConfig.threadId ?? "",
+        customToolsConfig.conversationId,
         interactionClient,
         {
           platform: customToolsConfig.platform,
-          historyEnabled: customToolsConfig.historyEnabled,
         }
       );
       allMcpServers.lobu = customTools;
-      const tools = ["UploadUserFile", "AskUserQuestion"];
-      if (customToolsConfig.historyEnabled) {
-        tools.push("GetChannelHistory");
-      }
+      const tools = ["UploadUserFile", "AskUserQuestion", "GetChannelHistory"];
       logger.info(
         `Added custom tools server: lobu (tools: ${tools.join(", ")})`
       );

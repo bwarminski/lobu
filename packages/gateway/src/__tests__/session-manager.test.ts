@@ -30,7 +30,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         threadCreator: "U123",
         status: "pending",
         createdAt: Date.now(),
@@ -44,7 +43,7 @@ describe("SessionManager", () => {
       expect(retrieved).not.toBeNull();
       expect(retrieved?.userId).toBe("U123");
       expect(retrieved?.channelId).toBe("C123");
-      expect(retrieved?.threadId).toBe("1234567890.123456");
+      expect(retrieved?.conversationId).toBe("1234567890.123456");
     });
 
     test("returns null for non-existent session", async () => {
@@ -57,7 +56,6 @@ describe("SessionManager", () => {
         channelId: "C456",
         userId: "U456",
         conversationId: "9876543210.654321",
-        threadId: "9876543210.654321",
         threadCreator: "U456",
         status: "running",
         createdAt: Date.now(),
@@ -72,7 +70,6 @@ describe("SessionManager", () => {
         channelId: "C456",
         userId: "U456",
         conversationId: "9876543210.654321",
-        threadId: "9876543210.654321",
         threadCreator: "U456",
         status: "running",
       });
@@ -85,7 +82,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         status: "completed",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -110,7 +106,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         status: "completed",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -144,7 +139,6 @@ describe("SessionManager", () => {
         channelId: "C789",
         userId: "U789",
         conversationId: "1111111111.111111",
-        threadId: "1111111111.111111",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -173,7 +167,6 @@ describe("SessionManager", () => {
         channelId: "C111",
         userId: "U111",
         conversationId: "1111111111.111111",
-        threadId: "1111111111.111111",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -183,7 +176,6 @@ describe("SessionManager", () => {
         channelId: "C222",
         userId: "U222",
         conversationId: "2222222222.222222",
-        threadId: "2222222222.222222",
         status: "running",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -210,7 +202,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -247,7 +238,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         // No threadCreator set
         status: "pending",
         createdAt: Date.now(),
@@ -270,7 +260,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         threadCreator: "U123",
         status: "running",
         createdAt: Date.now(),
@@ -294,7 +283,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         threadCreator: "U123",
         status: "running",
         createdAt: Date.now(),
@@ -318,7 +306,6 @@ describe("SessionManager", () => {
         channelId: "C111",
         userId: "U111",
         conversationId: "1111111111.111111",
-        threadId: "1111111111.111111",
         threadCreator: "U111",
         status: "running",
         createdAt: Date.now(),
@@ -329,7 +316,6 @@ describe("SessionManager", () => {
         channelId: "C222",
         userId: "U222",
         conversationId: "2222222222.222222",
-        threadId: "2222222222.222222",
         threadCreator: "U222",
         status: "running",
         createdAt: Date.now(),
@@ -364,7 +350,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "activity.123456",
-        threadId: "activity.123456",
         status: "running",
         createdAt: Date.now(),
         lastActivity: Date.now() - 1000, // 1 second ago
@@ -395,7 +380,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "preserve.123456",
-        threadId: "preserve.123456",
         threadCreator: "U123",
         status: "running",
         createdAt: Date.now(),
@@ -409,7 +393,7 @@ describe("SessionManager", () => {
       const updated = await manager.getSession(sessionKey);
       expect(updated?.channelId).toBe("C123");
       expect(updated?.userId).toBe("U123");
-      expect(updated?.threadId).toBe("preserve.123456");
+      expect(updated?.conversationId).toBe("preserve.123456");
       expect(updated?.status).toBe("running");
     });
   });
@@ -420,7 +404,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "status.123456",
-        threadId: "status.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -451,7 +434,6 @@ describe("SessionManager", () => {
           channelId: "C123",
           userId: "U123",
           conversationId: `status-${status}.123456`,
-          threadId: `status-${status}.123456`,
           status,
           createdAt: Date.now(),
           lastActivity: Date.now(),
@@ -488,7 +470,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "concurrent.123456",
-        threadId: "concurrent.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -515,7 +496,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "keyformat.123456",
-        threadId: "keyformat.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -524,7 +504,7 @@ describe("SessionManager", () => {
       await manager.setSession(session);
 
       const redis = mockQueue.getRedisClient();
-      // Key format: session:{channelId}:{threadId}
+      // Key format: session:{channelId}:{conversationId}
       const hasKey = redis.has("session:C123:keyformat.123456");
       expect(hasKey).toBe(true);
     });
@@ -534,7 +514,6 @@ describe("SessionManager", () => {
         channelId: "C123",
         userId: "U123",
         conversationId: "1234567890.123456",
-        threadId: "1234567890.123456",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -543,20 +522,19 @@ describe("SessionManager", () => {
       await manager.setSession(session);
 
       const redis = mockQueue.getRedisClient();
-      // Thread index should use format: thread_index:{channelId}:{threadTs}
-      const hasIndex = redis.has("thread_index:C123:1234567890.123456");
+      // Thread index should use format: conversation_index:{channelId}:{conversationId}
+      const hasIndex = redis.has("conversation_index:C123:1234567890.123456");
       expect(hasIndex).toBe(true);
     });
   });
 
   describe("Edge Cases", () => {
-    test("handles API platform sessions (channelId equals threadId)", async () => {
+    test("handles API platform sessions (channelId equals conversationId)", async () => {
       const agentId = "agent-123";
       const session: ThreadSession = {
         channelId: agentId,
         userId: "U123",
-        conversationId: agentId, // Primary identifier for API platform
-        threadId: agentId, // Legacy alias (same as conversationId for API platform)
+        conversationId: agentId,
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),
@@ -578,7 +556,6 @@ describe("SessionManager", () => {
         channelId: "C-123-test",
         userId: "U_special_123",
         conversationId: "1234567890.123456-extra",
-        threadId: "1234567890.123456-extra",
         status: "pending",
         createdAt: Date.now(),
         lastActivity: Date.now(),

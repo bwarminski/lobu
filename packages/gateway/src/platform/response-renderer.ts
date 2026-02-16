@@ -70,12 +70,15 @@ export interface ResponseRenderer {
   handleEphemeral?(payload: ThreadResponsePayload): Promise<void>;
 
   /**
-   * Stop any active streams for a thread.
+   * Stop any active streams for a conversation.
    * Called when an interaction is created to prevent messages appearing
    * after the interaction prompt.
    *
    * @param userId - User ID
-   * @param threadId - Thread identifier
+   * @param conversationId - Conversation identifier
    */
-  stopStreamForThread?(userId: string, threadId: string): Promise<void>;
+  stopStreamForConversation?(
+    userId: string,
+    conversationId: string
+  ): Promise<void>;
 }

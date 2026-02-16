@@ -80,6 +80,11 @@ export const DEFAULT_WHATSAPP_CONFIG: WhatsAppConfig = {
  * Build WhatsApp config from environment variables.
  */
 export function buildWhatsAppConfig(): WhatsAppConfig | null {
+  // Always strip the large credential from process.env to prevent E2BIG
+  // when spawning child processes (Docker containers, workers)
+  const credentials = process.env.WHATSAPP_CREDENTIALS;
+  delete process.env.WHATSAPP_CREDENTIALS;
+
   if (!getOptionalBoolean("WHATSAPP_ENABLED", false)) {
     return null;
   }
@@ -96,7 +101,7 @@ export function buildWhatsAppConfig(): WhatsAppConfig | null {
 
   return {
     enabled: true,
-    credentials: process.env.WHATSAPP_CREDENTIALS,
+    credentials,
     allowFrom,
     allowGroups: getOptionalBoolean(
       "WHATSAPP_ALLOW_GROUPS",

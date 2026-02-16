@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
-import { createLogger, sanitizeThreadId, WorkspaceError } from "@lobu/core";
+import {
+  createLogger,
+  sanitizeConversationId,
+  WorkspaceError,
+} from "@lobu/core";
 import type { WorkspaceInfo, WorkspaceSetupConfig } from "./types";
 
 const logger = createLogger("workspace");
@@ -11,28 +15,15 @@ const logger = createLogger("workspace");
 // ============================================================================
 
 /**
- * Extract thread ID from deployment name
- * Example: lobu-worker-1756766056.836119 -> 1756766056.836119
- */
-function extractThreadIdFromDeploymentName(
-  deploymentName: string | undefined
-): string | null {
-  if (!deploymentName) return null;
-
-  const threadMatch = deploymentName.match(/(\d+\.\d+)/);
-  return threadMatch ? (threadMatch[1] ?? null) : null;
-}
-
-/**
  * Get workspace directory path for a thread
  */
 function getWorkspacePathForThread(
   baseDirectory: string,
-  threadId: string
+  conversationId: string
 ): string {
   // Sanitize thread ID for filesystem
-  const sanitizedThreadId = sanitizeThreadId(threadId);
-  return `${baseDirectory}/${sanitizedThreadId}`;
+  const sanitizedConversationId = sanitizeConversationId(conversationId);
+  return `${baseDirectory}/${sanitizedConversationId}`;
 }
 
 /**
@@ -40,31 +31,28 @@ function getWorkspacePathForThread(
  * Used by MCP process manager
  */
 export function setupWorkspaceEnv(deploymentName: string | undefined): void {
-  const threadId =
-    process.env.CONVERSATION_ID ||
-    process.env.THREAD_ID ||
-    extractThreadIdFromDeploymentName(deploymentName);
+  const conversationId = process.env.CONVERSATION_ID;
 
-  if (threadId) {
-    const workspaceDir = getWorkspacePathForThread("/workspace", threadId);
+  if (conversationId) {
+    const baseDir = process.env.WORKSPACE_DIR || "/workspace";
+    const workspaceDir = getWorkspacePathForThread(baseDir, conversationId);
     process.env.WORKSPACE_DIR = workspaceDir;
     logger.info(`📁 Set WORKSPACE_DIR for process manager: ${workspaceDir}`);
+  } else if (deploymentName) {
+    // deploymentName is no longer parseable (it may be hashed/collision-resistant).
+    logger.warn("WORKSPACE_DIR not set (missing CONVERSATION_ID env var)");
   }
 }
 
 /**
- * Get thread identifier from various sources
- * Priority: THREAD_ID > sessionKey > username
+ * Get conversation identifier from various sources
+ * Priority: CONVERSATION_ID > sessionKey > username
  */
 function getThreadIdentifier(sessionKey?: string, username?: string): string {
-  const threadId =
-    process.env.CONVERSATION_ID ||
-    process.env.THREAD_ID ||
-    sessionKey ||
-    username ||
-    "default";
+  const conversationId =
+    process.env.CONVERSATION_ID || sessionKey || username || "default";
 
-  return threadId;
+  return conversationId;
 }
 
 // ============================================================================
@@ -93,15 +81,15 @@ export class WorkspaceManager {
   ): Promise<WorkspaceInfo> {
     try {
       // Use thread-specific directory to avoid conflicts between concurrent threads
-      const threadId = getThreadIdentifier(sessionKey, username);
+      const conversationId = getThreadIdentifier(sessionKey, username);
 
       logger.info(
-        `Setting up workspace directory for ${username}, thread: ${threadId}...`
+        `Setting up workspace directory for ${username}, conversation: ${conversationId}...`
       );
 
       const userDirectory = getWorkspacePathForThread(
         this.config.baseDirectory,
-        threadId
+        conversationId
       );
 
       // Ensure base directory exists
@@ -117,7 +105,7 @@ export class WorkspaceManager {
       };
 
       logger.info(
-        `Workspace directory setup completed for ${username} (thread: ${threadId}) at ${userDirectory}`
+        `Workspace directory setup completed for ${username} (conversation: ${conversationId}) at ${userDirectory}`
       );
 
       return this.workspaceInfo;

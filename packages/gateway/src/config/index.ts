@@ -91,7 +91,7 @@ const DISPLAY = {
  * Platform-specific configs (like Slack) are built separately
  */
 export interface GatewayConfig {
-  claude: Partial<AgentOptions>;
+  agentDefaults: Partial<AgentOptions>;
   sessionTimeoutMinutes: number;
   logLevel: LogLevel;
   queues: {
@@ -104,7 +104,6 @@ export interface GatewayConfig {
   };
   anthropicProxy: {
     enabled: boolean;
-    anthropicApiKey: string;
     anthropicBaseUrl?: string;
   };
   orchestration: OrchestratorConfig;
@@ -160,15 +159,11 @@ export function buildGatewayConfig(): GatewayConfig {
   // Required variables
   const connectionString = getRequiredEnv("QUEUE_URL");
 
-  // Anthropic API key (now optional - can use per-user OAuth instead)
-  // Also check CLAUDE_CODE_OAUTH_TOKEN as fallback for local dev
-  const anthropicApiKey =
-    process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || "";
-
-  if (!anthropicApiKey) {
+  // Log warning if no system key is available (providers check their own env vars)
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     logger.warn(
       "No system ANTHROPIC_API_KEY configured. " +
-        "Users will need to authenticate via Claude OAuth in Slack home tab."
+        "Users will need to authenticate via OAuth."
     );
   }
 
@@ -182,7 +177,7 @@ export function buildGatewayConfig(): GatewayConfig {
 
   // Build configuration
   const config: GatewayConfig = {
-    claude: {
+    agentDefaults: {
       allowedTools: process.env.ALLOWED_TOOLS?.split(","),
       disallowedTools: process.env.DISALLOWED_TOOLS?.split(","),
       runtime: process.env.AGENT_RUNTIME || process.env.AGENT_DEFAULT_RUNTIME,
@@ -221,7 +216,6 @@ export function buildGatewayConfig(): GatewayConfig {
     },
     anthropicProxy: {
       enabled: true,
-      anthropicApiKey,
       anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL,
     },
     orchestration: {

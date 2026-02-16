@@ -87,19 +87,17 @@ const updateConfigRoute = createRoute({
                 branch: z.string().optional(),
                 sparse: z.array(z.string()).optional(),
               })
+              .nullable()
+              .optional(),
+            nixConfig: z
+              .object({
+                flakeUrl: z.string().optional(),
+                packages: z.array(z.string()).optional(),
+              })
+              .nullable()
               .optional(),
             mcpServers: z.record(z.string(), z.any()).optional(),
             envVars: z.record(z.string(), z.string()).optional(),
-            historyConfig: z
-              .object({
-                enabled: z.boolean().optional(),
-                timeframe: z
-                  .enum(["1d", "7d", "30d", "365d", "all"])
-                  .optional(),
-                maxMessages: z.number().optional(),
-                includeBotMessages: z.boolean().optional(),
-              })
-              .optional(),
             skillsConfig: z
               .object({
                 skills: z.array(
@@ -273,6 +271,18 @@ export function createAgentConfigRoutes(
         delete body.githubUser;
       }
 
+      // Handle explicit null for gitConfig (clear)
+      if (body.gitConfig === null) {
+        updates.gitConfig = undefined;
+        delete body.gitConfig;
+      }
+
+      // Handle explicit null for nixConfig (clear)
+      if (body.nixConfig === null) {
+        updates.nixConfig = undefined;
+        delete body.nixConfig;
+      }
+
       if (Object.keys(body).length > 0) {
         const validated = validateSettings(body as Partial<AgentSettings>);
         Object.assign(updates, validated);
@@ -322,17 +332,41 @@ function validateSettings(
     };
   }
 
-  if (input.gitConfig?.repoUrl) {
-    const repoUrl = input.gitConfig.repoUrl.trim();
+  if (input.gitConfig) {
+    const repoUrl = input.gitConfig.repoUrl?.trim();
+    const branch = input.gitConfig.branch?.trim();
+    const sparse = input.gitConfig.sparse
+      ?.filter((p): p is string => typeof p === "string" && !!p.trim())
+      .map((p) => p.trim());
+
+    if (!repoUrl) {
+      throw new Error("gitConfig.repoUrl is required when gitConfig is set");
+    }
     if (!repoUrl.startsWith("https://") && !repoUrl.startsWith("git@")) {
       throw new Error("Repository URL must start with https:// or git@");
     }
     settings.gitConfig = {
       repoUrl,
-      branch: input.gitConfig.branch?.trim(),
-      sparse: input.gitConfig.sparse
-        ?.filter((p): p is string => typeof p === "string" && !!p.trim())
-        .map((p) => p.trim()),
+      branch: branch || undefined,
+      sparse: sparse?.length ? sparse : undefined,
+    };
+  }
+
+  if (input.nixConfig) {
+    const flakeUrl = input.nixConfig.flakeUrl?.trim();
+    const packages = input.nixConfig.packages
+      ?.filter((pkg): pkg is string => typeof pkg === "string" && !!pkg.trim())
+      .map((pkg) => pkg.trim());
+
+    if (!flakeUrl && (!packages || packages.length === 0)) {
+      throw new Error(
+        "nixConfig requires flakeUrl or at least one package when set"
+      );
+    }
+
+    settings.nixConfig = {
+      flakeUrl: flakeUrl || undefined,
+      packages: packages?.length ? packages : undefined,
     };
   }
 
@@ -399,25 +433,6 @@ function validateSettings(
         settings.envVars[cleanKey] = String(value);
       }
     }
-  }
-
-  if (input.historyConfig) {
-    const validTimeframes = ["1d", "7d", "30d", "365d", "all"];
-    if (
-      input.historyConfig.timeframe &&
-      !validTimeframes.includes(input.historyConfig.timeframe)
-    ) {
-      throw new Error(`Invalid timeframe: ${input.historyConfig.timeframe}`);
-    }
-    settings.historyConfig = {
-      enabled: Boolean(input.historyConfig.enabled),
-      timeframe: input.historyConfig.timeframe || "7d",
-      maxMessages: Math.min(
-        Math.max(input.historyConfig.maxMessages || 100, 10),
-        500
-      ),
-      includeBotMessages: input.historyConfig.includeBotMessages ?? true,
-    };
   }
 
   if (input.skillsConfig) {

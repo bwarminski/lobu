@@ -218,6 +218,7 @@ export class MessageHandler {
       model: settings.model,
       hasNetworkConfig: !!settings.networkConfig,
       hasGitConfig: !!settings.gitConfig,
+      hasNixConfig: !!settings.nixConfig,
     });
 
     // Merge settings into options
@@ -235,13 +236,12 @@ export class MessageHandler {
     if (settings.gitConfig) {
       mergedOptions.gitConfig = settings.gitConfig;
     }
+    if (settings.nixConfig) {
+      mergedOptions.nixConfig = settings.nixConfig;
+    }
 
     if (settings.envVars) {
       mergedOptions.envVars = settings.envVars;
-    }
-
-    if (settings.historyConfig) {
-      mergedOptions.historyConfig = settings.historyConfig;
     }
 
     // MCP servers from agent settings
@@ -337,7 +337,7 @@ export class MessageHandler {
       platform: "slack",
       channelId: context.channelId,
       userId: context.userId,
-      threadId: normalizedThreadTs,
+      conversationId: normalizedThreadTs,
       messageId: context.messageTs,
     });
 
@@ -480,15 +480,15 @@ export class MessageHandler {
     logger.info(`Turn count: ${currentTurnCount}/${maxTurns}`);
 
     try {
-      const threadTs = normalizedThreadTs;
+      const conversationId = normalizedThreadTs;
 
       // Cancel any pending interactions for this thread when a new message arrives
       // This prevents the worker from being stuck waiting for interaction responses
       const pendingInteractionIds =
-        await this.interactionService.getPendingInteractions(threadTs);
+        await this.interactionService.getPendingInteractions(conversationId);
       if (pendingInteractionIds.length > 0) {
         logger.info(
-          `Cancelling ${pendingInteractionIds.length} pending interaction(s) for thread ${threadTs} due to new user message`
+          `Cancelling ${pendingInteractionIds.length} pending interaction(s) for conversation ${conversationId} due to new user message`
         );
 
         for (const interactionId of pendingInteractionIds) {
@@ -508,8 +508,7 @@ export class MessageHandler {
 
       // Create thread session with turn count
       const threadSession: ThreadSession = {
-        conversationId: threadTs,
-        threadId: threadTs,
+        conversationId,
         channelId: context.channelId,
         userId: context.userId,
         threadCreator: context.userId, // Store the thread creator
@@ -533,14 +532,18 @@ export class MessageHandler {
         await this.sessionManager.setSession(threadSession);
 
         // Extract top-level configs from agentOptions for orchestration
-        const { networkConfig, gitConfig, mcpServers, ...remainingOptions } =
-          agentOptions;
+        const {
+          networkConfig,
+          gitConfig,
+          nixConfig,
+          mcpServers,
+          ...remainingOptions
+        } = agentOptions;
 
         const deploymentPayload: MessagePayload = {
           userId: context.userId,
           botId: this.getBotId(),
-          conversationId: threadTs,
-          threadId: threadTs,
+          conversationId,
           teamId: context.teamId,
           agentId,
           platform: "slack",
@@ -560,6 +563,7 @@ export class MessageHandler {
           // Set top-level configs for orchestration
           networkConfig,
           gitConfig,
+          nixConfig,
           mcpConfig: mcpServers ? { mcpServers } : undefined,
         };
 
@@ -569,7 +573,7 @@ export class MessageHandler {
         // Set status indicator
         await this.setThreadStatus(
           context.channelId,
-          threadTs,
+          conversationId,
           "is scheduling.."
         );
 
@@ -580,15 +584,19 @@ export class MessageHandler {
         await this.sessionManager.setSession(threadSession);
 
         // Extract top-level configs from agentOptions for orchestration
-        const { networkConfig, gitConfig, mcpServers, ...remainingOptions } =
-          agentOptions;
+        const {
+          networkConfig,
+          gitConfig,
+          nixConfig,
+          mcpServers,
+          ...remainingOptions
+        } = agentOptions;
 
         // Enqueue to user-specific queue
         const threadPayload: MessagePayload = {
           botId: this.getBotId(),
           userId: context.userId,
-          conversationId: threadTs,
-          threadId: threadTs,
+          conversationId,
           teamId: context.teamId,
           agentId,
           platform: "slack",
@@ -608,6 +616,7 @@ export class MessageHandler {
           // Set top-level configs for orchestration
           networkConfig,
           gitConfig,
+          nixConfig,
           mcpConfig: mcpServers ? { mcpServers } : undefined,
         };
 
@@ -616,12 +625,12 @@ export class MessageHandler {
         // Set status indicator
         await this.setThreadStatus(
           context.channelId,
-          threadTs,
+          conversationId,
           "is scheduling.."
         );
 
         logger.info(
-          `Enqueued thread message job ${jobId} for thread ${threadTs}`
+          `Enqueued thread message job ${jobId} for conversation ${conversationId}`
         );
       }
     } catch (error) {

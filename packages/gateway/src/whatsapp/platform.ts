@@ -102,8 +102,11 @@ export class WhatsAppPlatform implements PlatformAdapter {
     // Register beforeCreate hook to stop streams before interaction
     const interactionService = services.getInteractionService();
     interactionService.setBeforeCreateHook(
-      async (userId: string, threadId: string) => {
-        logger.info({ userId, threadId }, "Stopping stream before interaction");
+      async (userId: string, conversationId: string) => {
+        logger.info(
+          { userId, conversationId },
+          "Stopping stream before interaction"
+        );
         // WhatsApp doesn't have streaming, so this is a no-op
       }
     );
@@ -224,7 +227,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
    * Build platform-specific deployment metadata.
    */
   buildDeploymentMetadata(
-    threadId: string,
+    conversationId: string,
     channelId: string,
     platformMetadata: Record<string, any>
   ): Record<string, string> {
@@ -234,7 +237,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
     return {
       chat_id: jid,
       phone_number: e164,
-      thread_id: threadId,
+      conversation_id: conversationId,
       is_group: String(platformMetadata?.isGroup || false),
     };
   }
@@ -264,7 +267,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
    */
   async setThreadStatus(
     channelId: string,
-    _threadId: string, // Not used for WhatsApp
+    _conversationId: string, // Not used for WhatsApp
     status: string | null
   ): Promise<void> {
     if (status && this.client) {
@@ -296,7 +299,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
     options: {
       agentId: string;
       channelId: string;
-      threadId: string;
+      conversationId?: string;
       teamId: string;
       files?: Array<{ buffer: Buffer; filename: string }>;
     }
@@ -400,7 +403,6 @@ export class WhatsAppPlatform implements PlatformAdapter {
       const payload = {
         userId: phoneUserId,
         conversationId: space.agentId, // Use resolved space as conversation identifier
-        threadId: space.agentId, // Legacy alias
         messageId,
         channelId: resolvedChannel,
         teamId: "whatsapp",
@@ -489,7 +491,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
    */
   extractRoutingInfo(body: Record<string, unknown>): {
     channelId: string;
-    threadId: string;
+    conversationId: string;
     teamId?: string;
   } | null {
     const whatsapp = body.whatsapp as { chat?: string } | undefined;
@@ -497,7 +499,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
 
     return {
       channelId: whatsapp.chat,
-      threadId: "",
+      conversationId: whatsapp.chat,
     };
   }
 
@@ -507,7 +509,7 @@ export class WhatsAppPlatform implements PlatformAdapter {
    */
   async getConversationHistory(
     channelId: string,
-    _threadId: string | undefined,
+    _conversationId: string | undefined,
     limit: number,
     before: string | undefined
   ): Promise<{

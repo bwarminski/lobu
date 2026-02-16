@@ -106,13 +106,13 @@ export interface PlatformAdapter {
    * Build platform-specific deployment metadata
    * This metadata is used for deployment annotations (e.g., thread URLs, team IDs)
    *
-   * @param threadId - The thread identifier
+   * @param conversationId - The conversation identifier
    * @param channelId - The channel identifier
    * @param platformMetadata - Platform-specific metadata from the queue payload
    * @returns Record of metadata key-value pairs for deployment annotations
    */
   buildDeploymentMetadata(
-    threadId: string,
+    conversationId: string,
     channelId: string,
     platformMetadata: Record<string, any>
   ): Record<string, string>;
@@ -134,17 +134,17 @@ export interface PlatformAdapter {
   renderSuggestion?(suggestion: UserSuggestion): Promise<void>;
 
   /**
-   * Set thread status indicator
+   * Set conversation status indicator
    * Used to show "is running...", "Waiting for approval...", etc.
    * Pass null/undefined to clear the status
    *
    * @param channelId - Channel identifier
-   * @param threadId - Thread identifier
+   * @param conversationId - Conversation identifier
    * @param status - Status message to display, or null to clear
    */
   setThreadStatus?(
     channelId: string,
-    threadId: string,
+    conversationId: string,
     status: string | null
   ): Promise<void>;
 
@@ -166,7 +166,7 @@ export interface PlatformAdapter {
    * @param options - Routing and file options
    * @param options.agentId - Universal session identifier
    * @param options.channelId - Platform-specific channel (or agentId for API)
-   * @param options.threadId - Platform-specific thread (or agentId for API)
+   * @param options.conversationId - Platform-specific conversation (or agentId for API)
    * @param options.teamId - Platform-specific team/workspace
    * @param options.files - Files to upload with the message (up to 10)
    * @returns Message metadata
@@ -177,7 +177,7 @@ export interface PlatformAdapter {
     options: {
       agentId: string;
       channelId: string;
-      threadId: string;
+      conversationId?: string;
       teamId: string;
       files?: Array<{ buffer: Buffer; filename: string }>;
     }
@@ -249,7 +249,7 @@ export interface PlatformAdapter {
    */
   extractRoutingInfo?(body: Record<string, unknown>): {
     channelId: string;
-    threadId: string;
+    conversationId?: string;
     teamId?: string;
   } | null;
 
@@ -258,14 +258,14 @@ export interface PlatformAdapter {
    * Used by the GetChannelHistory tool to fetch past messages.
    *
    * @param channelId - Channel/chat identifier
-   * @param threadId - Thread identifier (optional)
+   * @param conversationId - Conversation identifier (optional)
    * @param limit - Maximum number of messages to return
    * @param before - ISO timestamp cursor for pagination
    * @returns History response with messages and pagination info
    */
   getConversationHistory?(
     channelId: string,
-    threadId: string | undefined,
+    conversationId: string | undefined,
     limit: number,
     before: string | undefined
   ): Promise<{

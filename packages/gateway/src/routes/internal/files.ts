@@ -52,7 +52,7 @@ export function createFileRoutes(
       }
 
       logger.info(
-        `Worker downloading file ${fileId} for thread ${worker.threadId}`
+        `Worker downloading file ${fileId} for conversation ${worker.conversationId}`
       );
 
       // Each platform's file handler manages its own authentication internally
@@ -91,11 +91,11 @@ export function createFileRoutes(
     try {
       const worker = c.get("worker");
       const channelId = c.req.header("x-channel-id");
-      const threadId = c.req.header("x-thread-id");
+      const conversationId = c.req.header("x-conversation-id");
       const voiceMessage = c.req.header("x-voice-message") === "true";
 
-      if (!channelId || !threadId) {
-        return c.json({ error: "Missing channel or thread ID" }, 400);
+      if (!channelId || !conversationId) {
+        return c.json({ error: "Missing channel or conversation ID" }, 400);
       }
 
       const formData = await c.req.formData();
@@ -109,7 +109,7 @@ export function createFileRoutes(
       const initialComment = formData.get("comment") as string | null;
 
       logger.info(
-        `Worker uploading file ${filename} for thread ${worker.threadId} to thread ${threadId}${voiceMessage ? " as voice message" : ""}`
+        `Worker uploading file ${filename} for conversation ${worker.conversationId} to conversation ${conversationId}${voiceMessage ? " as voice message" : ""}`
       );
 
       const arrayBuffer = await file.arrayBuffer();
@@ -118,7 +118,7 @@ export function createFileRoutes(
       const result = await fileHandler.uploadFile(fileStream, {
         filename,
         channelId,
-        threadTs: threadId,
+        threadTs: conversationId,
         initialComment: initialComment || undefined,
         voiceMessage,
       });
@@ -146,10 +146,10 @@ export function createFileRoutes(
     try {
       const worker = c.get("worker");
       const channelId = c.req.header("x-channel-id");
-      const threadId = c.req.header("x-thread-id");
+      const conversationId = c.req.header("x-conversation-id");
 
-      if (!channelId || !threadId) {
-        return c.json({ error: "Missing channel or thread ID" }, 400);
+      if (!channelId || !conversationId) {
+        return c.json({ error: "Missing channel or conversation ID" }, 400);
       }
 
       const formData = await c.req.formData();
@@ -160,7 +160,7 @@ export function createFileRoutes(
       }
 
       logger.info(
-        `Worker uploading ${fileEntries.length} files for thread ${worker.threadId}`
+        `Worker uploading ${fileEntries.length} files for conversation ${worker.conversationId}`
       );
 
       const uploadPromises = fileEntries.map(async (entry, index) => {
@@ -175,7 +175,7 @@ export function createFileRoutes(
         return fileHandler.uploadFile(fileStream, {
           filename,
           channelId,
-          threadTs: threadId,
+          threadTs: conversationId,
         });
       });
 

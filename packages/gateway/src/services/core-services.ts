@@ -289,19 +289,17 @@ export class CoreServices {
     logger.info("✅ Token refresh job started");
 
     // Register Claude OAuth module
-    const systemTokenAvailable = !!this.config.anthropicProxy.anthropicApiKey;
     this.claudeOAuthStateStore = createClaudeOAuthStateStore(redisClient);
     this.claudeOAuthModule = new ClaudeOAuthModule(
       this.claudeCredentialStore,
       this.claudeOAuthStateStore,
       this.claudeModelPreferenceStore,
       this.queue,
-      this.config.mcp.publicGatewayUrl,
-      systemTokenAvailable
+      this.config.mcp.publicGatewayUrl
     );
     moduleRegistry.register(this.claudeOAuthModule);
     logger.info(
-      `✅ Claude OAuth module registered (system token: ${systemTokenAvailable ? "available" : "not available"})`
+      `✅ Claude OAuth module registered (system token: ${this.claudeOAuthModule.hasSystemKey() ? "available" : "not available"})`
     );
   }
 

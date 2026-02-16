@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createLogger, ErrorCode, OrchestratorError } from "@lobu/core";
 import Docker from "dockerode";
+import type { ModelProviderModule } from "@lobu/core";
 import {
   BaseDeploymentManager,
   type DeploymentInfo,
@@ -25,9 +26,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
   constructor(
     config: OrchestratorConfig,
-    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder
+    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder,
+    providerModules: ModelProviderModule[] = []
   ) {
-    super(config, moduleEnvVarsBuilder);
+    super(config, moduleEnvVarsBuilder, providerModules);
 
     // Explicitly use the Unix socket for Docker connection
     this.docker = new Docker({ socketPath: "/var/run/docker.sock" });
@@ -275,13 +277,10 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
       // Environment variables from base class already include:
       // HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE_ENV, DEBUG
-      const envVars = [
-        `ANTHROPIC_API_KEY=${username}:`,
-        // Convert common environment variables to Docker format
-        ...Object.entries(commonEnvVars).map(
-          ([key, value]) => `${key}=${value}`
-        ),
-      ];
+      // Provider credentials are injected via provider modules in generateEnvironmentVariables()
+      const envVars = Object.entries(commonEnvVars).map(
+        ([key, value]) => `${key}=${value}`
+      );
 
       // Get the Docker Compose project name from environment or use default
       const composeProjectName = process.env.COMPOSE_PROJECT_NAME || "lobu";

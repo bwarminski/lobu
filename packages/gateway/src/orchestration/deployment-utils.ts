@@ -110,7 +110,7 @@ export function resolvePlatformDeploymentMetadata(
   if (
     !messageData?.platform ||
     !messageData.channelId ||
-    !messageData.threadId ||
+    !messageData.conversationId ||
     !messageData.platformMetadata
   ) {
     return {};
@@ -122,7 +122,7 @@ export function resolvePlatformDeploymentMetadata(
   }
 
   return platform.buildDeploymentMetadata(
-    messageData.threadId,
+    messageData.conversationId,
     messageData.channelId,
     messageData.platformMetadata
   );

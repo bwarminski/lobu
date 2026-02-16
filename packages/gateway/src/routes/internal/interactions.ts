@@ -10,7 +10,7 @@ type WorkerContext = {
   Variables: {
     worker: {
       userId: string;
-      threadId: string;
+      conversationId: string;
       channelId: string;
       teamId: string;
     };
@@ -50,7 +50,7 @@ export function createInteractionRoutes(
     async (c) => {
       try {
         const worker = c.get("worker");
-        const { userId, threadId, channelId, teamId } = worker;
+        const { userId, conversationId, channelId, teamId } = worker;
         const { interactionType, question, options, metadata } =
           await c.req.json();
 
@@ -59,12 +59,12 @@ export function createInteractionRoutes(
         }
 
         logger.info(
-          `Creating ${interactionType} interaction for thread ${threadId}`
+          `Creating ${interactionType} interaction for conversation ${conversationId}`
         );
 
         const interaction = await interactionService.createInteraction(
           userId,
-          threadId,
+          conversationId,
           channelId,
           teamId,
           {
@@ -90,16 +90,16 @@ export function createInteractionRoutes(
   router.post("/internal/suggestions/create", authenticateWorker, async (c) => {
     try {
       const worker = c.get("worker");
-      const { userId, threadId, channelId, teamId } = worker;
+      const { userId, conversationId, channelId, teamId } = worker;
       const { prompts } = await c.req.json();
 
       logger.info(
-        `Sending suggestions to thread ${threadId} (${prompts.length} prompts)`
+        `Sending suggestions to conversation ${conversationId} (${prompts.length} prompts)`
       );
 
       await interactionService.createSuggestion(
         userId,
-        threadId,
+        conversationId,
         channelId,
         teamId,
         prompts

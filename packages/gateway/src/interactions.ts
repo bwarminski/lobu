@@ -22,7 +22,7 @@ const logger = createLogger("interactions");
 export class InteractionService extends EventEmitter {
   private beforeCreateHook?: (
     userId: string,
-    threadId: string
+    conversationId: string
   ) => Promise<void>;
 
   constructor(private redis: Redis) {
@@ -34,7 +34,7 @@ export class InteractionService extends EventEmitter {
    * Used by platforms to stop streams before interaction messages appear
    */
   setBeforeCreateHook(
-    hook: (userId: string, threadId: string) => Promise<void>
+    hook: (userId: string, conversationId: string) => Promise<void>
   ): void {
     this.beforeCreateHook = hook;
   }
@@ -45,7 +45,7 @@ export class InteractionService extends EventEmitter {
    */
   async createInteraction(
     userId: string,
-    threadId: string,
+    conversationId: string,
     channelId: string,
     teamId: string | undefined,
     data: {
@@ -57,15 +57,16 @@ export class InteractionService extends EventEmitter {
   ): Promise<UserInteraction> {
     // Call beforeCreate hook (e.g., stop streams) BEFORE creating interaction
     if (this.beforeCreateHook) {
-      logger.info(`Running beforeCreate hook for thread ${threadId}`);
-      await this.beforeCreateHook(userId, threadId);
+      logger.info(
+        `Running beforeCreate hook for conversation ${conversationId}`
+      );
+      await this.beforeCreateHook(userId, conversationId);
     }
 
     const interaction: UserInteraction = {
       id: `ui_${randomUUID()}`,
       userId,
-      conversationId: threadId,
-      threadId,
+      conversationId,
       channelId,
       teamId,
       blocking: true,
@@ -88,12 +89,12 @@ export class InteractionService extends EventEmitter {
     );
 
     // Track pending interactions for this session
-    const pendingKey = `interaction:pending:${threadId}`;
+    const pendingKey = `interaction:pending:${conversationId}`;
     await this.redis.sadd(pendingKey, interaction.id);
     await this.redis.expire(pendingKey, TIME.THREE_HOURS_SECONDS);
 
     // Mark thread as having an active interaction (blocks heartbeat deltas)
-    const activeKey = `interaction:active:${threadId}`;
+    const activeKey = `interaction:active:${conversationId}`;
     await this.redis.set(
       activeKey,
       interaction.id,
@@ -101,7 +102,9 @@ export class InteractionService extends EventEmitter {
       TIME.THREE_HOURS_SECONDS
     );
 
-    logger.info(`Created interaction ${interaction.id} for thread ${threadId}`);
+    logger.info(
+      `Created interaction ${interaction.id} for conversation ${conversationId}`
+    );
 
     // Emit event for platform to render (stream already stopped)
     this.emit("interaction:created", interaction);
@@ -132,7 +135,7 @@ export class InteractionService extends EventEmitter {
    */
   async createSuggestion(
     userId: string,
-    threadId: string,
+    conversationId: string,
     channelId: string,
     teamId: string | undefined,
     prompts: Array<{ title: string; message: string }>
@@ -140,15 +143,16 @@ export class InteractionService extends EventEmitter {
     const suggestion: UserSuggestion = {
       id: `sug_${randomUUID()}`,
       userId,
-      conversationId: threadId,
-      threadId,
+      conversationId,
       channelId,
       teamId,
       blocking: false,
       prompts,
     };
 
-    logger.info(`Created suggestion ${suggestion.id} for thread ${threadId}`);
+    logger.info(
+      `Created suggestion ${suggestion.id} for conversation ${conversationId}`
+    );
 
     // Emit event for platform to render (no storage needed)
     this.emit("suggestion:created", suggestion);
@@ -216,8 +220,8 @@ export class InteractionService extends EventEmitter {
   /**
    * Get pending interactions for a thread (for restart recovery)
    */
-  async getPendingInteractions(threadId: string): Promise<string[]> {
-    const pendingKey = `interaction:pending:${threadId}`;
+  async getPendingInteractions(conversationId: string): Promise<string[]> {
+    const pendingKey = `interaction:pending:${conversationId}`;
     return await this.redis.smembers(pendingKey);
   }
 
@@ -243,15 +247,15 @@ export class InteractionService extends EventEmitter {
    * handled separately via SSE reconnection (see WorkerGateway.sendPendingInteractionResponses).
    *
    * Storage model:
-   * - interaction:pending:{threadId} - SET of unanswered interaction IDs
+   * - interaction:pending:{conversationId} - SET of unanswered interaction IDs
    * - interaction:{id} - Full interaction objects (3h TTL)
-   * - interaction:response:{threadId}:{id} - Failed response deliveries (1h TTL, separate flow)
+   * - interaction:response:{conversationId}:{id} - Failed response deliveries (1h TTL, separate flow)
    */
   async getPendingUnansweredInteractions(
-    threadId: string
+    conversationId: string
   ): Promise<PendingInteraction[]> {
     try {
-      const pendingIds = await this.getPendingInteractions(threadId);
+      const pendingIds = await this.getPendingInteractions(conversationId);
 
       if (pendingIds.length === 0) {
         return [];
@@ -273,7 +277,7 @@ export class InteractionService extends EventEmitter {
         }));
     } catch (error) {
       logger.error(
-        `Failed to get pending unanswered interactions for thread ${threadId}:`,
+        `Failed to get pending unanswered interactions for conversation ${conversationId}:`,
         error
       );
       return []; // Graceful degradation - return empty array on error

@@ -4,6 +4,7 @@ import {
   ErrorCode,
   extractTraceId,
   generateWorkerToken,
+  type ModelProviderModule,
   OrchestratorError,
 } from "@lobu/core";
 import type Redis from "ioredis";
@@ -96,16 +97,14 @@ export interface DeploymentInfo {
   isVeryOld: boolean;
 }
 
-/** Env var names that are always treated as secrets and get placeholder treatment. */
-const SECRET_ENV_VARS = new Set([
-  "ANTHROPIC_API_KEY",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-  "OPENAI_API_KEY",
-]);
-
 /** Check if an env var name looks like a secret (API key / token / secret / password). */
-function isSecretEnvVar(name: string): boolean {
-  if (SECRET_ENV_VARS.has(name)) return true;
+function isSecretEnvVar(
+  name: string,
+  providerModules: ModelProviderModule[]
+): boolean {
+  for (const provider of providerModules) {
+    if (provider.getSecretEnvVarNames().includes(name)) return true;
+  }
   const upper = name.toUpperCase();
   return (
     upper.includes("_KEY") ||
@@ -118,14 +117,17 @@ function isSecretEnvVar(name: string): boolean {
 export abstract class BaseDeploymentManager {
   protected config: OrchestratorConfig;
   protected moduleEnvVarsBuilder?: ModuleEnvVarsBuilder;
+  protected providerModules: ModelProviderModule[];
   protected redisClient?: Redis;
 
   constructor(
     config: OrchestratorConfig,
-    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder
+    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder,
+    providerModules: ModelProviderModule[] = []
   ) {
     this.config = config;
     this.moduleEnvVarsBuilder = moduleEnvVarsBuilder;
+    this.providerModules = providerModules;
   }
 
   /**
@@ -256,9 +258,8 @@ export abstract class BaseDeploymentManager {
       );
     }
 
-    const { conversationId, threadId, channelId, platformMetadata } =
-      messageData as any;
-    const effectiveConversationId = conversationId || threadId;
+    const { conversationId, channelId, platformMetadata } = messageData as any;
+    const effectiveConversationId = conversationId;
 
     if (!effectiveConversationId || !channelId) {
       throw new OrchestratorError(
@@ -371,7 +372,6 @@ export abstract class BaseDeploymentManager {
       LOG_LEVEL: "info",
       WORKSPACE_DIR: "/workspace",
       CONVERSATION_ID: effectiveConversationId,
-      THREAD_ID: effectiveConversationId,
       // Worker authentication and communication
       WORKER_TOKEN: workerToken,
       DISPATCHER_URL: this.getDispatcherUrl(),
@@ -450,19 +450,16 @@ export abstract class BaseDeploymentManager {
       );
     }
 
-    // Inject system ANTHROPIC_API_KEY if not already set by modules/user
-    if (!envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
-      const systemKey = process.env.ANTHROPIC_API_KEY;
-      if (systemKey) {
-        envVars.ANTHROPIC_API_KEY = systemKey;
-      }
+    // Inject system key fallback from registered model provider modules
+    for (const provider of this.providerModules) {
+      envVars = provider.injectSystemKeyFallback(envVars);
     }
 
     // Replace secret env vars with placeholders and point SDK at the proxy
     if (this.redisClient) {
       let hasSecrets = false;
       for (const [key, value] of Object.entries(envVars)) {
-        if (!value || !isSecretEnvVar(key)) continue;
+        if (!value || !isSecretEnvVar(key, this.providerModules)) continue;
         // Skip system env vars that should not be swapped
         if (key === "WORKER_TOKEN") continue;
         try {
@@ -481,8 +478,11 @@ export abstract class BaseDeploymentManager {
       }
 
       if (hasSecrets) {
-        // Point the Claude SDK at the secret proxy instead of directly at Anthropic
-        envVars.ANTHROPIC_BASE_URL = `${this.getDispatcherUrl()}/api/proxy`;
+        // Point provider SDKs at the secret proxy instead of directly at provider APIs
+        const proxyUrl = `${this.getDispatcherUrl()}/api/proxy`;
+        for (const provider of this.providerModules) {
+          Object.assign(envVars, provider.getProxyBaseUrlMappings(proxyUrl));
+        }
         logger.info(
           `🔐 Generated secret placeholders for ${deploymentName}, routing through proxy`
         );

@@ -37,7 +37,7 @@ export class HttpWorkerTransport implements WorkerTransport {
     this.workerToken = config.workerToken;
     this.userId = config.userId;
     this.channelId = config.channelId;
-    this.conversationId = config.conversationId || config.threadId || "";
+    this.conversationId = config.conversationId;
     this.originalMessageTs = config.originalMessageTs;
     this.botResponseTs = config.botResponseTs;
     this.teamId = config.teamId;
@@ -135,7 +135,6 @@ export class HttpWorkerTransport implements WorkerTransport {
       messageId: this.originalMessageTs,
       channelId: this.channelId,
       conversationId: this.conversationId,
-      threadId: this.conversationId,
       userId: this.userId,
       teamId: this.teamId,
       delta: actualDelta,
@@ -152,7 +151,6 @@ export class HttpWorkerTransport implements WorkerTransport {
       messageId: this.originalMessageTs,
       channelId: this.channelId,
       conversationId: this.conversationId,
-      threadId: this.conversationId,
       userId: this.userId,
       teamId: this.teamId,
       timestamp: Date.now(),
@@ -168,7 +166,6 @@ export class HttpWorkerTransport implements WorkerTransport {
       messageId: this.originalMessageTs,
       channelId: this.channelId,
       conversationId: this.conversationId,
-      threadId: this.conversationId,
       userId: this.userId,
       teamId: this.teamId,
       error: error.message,
@@ -183,7 +180,6 @@ export class HttpWorkerTransport implements WorkerTransport {
       messageId: this.originalMessageTs,
       channelId: this.channelId,
       conversationId: this.conversationId,
-      threadId: this.conversationId,
       userId: this.userId,
       teamId: this.teamId,
       timestamp: Date.now(),
@@ -207,7 +203,6 @@ export class HttpWorkerTransport implements WorkerTransport {
       messageId: this.originalMessageTs,
       channelId: this.channelId,
       conversationId: this.conversationId,
-      threadId: this.conversationId,
       userId: this.userId,
       teamId: this.teamId,
       timestamp: Date.now(),

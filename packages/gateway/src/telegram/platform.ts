@@ -91,8 +91,11 @@ export class TelegramPlatform implements PlatformAdapter {
     // Register beforeCreate hook
     const interactionService = services.getInteractionService();
     interactionService.setBeforeCreateHook(
-      async (userId: string, threadId: string) => {
-        logger.info({ userId, threadId }, "Stopping stream before interaction");
+      async (userId: string, conversationId: string) => {
+        logger.info(
+          { userId, conversationId },
+          "Stopping stream before interaction"
+        );
         // Telegram edit-based streaming - no-op needed, the interaction will just appear
       }
     );
@@ -192,13 +195,13 @@ export class TelegramPlatform implements PlatformAdapter {
   }
 
   buildDeploymentMetadata(
-    threadId: string,
+    conversationId: string,
     channelId: string,
     platformMetadata: Record<string, any>
   ): Record<string, string> {
     return {
       chat_id: String(platformMetadata?.chatId || channelId),
-      thread_id: threadId,
+      conversation_id: conversationId,
       is_group: String(platformMetadata?.isGroup || false),
     };
   }
@@ -217,7 +220,7 @@ export class TelegramPlatform implements PlatformAdapter {
 
   async setThreadStatus(
     channelId: string,
-    _threadId: string,
+    _conversationId: string,
     status: string | null
   ): Promise<void> {
     if (status && this.bot) {
@@ -239,7 +242,7 @@ export class TelegramPlatform implements PlatformAdapter {
     options: {
       agentId: string;
       channelId: string;
-      threadId: string;
+      conversationId?: string;
       teamId: string;
       files?: Array<{ buffer: Buffer; filename: string }>;
     }
@@ -275,7 +278,7 @@ export class TelegramPlatform implements PlatformAdapter {
 
   extractRoutingInfo(body: Record<string, unknown>): {
     channelId: string;
-    threadId: string;
+    conversationId: string;
     teamId?: string;
   } | null {
     const telegram = body.telegram as { chatId?: string | number } | undefined;
@@ -283,13 +286,13 @@ export class TelegramPlatform implements PlatformAdapter {
 
     return {
       channelId: String(telegram.chatId),
-      threadId: "",
+      conversationId: String(telegram.chatId),
     };
   }
 
   async getConversationHistory(
     channelId: string,
-    _threadId: string | undefined,
+    _conversationId: string | undefined,
     limit: number,
     before: string | undefined
   ): Promise<{

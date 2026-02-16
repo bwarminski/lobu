@@ -6,11 +6,12 @@ import {
   extractTraceId,
   generateTraceId,
   getTraceparent,
+  type ModelProviderModule,
+  moduleRegistry,
   OrchestratorError,
   retryWithBackoff,
   SpanStatusCode,
 } from "@lobu/core";
-import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { platformAuthRegistry } from "../auth/platform-auth";
 import type {
   IMessageQueue,
@@ -32,20 +33,16 @@ export class MessageConsumer {
   private deploymentManager: BaseDeploymentManager;
   private config: OrchestratorConfig;
   private isRunning = false;
-  private credentialStore?: ClaudeCredentialStore;
-  private systemApiKey?: string;
+  private providerModules: ModelProviderModule[];
   private systemMessageLimiter?: SystemMessageLimiter;
 
   constructor(
     config: OrchestratorConfig,
-    deploymentManager: BaseDeploymentManager,
-    credentialStore?: ClaudeCredentialStore,
-    systemApiKey?: string
+    deploymentManager: BaseDeploymentManager
   ) {
     this.config = config;
     this.deploymentManager = deploymentManager;
-    this.credentialStore = credentialStore;
-    this.systemApiKey = systemApiKey;
+    this.providerModules = moduleRegistry.getModelProviderModules();
 
     // Parse Redis connection string
     const url = new URL(config.queues.connectionString);
@@ -148,7 +145,7 @@ export class MessageConsumer {
       "lobu.trace_id": traceId,
       "lobu.job_id": jobId,
       "lobu.user_id": data?.userId || "unknown",
-      "lobu.thread_id": data?.threadId || "unknown",
+      "lobu.conversation_id": data?.conversationId || "unknown",
     });
 
     // Get traceparent to pass to worker (for further context propagation)
@@ -160,22 +157,32 @@ export class MessageConsumer {
         traceId,
         jobId,
         userId: data?.userId,
-        conversationId: (data as any)?.conversationId || data?.threadId,
+        conversationId: data?.conversationId,
       },
       "Processing job with trace context"
     );
 
     try {
-      // Check if agent has credentials or if system API key is available
-      // Credentials are stored by agentId (space-level), not userId
-      if (this.credentialStore && !this.systemApiKey) {
-        const hasCredentials = await this.credentialStore.hasCredentials(
-          data.agentId
+      // CRITICAL: For consistent worker naming, conversationId must be the root conversation ID
+      // (e.g., Slack thread root ts), not individual message timestamps.
+      const effectiveConversationId = data.conversationId;
+      if (!effectiveConversationId) {
+        throw new OrchestratorError(
+          ErrorCode.QUEUE_JOB_PROCESSING_FAILED,
+          "conversationId is required for message routing",
+          { messageId: data.messageId, userId: data.userId },
+          true
         );
+      }
 
-        if (!hasCredentials) {
+      // Check if any provider has credentials (system key or per-agent)
+      // Only gate if there are registered providers to check
+      if (this.providerModules.length > 0) {
+        const hasAnyAuth = await this.hasAnyProviderAuth(data.agentId);
+
+        if (!hasAnyAuth) {
           logger.info(
-            `Agent ${data.agentId} has no credentials - sending authentication prompt`
+            `Agent ${data.agentId} has no credentials for any provider - sending authentication prompt`
           );
 
           // Prevent resending the same setup/auth prompt in tight loops.
@@ -208,6 +215,11 @@ export class MessageConsumer {
             didSend = await this.getSystemMessageLimiter().sendOnce(
               dedupeKey,
               async () => {
+                // Build list of unauthenticated providers
+                const unauthProviders = await this.getUnauthenticatedProviders(
+                  data.agentId
+                );
+
                 // Use platform auth adapter if available
                 const authAdapter = platformAuthRegistry.get(data.platform);
                 if (authAdapter) {
@@ -216,7 +228,7 @@ export class MessageConsumer {
                     data.userId,
                     data.channelId,
                     data.conversationId,
-                    [{ id: "claude", name: "Claude" }],
+                    unauthProviders,
                     data.platformMetadata
                   );
                   logger.info(
@@ -233,7 +245,6 @@ export class MessageConsumer {
                   userId: data.userId,
                   channelId: data.channelId,
                   conversationId: effectiveConversationId,
-                  threadId: (data as any).threadId,
                   platform: data.platform,
                   platformMetadata: data.platformMetadata,
                   ephemeral: true,
@@ -308,18 +319,6 @@ export class MessageConsumer {
         }
       }
 
-      // CRITICAL: For consistent worker naming, conversationId must be the root conversation ID
-      // (e.g., Slack thread root ts), not individual message timestamps.
-      const effectiveConversationId = data.conversationId ?? data.threadId;
-      if (!effectiveConversationId) {
-        throw new OrchestratorError(
-          ErrorCode.QUEUE_JOB_PROCESSING_FAILED,
-          "conversationId is required for message routing",
-          { messageId: data.messageId, userId: data.userId },
-          true
-        );
-      }
-
       const deploymentName = generateDeploymentName(
         data.userId,
         effectiveConversationId
@@ -366,7 +365,6 @@ export class MessageConsumer {
             deploymentName,
             userId: data.userId,
             conversationId: effectiveConversationId,
-            threadId: (data as any).threadId,
           },
           level: "error",
         });
@@ -379,7 +377,6 @@ export class MessageConsumer {
             deploymentName,
             userId: data.userId,
             conversationId: effectiveConversationId,
-            threadId: (data as any).threadId,
           },
           "Critical: Background worker creation failed. Messages are queued but worker unavailable."
         );
@@ -447,7 +444,7 @@ export class MessageConsumer {
       }
 
       logger.info(
-        `✅ Sent message to thread queue ${threadQueueName} for conversation ${data.conversationId || data.threadId}, jobId: ${jobId}`
+        `✅ Sent message to thread queue ${threadQueueName} for conversation ${data.conversationId}, jobId: ${jobId}`
       );
     } catch (error) {
       logger.error(`❌ [ERROR] sendToWorkerQueue failed:`, error);
@@ -558,8 +555,7 @@ export class MessageConsumer {
       const failureData = {
         deploymentName,
         userId: data.userId,
-        conversationId: data.conversationId || data.threadId,
-        threadId: data.threadId || data.conversationId,
+        conversationId: data.conversationId,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString(),
@@ -582,6 +578,38 @@ export class MessageConsumer {
       // Don't fail the main flow if tracking fails
       logger.error("Failed to track deployment failure:", trackError);
     }
+  }
+
+  /**
+   * Check if any registered model provider has auth (system key or per-agent credentials)
+   */
+  private async hasAnyProviderAuth(agentId: string): Promise<boolean> {
+    for (const provider of this.providerModules) {
+      if (provider.hasSystemKey()) return true;
+      if (await provider.hasCredentials(agentId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Get list of providers that have no auth for the given agent
+   */
+  private async getUnauthenticatedProviders(
+    agentId: string
+  ): Promise<Array<{ id: string; name: string }>> {
+    const unauthProviders: Array<{ id: string; name: string }> = [];
+    for (const provider of this.providerModules) {
+      if (
+        !provider.hasSystemKey() &&
+        !(await provider.hasCredentials(agentId))
+      ) {
+        unauthProviders.push({
+          id: provider.providerId,
+          name: provider.providerDisplayName,
+        });
+      }
+    }
+    return unauthProviders;
   }
 
   /**

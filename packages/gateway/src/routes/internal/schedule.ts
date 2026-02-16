@@ -15,7 +15,7 @@ type WorkerContext = {
   Variables: {
     worker: {
       userId: string;
-      threadId: string;
+      conversationId: string;
       channelId: string;
       teamId?: string;
       agentId?: string;
@@ -130,7 +130,7 @@ export function createScheduleRoutes(
 
       const schedule = await scheduledWakeupService.schedule({
         deploymentName: worker.deploymentName,
-        threadId: worker.threadId,
+        conversationId: worker.conversationId,
         channelId: worker.channelId,
         userId: worker.userId,
         agentId: worker.agentId || worker.channelId, // Fallback to channelId if no agentId

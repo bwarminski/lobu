@@ -16,12 +16,11 @@ export function createCustomToolsServer(
   gatewayUrl: string,
   workerToken: string,
   channelId: string,
-  threadId: string,
+  conversationId: string,
   interactionClient?: InteractionClient,
-  options?: { platform?: string; historyEnabled?: boolean }
+  options?: { platform?: string }
 ) {
   const platform = options?.platform || "slack";
-  const historyEnabled = options?.historyEnabled ?? false;
   const tools: any[] = [
     tool(
       "UploadUserFile",
@@ -123,7 +122,7 @@ export function createCustomToolsServer(
             headers: {
               Authorization: `Bearer ${workerToken}`,
               "X-Channel-Id": channelId,
-              "X-Thread-Id": threadId,
+              "X-Conversation-Id": conversationId,
               ...headers,
               "Content-Length": formDataBuffer.length.toString(),
             },
@@ -895,7 +894,7 @@ export function createCustomToolsServer(
                 headers: {
                   Authorization: `Bearer ${workerToken}`,
                   "X-Channel-Id": channelId,
-                  "X-Thread-Id": threadId,
+                  "X-Conversation-Id": conversationId,
                   "X-Voice-Message": "true",
                   ...headers,
                   "Content-Length": formDataBuffer.length.toString(),
@@ -948,138 +947,136 @@ export function createCustomToolsServer(
     )
   );
 
-  // Add GetChannelHistory tool if history is enabled
-  if (historyEnabled) {
-    tools.push(
-      tool(
-        "GetChannelHistory",
-        "Fetch previous messages from this conversation thread. Use when the user references past discussions, asks 'what did we talk about', or you need context. Returns messages in reverse chronological order (newest first).",
-        {
-          limit: z
-            .number()
-            .optional()
-            .describe("Number of messages to fetch (default 50, max 100)"),
-          before: z
-            .string()
-            .optional()
-            .describe(
-              "ISO timestamp cursor - fetch messages before this time (for pagination)"
-            ),
-        } as const,
-        async (args) => {
-          try {
-            const limit = Math.min(Math.max(args.limit || 50, 1), 100);
-            logger.info(
-              `GetChannelHistory: limit=${limit}, before=${args.before || "none"}`
+  // GetChannelHistory - always available for conversation context
+  tools.push(
+    tool(
+      "GetChannelHistory",
+      "Fetch previous messages from this conversation thread. Use when the user references past discussions, asks 'what did we talk about', or you need context. Returns messages in reverse chronological order (newest first).",
+      {
+        limit: z
+          .number()
+          .optional()
+          .describe("Number of messages to fetch (default 50, max 100)"),
+        before: z
+          .string()
+          .optional()
+          .describe(
+            "ISO timestamp cursor - fetch messages before this time (for pagination)"
+          ),
+      } as const,
+      async (args) => {
+        try {
+          const limit = Math.min(Math.max(args.limit || 50, 1), 100);
+          logger.info(
+            `GetChannelHistory: limit=${limit}, before=${args.before || "none"}`
+          );
+
+          const params = new URLSearchParams({
+            platform,
+            channelId,
+            conversationId,
+            limit: String(limit),
+          });
+
+          if (args.before) {
+            params.set("before", args.before);
+          }
+
+          const response = await fetch(
+            `${gatewayUrl}/internal/history?${params}`,
+            {
+              headers: {
+                Authorization: `Bearer ${workerToken}`,
+              },
+            }
+          );
+
+          if (!response.ok) {
+            const error = await response.text();
+            logger.error(
+              `Failed to fetch history: ${response.status} - ${error}`
             );
-
-            const params = new URLSearchParams({
-              platform,
-              channelId,
-              threadId,
-              limit: String(limit),
-            });
-
-            if (args.before) {
-              params.set("before", args.before);
-            }
-
-            const response = await fetch(
-              `${gatewayUrl}/internal/history?${params}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${workerToken}`,
-                },
-              }
-            );
-
-            if (!response.ok) {
-              const error = await response.text();
-              logger.error(
-                `Failed to fetch history: ${response.status} - ${error}`
-              );
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `Error: Failed to fetch channel history: ${response.status} - ${error}`,
-                  },
-                ],
-              };
-            }
-
-            const data = (await response.json()) as {
-              messages: Array<{
-                timestamp: string;
-                user: string;
-                text: string;
-                isBot?: boolean;
-              }>;
-              nextCursor: string | null;
-              hasMore: boolean;
-              note?: string;
-            };
-
-            if (data.note) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: data.note,
-                  },
-                ],
-              };
-            }
-
-            if (data.messages.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: "No messages found in channel history.",
-                  },
-                ],
-              };
-            }
-
-            // Format messages for display
-            const formatted = data.messages
-              .map((msg) => {
-                const time = new Date(msg.timestamp).toLocaleString();
-                const sender = msg.isBot ? `[Bot] ${msg.user}` : msg.user;
-                return `[${time}] ${sender}: ${msg.text}`;
-              })
-              .join("\n\n");
-
-            let result = `Found ${data.messages.length} messages:\n\n${formatted}`;
-
-            if (data.hasMore && data.nextCursor) {
-              result += `\n\n---\nMore messages available. Use before="${data.nextCursor}" to fetch older messages.`;
-            }
-
             return {
               content: [
                 {
                   type: "text",
-                  text: result,
-                },
-              ],
-            };
-          } catch (error) {
-            logger.error("GetChannelHistory error:", error);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                  text: `Error: Failed to fetch channel history: ${response.status} - ${error}`,
                 },
               ],
             };
           }
+
+          const data = (await response.json()) as {
+            messages: Array<{
+              timestamp: string;
+              user: string;
+              text: string;
+              isBot?: boolean;
+            }>;
+            nextCursor: string | null;
+            hasMore: boolean;
+            note?: string;
+          };
+
+          if (data.note) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: data.note,
+                },
+              ],
+            };
+          }
+
+          if (data.messages.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "No messages found in channel history.",
+                },
+              ],
+            };
+          }
+
+          // Format messages for display
+          const formatted = data.messages
+            .map((msg) => {
+              const time = new Date(msg.timestamp).toLocaleString();
+              const sender = msg.isBot ? `[Bot] ${msg.user}` : msg.user;
+              return `[${time}] ${sender}: ${msg.text}`;
+            })
+            .join("\n\n");
+
+          let result = `Found ${data.messages.length} messages:\n\n${formatted}`;
+
+          if (data.hasMore && data.nextCursor) {
+            result += `\n\n---\nMore messages available. Use before="${data.nextCursor}" to fetch older messages.`;
+          }
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: result,
+              },
+            ],
+          };
+        } catch (error) {
+          logger.error("GetChannelHistory error:", error);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            ],
+          };
         }
-      )
-    );
-  }
+      }
+    )
+  );
 
   return createSdkMcpServer({
     name: "lobu",

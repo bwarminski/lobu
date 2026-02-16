@@ -35,20 +35,20 @@ export function sanitizeFilename(
 }
 
 /**
- * Sanitize thread ID for filesystem usage
+ * Sanitize conversation ID for filesystem usage
  * Removes any characters that aren't safe for directory names
  *
- * @param threadId - The thread ID to sanitize
- * @returns Safe thread ID
+ * @param conversationId - The conversation ID to sanitize
+ * @returns Safe conversation ID
  *
  * @example
  * ```typescript
- * sanitizeThreadId("1756766056.836119") // "1756766056.836119"
- * sanitizeThreadId("thread/123/../456") // "thread_123___456"
+ * sanitizeConversationId("1756766056.836119") // "1756766056.836119"
+ * sanitizeConversationId("thread/123/../456") // "thread_123___456"
  * ```
  */
-export function sanitizeThreadId(threadId: string): string {
-  return threadId.replace(/[^a-zA-Z0-9.-]/g, "_");
+export function sanitizeConversationId(conversationId: string): string {
+  return conversationId.replace(/[^a-zA-Z0-9.-]/g, "_");
 }
 
 /**

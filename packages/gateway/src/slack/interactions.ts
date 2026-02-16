@@ -677,13 +677,13 @@ export class SlackInteractionRenderer {
    */
   async setThreadStatus(
     channelId: string,
-    threadId: string,
+    conversationId: string,
     status: string | null
   ): Promise<void> {
     try {
       await this.client.assistant.threads.setStatus({
         channel_id: channelId,
-        thread_ts: threadId,
+        thread_ts: conversationId,
         status: status || "",
       });
     } catch (error) {

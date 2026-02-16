@@ -15,7 +15,7 @@ type WorkerContext = {
   Variables: {
     worker: {
       userId: string;
-      threadId: string;
+      conversationId: string;
       channelId: string;
       teamId?: string;
       agentId?: string;

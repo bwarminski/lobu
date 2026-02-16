@@ -42,7 +42,6 @@ describe("WorkerConnectionManager", () => {
         deploymentName: "worker-1",
         userId: "U123",
         conversationId: "thread-1",
-        threadId: "thread-1",
       });
     });
 

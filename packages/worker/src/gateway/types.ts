@@ -32,7 +32,6 @@ export interface MessagePayload {
   userId: string;
   agentId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   platform: string;
   channelId: string;
   messageId: string;

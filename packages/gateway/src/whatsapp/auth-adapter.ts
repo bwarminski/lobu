@@ -30,7 +30,7 @@ export class WhatsAppAuthAdapter implements PlatformAuthAdapter {
   async sendAuthPrompt(
     userId: string,
     channelId: string,
-    _threadId: string,
+    _conversationId: string,
     _providers: AuthProvider[],
     platformMetadata?: Record<string, unknown>
   ): Promise<void> {

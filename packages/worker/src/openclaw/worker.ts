@@ -58,10 +58,6 @@ export class OpenClawWorker extends BaseWorker {
     >;
     const modelRef =
       typeof rawOptions.model === "string" ? rawOptions.model : "";
-    const historyConfig = rawOptions.historyConfig as
-      | { enabled?: boolean }
-      | undefined;
-    const historyEnabled = historyConfig?.enabled ?? false;
     const verboseLogging = rawOptions.verboseLogging === true;
 
     this.progressProcessor.setVerboseLogging(verboseLogging);
@@ -130,18 +126,16 @@ export class OpenClawWorker extends BaseWorker {
     const unansweredInteractions = context.unansweredInteractions || [];
 
     logger.info(
-      `Startup state: ${unansweredInteractions.length} unanswered interactions, history: ${historyEnabled}`
+      `Startup state: ${unansweredInteractions.length} unanswered interactions`
     );
 
     // Merge gateway instructions into custom instructions
     const instructionParts = [context.gatewayInstructions, customInstructions];
 
-    if (historyEnabled) {
-      instructionParts.push(`## Conversation History
+    instructionParts.push(`## Conversation History
 
 You have access to GetChannelHistory to view previous messages in this thread.
 Use it when the user references past discussions or you need context.`);
-    }
 
     // Add pending interaction notes
     if (unansweredInteractions.length > 0) {
@@ -160,11 +154,9 @@ Use it when the user references past discussions or you need context.`);
       gatewayUrl,
       workerToken,
       channelId: this.config.channelId,
-      conversationId: this.config.conversationId || this.config.threadId || "",
-      threadId: this.config.conversationId || this.config.threadId || "",
+      conversationId: this.config.conversationId,
       interactionClient: this.interactionClient,
       platform: this.config.platform,
-      historyEnabled,
     });
 
     logger.info(

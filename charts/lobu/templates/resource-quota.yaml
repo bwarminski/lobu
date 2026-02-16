@@ -48,7 +48,8 @@ spec:
     matchExpressions:
     - scopeName: PriorityClass
       operator: In
-      values: ["worker-priority"]
+      values:
+      - {{ include "lobu.fullname" . }}-worker-priority
   hard:
     # Stricter limits for worker pods
     requests.cpu: {{ .Values.workerQuota.requests.cpu | default "1" }}

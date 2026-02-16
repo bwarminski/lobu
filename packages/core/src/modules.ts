@@ -30,7 +30,6 @@ export interface WorkerContext {
   workspaceDir: string;
   userId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
 }
 
 export interface WorkerModule<TModuleData = unknown>
@@ -59,6 +58,25 @@ export interface OrchestratorModule<TModuleData = unknown>
 
   /** Get container address for module-specific services */
   getContainerAddress(): string;
+}
+
+export interface ModelProviderModule extends OrchestratorModule {
+  /** Unique identifier for the provider (e.g. "anthropic", "openai") */
+  providerId: string;
+  /** Human-readable name shown in auth prompts (e.g. "Claude AI") */
+  providerDisplayName: string;
+  /** Env var names that should be treated as secrets for this provider */
+  getSecretEnvVarNames(): string[];
+  /** Check if an agent has per-agent credentials for this provider */
+  hasCredentials(agentId: string): Promise<boolean>;
+  /** Check if a system-level key is available (e.g. from process.env) */
+  hasSystemKey(): boolean;
+  /** Return env var mappings for routing SDK traffic through the proxy */
+  getProxyBaseUrlMappings(proxyUrl: string): Record<string, string>;
+  /** Inject system key as fallback if no per-agent credentials are set */
+  injectSystemKeyFallback(
+    envVars: Record<string, string>
+  ): Record<string, string>;
 }
 
 export interface DispatcherContext<TModuleData = unknown> {
@@ -97,7 +115,6 @@ export interface DispatcherModule<TModuleData = unknown>
 export interface ModuleSessionContext {
   userId: string;
   conversationId: string;
-  threadId?: string; // Legacy alias (deprecated)
   systemPrompt: string;
   workspace?: any;
 }
@@ -203,6 +220,7 @@ export interface IModuleRegistry {
   getHomeTabModules(): HomeTabModule[];
   getWorkerModules(): WorkerModule[];
   getOrchestratorModules(): OrchestratorModule[];
+  getModelProviderModules(): ModelProviderModule[];
   registerAvailableModules(): Promise<void>;
   initAll(): Promise<void>;
   registerEndpoints(app: any): void;
@@ -319,6 +337,13 @@ export class ModuleRegistry implements IModuleRegistry {
   getOrchestratorModules(): OrchestratorModule[] {
     return Array.from(this.modules.values()).filter(
       (m): m is OrchestratorModule => "buildEnvVars" in m
+    );
+  }
+
+  getModelProviderModules(): ModelProviderModule[] {
+    return Array.from(this.modules.values()).filter(
+      (m): m is ModelProviderModule =>
+        "providerId" in m && "getSecretEnvVarNames" in m
     );
   }
 

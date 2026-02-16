@@ -29,7 +29,7 @@ const listSchedulesRoute = createRoute({
             schedules: z.array(
               z.object({
                 scheduleId: z.string(),
-                threadId: z.string(),
+                conversationId: z.string(),
                 task: z.string(),
                 scheduledAt: z.number(),
                 scheduledFor: z.number(),
@@ -103,7 +103,7 @@ export function createAgentSchedulesRoutes(
     return c.json({
       schedules: schedules.map((s) => ({
         scheduleId: s.id,
-        threadId: s.threadId,
+        conversationId: s.conversationId,
         task: s.task,
         scheduledAt: s.scheduledAt,
         scheduledFor: s.triggerAt,

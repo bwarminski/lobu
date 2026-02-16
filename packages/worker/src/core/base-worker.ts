@@ -51,13 +51,15 @@ export abstract class BaseWorker implements WorkerExecutor {
     if (!config.teamId) {
       throw new Error("teamId is required for worker initialization");
     }
+    if (!config.conversationId) {
+      throw new Error("conversationId is required for worker initialization");
+    }
     this.workerTransport = new HttpWorkerTransport({
       gatewayUrl,
       workerToken,
       userId: config.userId,
       channelId: config.channelId,
-      conversationId: config.conversationId || config.threadId || "",
-      threadId: config.conversationId || config.threadId || "",
+      conversationId: config.conversationId,
       originalMessageTs: config.responseId,
       botResponseTs: config.botResponseId,
       teamId: config.teamId,
@@ -190,9 +192,7 @@ export abstract class BaseWorker implements WorkerExecutor {
           platform: this.config.platform,
           channelId: this.config.channelId,
           userId: this.config.userId,
-          conversationId:
-            this.config.conversationId || this.config.threadId || "",
-          threadId: this.config.conversationId || this.config.threadId || "",
+          conversationId: this.config.conversationId,
           messageId: this.config.responseId,
           workingDirectory: this.workspaceManager.getCurrentWorkingDirectory(),
           customInstructions,
@@ -226,8 +226,7 @@ export abstract class BaseWorker implements WorkerExecutor {
           attributes: {
             "user.id": this.config.userId,
             "session.key": this.config.sessionKey,
-            "conversation.id":
-              this.config.conversationId || this.config.threadId || "",
+            "conversation.id": this.config.conversationId,
             agent: this.getAgentName(),
           },
         },
@@ -266,9 +265,7 @@ export abstract class BaseWorker implements WorkerExecutor {
       const moduleData = await collectModuleData({
         workspaceDir: this.workspaceManager.getCurrentWorkingDirectory(),
         userId: this.config.userId,
-        conversationId:
-          this.config.conversationId || this.config.threadId || "",
-        threadId: this.config.conversationId || this.config.threadId || "",
+        conversationId: this.config.conversationId,
       });
       this.workerTransport.setModuleData(moduleData);
 

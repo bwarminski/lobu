@@ -2,9 +2,12 @@ export * from "./base-deployment-manager";
 export * from "./deployment-utils";
 export * from "./impl";
 
-import { createLogger, moduleRegistry } from "@lobu/core";
+import {
+  createLogger,
+  type ModelProviderModule,
+  moduleRegistry,
+} from "@lobu/core";
 import type Redis from "ioredis";
-import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import type {
   BaseDeploymentManager,
   OrchestratorConfig,
@@ -33,35 +36,14 @@ export class Orchestrator {
   }
 
   /**
-   * Inject core services into the orchestrator after gateway initialization
-   * This allows the message consumer to check authentication before creating workers
+   * Inject core services into the orchestrator after gateway initialization.
+   * Provider modules in the registry carry their own credential stores,
+   * so only the Redis client is needed for secret placeholder generation.
    */
-  async injectCoreServices(
-    credentialStore?: ClaudeCredentialStore,
-    systemApiKey?: string,
-    redisClient?: Redis
-  ): Promise<void> {
+  async injectCoreServices(redisClient?: Redis): Promise<void> {
     // Inject Redis client into deployment manager for secret placeholder generation
     if (redisClient) {
       this.deploymentManager.setRedisClient(redisClient);
-    }
-
-    // Stop the old consumer if running
-    if (this.isRunning) {
-      await this.queueConsumer.stop();
-    }
-
-    // Create new consumer with injected services
-    this.queueConsumer = new MessageConsumer(
-      this.config,
-      this.deploymentManager,
-      credentialStore,
-      systemApiKey
-    );
-
-    // Restart the consumer if orchestrator was running
-    if (this.isRunning) {
-      await this.queueConsumer.start();
     }
 
     logger.info("✅ Core services injected into orchestrator");
@@ -71,10 +53,16 @@ export class Orchestrator {
     config: OrchestratorConfig
   ): BaseDeploymentManager {
     const deploymentMode = process.env.DEPLOYMENT_MODE;
+    const providerModules: ModelProviderModule[] =
+      moduleRegistry.getModelProviderModules();
 
     if (deploymentMode === "local") {
       logger.info("🏠 Using local deployment mode (subprocess workers)");
-      return new LocalDeploymentManager(config, buildModuleEnvVars);
+      return new LocalDeploymentManager(
+        config,
+        buildModuleEnvVars,
+        providerModules
+      );
     }
 
     if (deploymentMode === "docker") {
@@ -82,7 +70,11 @@ export class Orchestrator {
         logger.error("DEPLOYMENT_MODE=docker but Docker is not available");
         throw new Error("DEPLOYMENT_MODE=docker but Docker is not available");
       }
-      return new DockerDeploymentManager(config, buildModuleEnvVars);
+      return new DockerDeploymentManager(
+        config,
+        buildModuleEnvVars,
+        providerModules
+      );
     }
 
     if (deploymentMode === "kubernetes" || deploymentMode === "k8s") {
@@ -94,25 +86,41 @@ export class Orchestrator {
           "DEPLOYMENT_MODE=kubernetes but Kubernetes is not available"
         );
       }
-      return new K8sDeploymentManager(config, buildModuleEnvVars);
+      return new K8sDeploymentManager(
+        config,
+        buildModuleEnvVars,
+        providerModules
+      );
     }
 
     // Auto-detect deployment mode
     if (this.isKubernetesAvailable()) {
       logger.info("🎯 Auto-detected Kubernetes, using K8s deployment mode");
-      return new K8sDeploymentManager(config, buildModuleEnvVars);
+      return new K8sDeploymentManager(
+        config,
+        buildModuleEnvVars,
+        providerModules
+      );
     }
 
     if (this.isDockerAvailable()) {
       logger.info("🐳 Auto-detected Docker, using Docker deployment mode");
-      return new DockerDeploymentManager(config, buildModuleEnvVars);
+      return new DockerDeploymentManager(
+        config,
+        buildModuleEnvVars,
+        providerModules
+      );
     }
 
     // Fall back to local mode if nothing else is available
     logger.info(
       "🏠 No container runtime detected, falling back to local deployment mode"
     );
-    return new LocalDeploymentManager(config, buildModuleEnvVars);
+    return new LocalDeploymentManager(
+      config,
+      buildModuleEnvVars,
+      providerModules
+    );
   }
 
   private isKubernetesAvailable(): boolean {

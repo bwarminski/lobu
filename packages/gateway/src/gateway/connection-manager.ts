@@ -67,7 +67,6 @@ export class WorkerConnectionManager {
       deploymentName,
       userId,
       conversationId,
-      threadId: conversationId,
     });
 
     logger.info(

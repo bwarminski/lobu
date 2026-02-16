@@ -765,11 +765,11 @@ export async function startGateway(
   const gateway = new Gateway(config);
 
   const agentOptions = {
-    allowedTools: config.claude.allowedTools,
-    disallowedTools: config.claude.disallowedTools,
-    runtime: config.claude.runtime,
-    model: config.claude.model,
-    timeoutMinutes: config.claude.timeoutMinutes,
+    allowedTools: config.agentDefaults.allowedTools,
+    disallowedTools: config.agentDefaults.disallowedTools,
+    runtime: config.agentDefaults.runtime,
+    model: config.agentDefaults.model,
+    timeoutMinutes: config.agentDefaults.timeoutMinutes,
   };
 
   // Register Slack platform if configured
@@ -843,10 +843,8 @@ export async function startGateway(
   // Get core services
   const coreServices = gateway.getCoreServices();
 
-  // Inject core services into orchestrator
+  // Inject core services into orchestrator (provider modules carry their own credential stores)
   await orchestrator.injectCoreServices(
-    coreServices.getClaudeCredentialStore(),
-    config.anthropicProxy.anthropicApiKey,
     coreServices.getQueue().getRedisClient()
   );
   logger.info("Orchestrator configured with core services");

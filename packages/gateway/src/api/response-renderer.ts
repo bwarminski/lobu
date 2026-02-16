@@ -183,10 +183,13 @@ export class ApiResponseRenderer implements ResponseRenderer {
   }
 
   /**
-   * Stop stream for thread - no-op for API platform
+   * Stop stream for conversation - no-op for API platform
    * SSE connections handle their own lifecycle
    */
-  async stopStreamForThread(_userId: string, _threadId: string): Promise<void> {
+  async stopStreamForConversation(
+    _userId: string,
+    _conversationId: string
+  ): Promise<void> {
     // No-op - SSE connections manage their own lifecycle
   }
 }

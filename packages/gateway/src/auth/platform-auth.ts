@@ -18,7 +18,7 @@ export interface PlatformAuthAdapter {
   sendAuthPrompt(
     userId: string,
     channelId: string,
-    threadId: string,
+    conversationId: string,
     providers: AuthProvider[],
     platformMetadata?: Record<string, unknown>
   ): Promise<void>;

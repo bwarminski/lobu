@@ -98,10 +98,8 @@ export class WorkerGateway {
       return c.json({ error: "Invalid token" }, 401);
     }
 
-    const { deploymentName, userId, conversationId, threadId } =
-      auth.tokenData as any;
-    const effectiveConversationId = conversationId || threadId;
-    if (!effectiveConversationId) {
+    const { deploymentName, userId, conversationId } = auth.tokenData as any;
+    if (!conversationId) {
       return c.json({ error: "Invalid token (missing conversationId)" }, 401);
     }
 
@@ -140,7 +138,7 @@ export class WorkerGateway {
       this.connectionManager.addConnection(
         deploymentName,
         userId,
-        effectiveConversationId,
+        conversationId,
         sseWriter
       );
 
@@ -150,7 +148,7 @@ export class WorkerGateway {
 
       // Send any pending interaction responses
       await this.sendPendingInteractionResponses(
-        effectiveConversationId,
+        conversationId,
         deploymentName
       );
 
@@ -231,13 +229,11 @@ export class WorkerGateway {
         platform,
         sessionKey,
         conversationId,
-        threadId,
         agentId,
         deploymentName,
       } = auth.tokenData;
       const baseUrl = this.getRequestBaseUrl(c);
-      const effectiveConversationId = conversationId || threadId;
-      if (!effectiveConversationId) {
+      if (!conversationId) {
         return c.json({ error: "Invalid token (missing conversationId)" }, 401);
       }
 
@@ -263,7 +259,7 @@ export class WorkerGateway {
             instructionContext
           ),
           this.interactionService.getPendingUnansweredInteractions(
-            effectiveConversationId
+            conversationId
           ),
         ]);
 
@@ -388,19 +384,19 @@ export class WorkerGateway {
    * Send any pending interaction responses on reconnect
    */
   private async sendPendingInteractionResponses(
-    threadId: string,
+    conversationId: string,
     deploymentName: string
   ): Promise<void> {
     if (!this.interactionService) return;
 
     const redis = (this.interactionService as any).redis;
-    const pattern = `interaction:response:${threadId}:*`;
+    const pattern = `interaction:response:${conversationId}:*`;
     const keys = await redis.keys(pattern);
 
     if (keys.length === 0) return;
 
     logger.info(
-      `Found ${keys.length} pending interaction responses for thread ${threadId}`
+      `Found ${keys.length} pending interaction responses for conversation ${conversationId}`
     );
 
     const connection = this.connectionManager.getConnection(deploymentName);

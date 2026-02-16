@@ -177,7 +177,7 @@ export class WhatsAppResponseRenderer implements ResponseRenderer {
     if (buffered?.trim()) {
       await this.sendMessage(chatJid, buffered);
       logger.info(
-        { traceId, chatJid, threadId: payload.conversationId },
+        { traceId, chatJid, conversationId: payload.conversationId },
         "Sent final response"
       );
     }
@@ -212,7 +212,7 @@ export class WhatsAppResponseRenderer implements ResponseRenderer {
       {
         traceId,
         chatJid,
-        threadId: payload.conversationId,
+        conversationId: payload.conversationId,
         error: payload.error,
       },
       "Sent error response"

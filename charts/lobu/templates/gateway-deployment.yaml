@@ -39,6 +39,14 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.global.imageRegistry }}{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          command: ["sh", "-lc"]
+          args:
+            - >
+              export QUEUE_URL="redis://{{ include "lobu.fullname" . }}-redis-master:6379";
+              {{- if and .Values.redis.enabled .Values.redis.auth.enabled }}
+              export QUEUE_URL="redis://:${REDIS_PASSWORD}@{{ include "lobu.fullname" . }}-redis-master:6379";
+              {{- end }}
+              exec tsx packages/gateway/src/index.ts
           ports:
             - name: http
               containerPort: {{ .Values.gateway.service.targetPort }}
@@ -123,6 +131,17 @@ spec:
               value: "/etc/whatsapp/credentials.txt"
             {{- end }}
 
+            {{- if .Values.secrets.telegramBotToken }}
+            # Telegram configuration
+            - name: TELEGRAM_ENABLED
+              value: "true"
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lobu.fullname" . }}-secrets
+                  key: telegram-bot-token
+            {{- end }}
+
             # Kubernetes configuration
             - name: DEPLOYMENT_MODE
               value: "kubernetes"
@@ -132,12 +151,20 @@ spec:
               value: "{{ .Values.global.imageRegistry }}{{ .Values.worker.image.repository }}"
             - name: WORKER_IMAGE_TAG
               value: "{{ .Values.worker.image.tag }}"
-            - name: WORKER_CPU
+            - name: WORKER_IMAGE_PULL_POLICY
+              value: "{{ .Values.worker.image.pullPolicy }}"
+            - name: WORKER_CPU_REQUEST
               value: "{{ .Values.worker.resources.requests.cpu }}"
-            - name: WORKER_MEMORY
+            - name: WORKER_MEMORY_REQUEST
               value: "{{ .Values.worker.resources.requests.memory }}"
-            - name: WORKER_TIMEOUT_SECONDS
-              value: "{{ .Values.worker.job.timeoutSeconds }}"
+            - name: WORKER_CPU_LIMIT
+              value: "{{ .Values.worker.resources.limits.cpu }}"
+            - name: WORKER_MEMORY_LIMIT
+              value: "{{ .Values.worker.resources.limits.memory }}"
+            - name: WORKER_IDLE_CLEANUP_MINUTES
+              value: "{{ .Values.orchestrator.idleCleanupMinutes }}"
+            - name: MAX_WORKER_DEPLOYMENTS
+              value: "{{ .Values.orchestrator.maxWorkerDeployments }}"
             - name: WORKER_RUNTIME_CLASS_NAME
               value: "{{ .Values.worker.runtimeClassName }}"
             # Worker network access control (via HTTP proxy)
@@ -157,11 +184,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "lobu.fullname" . }}-redis
                   key: redis-password
-            - name: QUEUE_URL
-              value: "redis://:$(REDIS_PASSWORD)@{{ include "lobu.fullname" . }}-redis-master:6379"
             {{- else }}
-            - name: QUEUE_URL
-              value: "redis://{{ include "lobu.fullname" . }}-redis-master:6379"
+            # QUEUE_URL is set in the container command (to support REDIS_PASSWORD expansion)
             {{- end }}
             {{- end }}
             # Dispatcher service name for workers to connect back

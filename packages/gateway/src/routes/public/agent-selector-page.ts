@@ -319,11 +319,11 @@ function renderSelectorPage(
   <title>Configure Agent - Lobu</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-amber-700 to-amber-900 p-4">
+<body class="min-h-screen bg-gradient-to-br from-slate-700 to-slate-900 p-4">
   <div class="max-w-xl mx-auto bg-white rounded-2xl shadow-2xl p-6">
     <div class="text-center mb-5">
-      <div class="text-4xl mb-1">&#129417;</div>
-      <h1 class="text-xl font-bold text-amber-900">Configure Agent</h1>
+      <div class="text-4xl mb-1">🦞</div>
+      <h1 class="text-xl font-bold text-slate-900">Configure Agent</h1>
       <p class="text-xs text-gray-500">Choose an agent for this channel</p>
       <p class="text-xs text-gray-400 mt-1">${escapeHtml(payload.platform)} / ${escapeHtml(payload.channelId)}</p>
     </div>
@@ -351,19 +351,19 @@ function renderSelectorPage(
             (agent) => `
         <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border ${
           agent.agentId === currentAgentId
-            ? "border-amber-400 bg-amber-50"
+            ? "border-slate-400 bg-slate-50"
             : "border-gray-200"
         }">
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-gray-800">${escapeHtml(agent.name)}${agent.isWorkspaceAgent ? ' <span class="text-xs text-amber-600">(workspace)</span>' : ""}</p>
+            <p class="text-sm font-medium text-gray-800">${escapeHtml(agent.name)}${agent.isWorkspaceAgent ? ' <span class="text-xs text-slate-600">(workspace)</span>' : ""}</p>
             <p class="text-xs text-gray-500">${escapeHtml(agent.agentId)} &middot; ${agent.channelCount} channel${agent.channelCount !== 1 ? "s" : ""}</p>
             ${agent.description ? `<p class="text-xs text-gray-400 truncate">${escapeHtml(agent.description)}</p>` : ""}
           </div>
           <button type="button" onclick="selectAgent('${escapeHtml(agent.agentId)}')"
             class="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg ${
               agent.agentId === currentAgentId
-                ? "bg-amber-200 text-amber-800"
-                : "bg-amber-600 text-white hover:bg-amber-700"
+                ? "bg-slate-200 text-slate-800"
+                : "bg-slate-600 text-white hover:bg-slate-700"
             } transition-all flex-shrink-0">
             ${agent.agentId === currentAgentId ? "Current" : "Select"}
           </button>
@@ -382,21 +382,21 @@ function renderSelectorPage(
         <div>
           <label for="agentId" class="block text-xs font-medium text-gray-600 mb-1">Agent ID</label>
           <input type="text" id="agentId" placeholder="my-work-agent" pattern="[a-z][a-z0-9-]*" minlength="3" maxlength="40"
-            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
           <p class="text-xs text-gray-400 mt-1">Lowercase letters, numbers, hyphens. 3-40 chars.</p>
         </div>
         <div>
           <label for="agentName" class="block text-xs font-medium text-gray-600 mb-1">Display Name</label>
           <input type="text" id="agentName" placeholder="Work Agent" maxlength="100"
-            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
         </div>
         <div>
           <label for="agentDesc" class="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
           <input type="text" id="agentDesc" placeholder="Agent for work-related tasks" maxlength="200"
-            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-amber-600 focus:ring-1 focus:ring-amber-200 outline-none">
+            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
         </div>
         <button type="button" id="create-btn" onclick="createAgent()"
-          class="w-full py-2.5 bg-gradient-to-r from-amber-700 to-amber-800 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all">
+          class="w-full py-2.5 bg-gradient-to-r from-slate-700 to-slate-800 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all">
           Create &amp; Use This Agent
         </button>
       </div>

@@ -64,6 +64,33 @@ function requireEnv(name: string): string {
   return value;
 }
 
+async function getSlackConfigAccessToken(): Promise<string> {
+  const token = process.env.SLACK_CONFIG_TOKEN;
+  if (token) return token;
+
+  const refreshToken = process.env.SLACK_CONFIG_REFRESH_TOKEN;
+  if (!refreshToken) throw new Error("Missing env var: SLACK_CONFIG_TOKEN");
+
+  const rotated = await slackApiCall("tooling.tokens.rotate", refreshToken, {
+    refresh_token: refreshToken,
+  });
+  if (!rotated.ok) {
+    throw new Error(
+      `Failed to rotate Slack config token (tooling.tokens.rotate): ${rotated.error}`
+    );
+  }
+
+  const rotatedToken = rotated.token;
+  if (typeof rotatedToken !== "string" || rotatedToken.length === 0) {
+    throw new Error(
+      "Slack token rotation succeeded but response did not include a token"
+    );
+  }
+
+  // Note: rotated response also includes refresh_token; we don't persist it to disk.
+  return rotatedToken;
+}
+
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
@@ -137,9 +164,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const token = requireEnv("SLACK_CONFIG_TOKEN");
-
   if (cmd === "validate") {
+    const token = await getSlackConfigAccessToken();
     const result = await slackApiCall("apps.manifest.validate", token, {
       manifest,
     });
@@ -149,10 +175,21 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "update") {
+    const token = await getSlackConfigAccessToken();
     const appId = requireEnv("SLACK_APP_ID");
     const result = await slackApiCall("apps.manifest.update", token, {
       app_id: appId,
       manifest,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (!result.ok) process.exit(1);
+    return;
+  }
+
+  if (cmd === "rotate") {
+    const refreshToken = requireEnv("SLACK_CONFIG_REFRESH_TOKEN");
+    const result = await slackApiCall("tooling.tokens.rotate", refreshToken, {
+      refresh_token: refreshToken,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (!result.ok) process.exit(1);
@@ -165,10 +202,11 @@ async function main(): Promise<void> {
 main().catch((err) => {
   const msg = err instanceof Error ? err.message : String(err);
   process.stderr.write(`${msg}\n`);
+  process.stderr.write("Usage: bun run scripts/slack-manifest.ts <cmd>\n");
+  process.stderr.write("Cmd: print | validate | update | rotate\n");
   process.stderr.write(
-    "Usage: bun run scripts/slack-manifest.ts print|validate|update\n"
+    "Env: SLACK_CONFIG_TOKEN or SLACK_CONFIG_REFRESH_TOKEN; SLACK_APP_ID (for update)\n"
   );
-  process.stderr.write("Env: SLACK_CONFIG_TOKEN, SLACK_APP_ID (for update)\n");
   process.stderr.write(
     "Optional env: SLACK_MANIFEST_PATH, PUBLIC_GATEWAY_URL, DOTENV_PATH\n"
   );

@@ -104,12 +104,12 @@ export class ApiPlatform implements PlatformAdapter {
    * For API sessions, we include session ID and source
    */
   buildDeploymentMetadata(
-    threadId: string,
+    conversationId: string,
     channelId: string,
     platformMetadata: Record<string, any>
   ): Record<string, string> {
     return {
-      sessionId: platformMetadata.sessionId || threadId,
+      sessionId: platformMetadata.sessionId || conversationId,
       source: "direct-api",
       channelId,
     };
@@ -176,7 +176,7 @@ export class ApiPlatform implements PlatformAdapter {
    *
    * @param token - Auth token (used to derive userId)
    * @param message - Message content
-   * @param options - Routing info (agentId = channelId = threadId for API)
+   * @param options - Routing info (agentId = channelId = conversationId for API)
    */
   async sendMessage(
     token: string,
@@ -184,7 +184,7 @@ export class ApiPlatform implements PlatformAdapter {
     options: {
       agentId: string;
       channelId: string;
-      threadId: string;
+      conversationId: string;
       teamId: string;
       files?: Array<{ buffer: Buffer; filename: string }>;
     }
@@ -203,14 +203,13 @@ export class ApiPlatform implements PlatformAdapter {
     const messageId = randomUUID();
     const userId = `api-${token.slice(0, 8) || "anonymous"}`;
 
-    // For API platform: agentId = channelId = threadId (all same)
+    // For API platform: agentId = channelId = conversationId (all same)
     // Try to get existing session or create new one
     let session = await sessionManager.getSession(agentId);
 
     if (!session) {
       session = {
         conversationId: agentId,
-        threadId: agentId,
         channelId: agentId,
         userId,
         threadCreator: userId,
@@ -249,7 +248,6 @@ export class ApiPlatform implements PlatformAdapter {
     await queueProducer.enqueueMessage({
       userId,
       conversationId: agentId,
-      threadId: agentId,
       messageId,
       channelId: agentId,
       teamId: "api",

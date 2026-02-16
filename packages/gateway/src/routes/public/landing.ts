@@ -124,7 +124,6 @@ function renderLandingPage(options: {
   const slackStatus = slack
     ? `Workspace: ${escapeHtml(slack.teamName)}`
     : "Not configured";
-  const slackBot = slack ? `Bot: ${escapeHtml(slack.botName)}` : "";
   const slackLink = slack ? slack.dmLink : "";
 
   const telegramStatus = telegram.configured ? "Configured" : "Not configured";
@@ -135,151 +134,15 @@ function renderLandingPage(options: {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lobu Gateway</title>
-    <style>
-      :root {
-        --bg: #0f172a;
-        --bg2: #111827;
-        --panel: #0b1220;
-        --text: #e5e7eb;
-        --muted: #9ca3af;
-        --accent: #f59e0b;
-        --accent2: #22d3ee;
-        --border: #1f2937;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        color: var(--text);
-        background: radial-gradient(1200px 600px at 10% 0%, #1f2937 0%, transparent 50%),
-                    radial-gradient(1200px 600px at 90% 10%, #0f766e 0%, transparent 45%),
-                    linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
-        font-family: "Iowan Old Style", "Georgia", "Times New Roman", serif;
-      }
-      .wrap {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 36px 20px 60px;
-      }
-      .top {
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-        align-items: center;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-      }
-      .top a {
-        color: var(--text);
-        text-decoration: none;
-        padding: 8px 12px;
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.6);
-        transition: transform 0.2s ease, border-color 0.2s ease;
-      }
-      .top a:hover {
-        transform: translateY(-1px);
-        border-color: var(--accent);
-      }
-      h1 {
-        margin: 24px 0 8px;
-        font-size: 38px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      .subtitle {
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        color: var(--muted);
-        font-size: 16px;
-        margin-bottom: 28px;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 16px;
-      }
-      .card {
-        background: rgba(11, 18, 32, 0.9);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        padding: 18px 18px 16px;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-      }
-      .card h3 {
-        margin: 0 0 10px;
-        font-size: 18px;
-        font-weight: 600;
-      }
-      .meta {
-        color: var(--muted);
-        font-size: 14px;
-        line-height: 1.5;
-        margin-bottom: 12px;
-      }
-      .button {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        color: var(--text);
-        text-decoration: none;
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(34, 211, 238, 0.2));
-        font-size: 14px;
-        font-weight: 600;
-      }
-      .button:hover { border-color: var(--accent2); }
-      .footer {
-        margin-top: 28px;
-        color: var(--muted);
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        font-size: 12px;
-      }
-      .kicker {
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        font-size: 11px;
-        color: var(--accent);
-      }
-      .mono {
-        font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
-        font-size: 12px;
-        color: var(--muted);
-      }
-    </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="top">
-        <a href="${githubUrl}" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="${docsUrl}">API Docs</a>
-      </div>
-      <div class="kicker">Lobu Gateway</div>
-      <h1>Docs and Integrations</h1>
-      <div class="subtitle">Use the API docs or connect via Slack and Telegram.</div>
-      <div class="grid">
-        <div class="card">
-          <h3>API Documentation</h3>
-          <div class="meta">Open the Scalar REST docs for the public gateway.</div>
-          <a class="button" href="${docsUrl}">Open API Docs</a>
-        </div>
-        <div class="card">
-          <h3>Telegram</h3>
-          <div class="meta">${telegramStatus}</div>
-          <div class="meta">Set <span class="mono">TELEGRAM_BOT_TOKEN</span> to enable.</div>
-        </div>
-        <div class="card">
-          <h3>Slack</h3>
-          <div class="meta">${slackStatus}${slackBot ? `<br />${slackBot}` : ""}</div>
-          ${slack ? `<a class="button" href="${slackLink}" target="_blank" rel="noreferrer">Message in Slack</a>` : ""}
-        </div>
-      </div>
-      <div class="footer">
-        ${publicGateway ? `<div class="mono">Gateway: ${publicGateway}</div>` : ""}
-      </div>
-    </div>
+    <h1>Lobu Gateway</h1>
+    <ul>
+      <li><a href="${docsUrl}">API Documentation</a></li>
+      <li><a href="${githubUrl}" target="_blank" rel="noreferrer">GitHub</a></li>
+      <li>Telegram: ${telegramStatus}</li>
+      <li>Slack: ${slackStatus}${slack ? ` — <a href="${slackLink}" target="_blank" rel="noreferrer">Message ${escapeHtml(slack.botName)}</a>` : ""}</li>
+    </ul>${publicGateway ? `\n    <p><small>${publicGateway}</small></p>` : ""}
   </body>
 </html>`;
 }

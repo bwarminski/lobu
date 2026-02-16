@@ -1,4 +1,9 @@
-import { BaseModule, createLogger, decrypt } from "@lobu/core";
+import {
+  BaseModule,
+  createLogger,
+  decrypt,
+  type ModelProviderModule,
+} from "@lobu/core";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { IMessageQueue } from "../../infrastructure/queue";
@@ -18,11 +23,15 @@ const logger = createLogger("claude-oauth-module");
  * Provides login/logout functionality via Slack home tab
  * Also injects user OAuth tokens and model preferences into worker deployments
  */
-export class ClaudeOAuthModule extends BaseModule {
+export class ClaudeOAuthModule
+  extends BaseModule
+  implements ModelProviderModule
+{
   name = "claude-oauth";
+  providerId = "anthropic";
+  providerDisplayName = "Claude AI";
   private oauthClient: ClaudeOAuthClient;
   private publicGatewayUrl: string;
-  private systemTokenAvailable: boolean;
   private queue: IMessageQueue;
   private app: Hono;
 
@@ -31,15 +40,13 @@ export class ClaudeOAuthModule extends BaseModule {
     private stateStore: ClaudeOAuthStateStore,
     private modelPreferenceStore: ClaudeModelPreferenceStore,
     queue: IMessageQueue,
-    publicGatewayUrl: string,
-    systemTokenAvailable: boolean
+    publicGatewayUrl: string
   ) {
     super();
 
     this.oauthClient = new ClaudeOAuthClient();
     this.queue = queue;
     this.publicGatewayUrl = publicGatewayUrl;
-    this.systemTokenAvailable = systemTokenAvailable;
     this.app = new Hono();
     this.setupRoutes();
   }
@@ -47,6 +54,39 @@ export class ClaudeOAuthModule extends BaseModule {
   isEnabled(): boolean {
     // Always enabled - we show model selection even with system token
     return true;
+  }
+
+  // ---- ModelProviderModule methods ----
+
+  getSecretEnvVarNames(): string[] {
+    return ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"];
+  }
+
+  async hasCredentials(agentId: string): Promise<boolean> {
+    return this.credentialStore.hasCredentials(agentId);
+  }
+
+  hasSystemKey(): boolean {
+    return !!(
+      process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN
+    );
+  }
+
+  getProxyBaseUrlMappings(proxyUrl: string): Record<string, string> {
+    return { ANTHROPIC_BASE_URL: proxyUrl };
+  }
+
+  injectSystemKeyFallback(
+    envVars: Record<string, string>
+  ): Record<string, string> {
+    if (!envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
+      const systemKey =
+        process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      if (systemKey) {
+        envVars.ANTHROPIC_API_KEY = systemKey;
+      }
+    }
+    return envVars;
   }
 
   /**
@@ -174,13 +214,13 @@ export class ClaudeOAuthModule extends BaseModule {
       const currentModel =
         await this.modelPreferenceStore.getModelPreference(userId);
 
-      const isAuthenticated = hasCredentials || this.systemTokenAvailable;
+      const isAuthenticated = hasCredentials || this.hasSystemKey();
 
       // Only show login/logout if no system token (users manage their own auth)
       let loginUrl: string | undefined;
       let logoutUrl: string | undefined;
 
-      if (!this.systemTokenAvailable) {
+      if (!this.hasSystemKey()) {
         if (!hasCredentials) {
           // Not authenticated - provide login action
           // We use action_id pattern for Slack button actions
@@ -201,7 +241,7 @@ export class ClaudeOAuthModule extends BaseModule {
           metadata: {
             availableModels,
             currentModel,
-            systemTokenAvailable: this.systemTokenAvailable,
+            systemTokenAvailable: this.hasSystemKey(),
           },
         },
       ];
@@ -489,7 +529,7 @@ export class ClaudeOAuthModule extends BaseModule {
       messageId: `auth_success_${Date.now()}`,
       userId,
       channelId: loginContext.channelId || userId, // Use DM channel if no channelId
-      threadId: loginContext.messageTs || undefined,
+      conversationId: loginContext.messageTs || "",
       platform: loginContext.platform || "slack",
       teamId: loginContext.teamId || "slack",
       ephemeral: true,

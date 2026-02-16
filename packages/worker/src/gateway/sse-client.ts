@@ -60,7 +60,6 @@ const AgentOptionsSchema = z
     networkConfig: z.any().optional(),
     gitConfig: z.any().optional(),
     envVars: z.any().optional(),
-    historyConfig: z.any().optional(),
   })
   .passthrough();
 
@@ -93,7 +92,6 @@ const JobEventSchema = z.object({
     userId: z.string(),
     agentId: z.string(),
     conversationId: z.string(),
-    threadId: z.string().optional(),
     platform: z.string(),
     channelId: z.string(),
     messageId: z.string(),
@@ -442,7 +440,7 @@ export class GatewayClient {
       extractTraceId(data) || this.currentTraceId || process.env.TRACE_ID;
     this.currentTraceId = traceId;
 
-    const conversationId = data.conversationId || data.threadId || "";
+    const conversationId = data.conversationId;
 
     if (data.jobId) {
       this.currentJobId = data.jobId;
@@ -501,7 +499,7 @@ export class GatewayClient {
    */
   private async handleExecJob(data: MessagePayload): Promise<void> {
     const { execId, execCommand, execCwd, execEnv, execTimeout } = data;
-    const conversationId = data.conversationId || data.threadId || "";
+    const conversationId = data.conversationId;
     const traceId = this.currentTraceId;
     const traceparent = this.currentTraceparent;
 
@@ -535,7 +533,6 @@ export class GatewayClient {
       userId: data.userId,
       channelId: data.channelId,
       conversationId,
-      threadId: conversationId,
       originalMessageTs: execId,
       teamId: data.teamId || "api",
       platform: data.platform,
@@ -691,8 +688,7 @@ export class GatewayClient {
       this.currentTraceId ||
       process.env.TRACE_ID;
 
-    const conversationId =
-      message.payload.conversationId || message.payload.threadId || "";
+    const conversationId = message.payload.conversationId;
 
     // Create child span for agent execution (linked to parent via traceparent)
     const span = createChildSpan("agent_execution", traceparent, {
@@ -825,8 +821,7 @@ export class GatewayClient {
   }
 
   private payloadToWorkerConfig(payload: MessagePayload): WorkerConfig {
-    const conversationId =
-      payload.conversationId || payload.threadId || "default";
+    const conversationId = payload.conversationId || "default";
     const platformMetadata = payload.platformMetadata;
 
     const agentOptions = {
@@ -848,7 +843,6 @@ export class GatewayClient {
       agentId: payload.agentId,
       channelId: payload.channelId,
       conversationId,
-      threadId: conversationId,
       userPrompt: Buffer.from(payload.messageText).toString("base64"),
       responseChannel: String(
         platformMetadata.responseChannel || payload.channelId

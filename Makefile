@@ -119,19 +119,20 @@ deploy:
 	else \
 		IMAGE_OVERRIDES=""; \
 	fi; \
-	helm upgrade --install "$${DEPLOYMENT_NAME:-lobu}" charts/lobu/ \
-		--dependency-update \
-		--create-namespace \
-		--namespace "$${NAMESPACE:-lobu}" \
-		-f "$$VALUES_FILE" \
-		$$IMAGE_OVERRIDES \
-		--set secrets.encryptionKey="$$ENCRYPTION_KEY" \
-		--set secrets.slackBotToken="$$SLACK_BOT_TOKEN" \
-		--set secrets.slackSigningSecret="$$SLACK_SIGNING_SECRET" \
-		--set secrets.slackAppToken="$$SLACK_APP_TOKEN" \
-		--set secrets.claudeCodeOAuthToken="$$CLAUDE_CODE_OAUTH_TOKEN" \
-		--wait \
-		--timeout "$${HELM_TIMEOUT:-10m}"
+		helm upgrade --install "$${DEPLOYMENT_NAME:-lobu}" charts/lobu/ \
+			--dependency-update \
+			--create-namespace \
+			--namespace "$${NAMESPACE:-lobu}" \
+			-f "$$VALUES_FILE" \
+			$$IMAGE_OVERRIDES \
+			--set secrets.encryptionKey="$$ENCRYPTION_KEY" \
+			--set secrets.slackBotToken="$$SLACK_BOT_TOKEN" \
+			--set secrets.slackSigningSecret="$$SLACK_SIGNING_SECRET" \
+			--set secrets.slackAppToken="$$SLACK_APP_TOKEN" \
+			--set secrets.telegramBotToken="$$TELEGRAM_BOT_TOKEN" \
+			--set secrets.claudeCodeOAuthToken="$$CLAUDE_CODE_OAUTH_TOKEN" \
+			--wait \
+			--timeout "$${HELM_TIMEOUT:-10m}"
 	@echo "✅ Deployed to K8s. Check status with:"
 	@echo "  kubectl get pods -n $${NAMESPACE:-lobu}"
 	@echo "  kubectl logs -f deployment/$${DEPLOYMENT_NAME:-lobu}-gateway -n $${NAMESPACE:-lobu}"

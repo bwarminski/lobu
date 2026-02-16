@@ -21,7 +21,6 @@ import type {
  */
 export interface ThreadSession {
   conversationId: string; // Primary identifier (agentId for API platform)
-  threadId?: string; // Legacy alias (deprecated)
   channelId: string;
   userId: string;
   threadCreator?: string; // Track the original thread creator
@@ -48,22 +47,21 @@ export interface ThreadSession {
 
 /**
  * Compute session key for Redis storage
- * For API platform: just threadId (which equals agentId)
- * For Slack/WhatsApp: channelId:threadId
+ * For API platform: just conversationId (which equals agentId)
+ * For Slack/WhatsApp: channelId:conversationId
  */
 export function computeSessionKey(session: {
   channelId: string;
   conversationId: string;
-  threadId?: string;
 }): string {
-  // For API platform, channelId starts with "api-" and we just use threadId
+  // For API platform, channelId starts with "api-" and we just use conversationId
   if (
     session.channelId.startsWith("api-") ||
-    session.channelId === (session.threadId || session.conversationId)
+    session.channelId === session.conversationId
   ) {
     return session.conversationId;
   }
-  // For other platforms, use channelId:threadId
+  // For other platforms, use channelId:conversationId
   return `${session.channelId}:${session.conversationId}`;
 }
 
@@ -122,17 +120,16 @@ export interface ISessionManager {
  * Generate session key from context
  */
 export function generateSessionKey(context: SessionContext): string {
-  // Use thread ID as the session key (if in a thread)
+  // Use conversation ID as the session key (if in a conversation)
   // Otherwise use message ID
-  const id =
-    context.conversationId || context.threadId || context.messageId || "";
+  const id = context.conversationId || context.messageId || "";
 
-  // If we have a thread ID, use it directly as the session key
-  // This ensures consistency across all worker executions in the same thread
-  if (context.conversationId || context.threadId) {
-    return context.conversationId || context.threadId || "";
+  // If we have a conversation ID, use it directly as the session key
+  // This ensures consistency across all worker executions in the same conversation
+  if (context.conversationId) {
+    return context.conversationId;
   }
 
-  // For direct messages (no thread), use the channel and message ID
+  // For direct messages (no conversation), use the channel and message ID
   return `${context.channelId}-${id}`;
 }

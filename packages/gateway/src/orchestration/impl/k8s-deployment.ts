@@ -3,6 +3,7 @@ import {
   createChildSpan,
   createLogger,
   ErrorCode,
+  type ModelProviderModule,
   OrchestratorError,
   SpanStatusCode,
 } from "@lobu/core";
@@ -166,9 +167,10 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
 
   constructor(
     config: OrchestratorConfig,
-    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder
+    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder,
+    providerModules: ModelProviderModule[] = []
   ) {
-    super(config, moduleEnvVarsBuilder);
+    super(config, moduleEnvVarsBuilder, providerModules);
 
     const kc = new k8s.KubeConfig();
     try {

@@ -491,16 +491,21 @@ export class SlackResponseRenderer implements ResponseRenderer {
     }
   }
 
-  async stopStreamForThread(_userId: string, threadId: string): Promise<void> {
-    logger.info(`Stopping all streams for thread ${threadId}`);
+  async stopStreamForConversation(
+    _userId: string,
+    conversationId: string
+  ): Promise<void> {
+    logger.info(`Stopping all streams for conversation ${conversationId}`);
     const stoppedCount =
       await this.streamSessionManager.completeAllSessionsForThread(
-        threadId,
+        conversationId,
         true
       );
 
     if (stoppedCount > 0) {
-      logger.info(`Stopped ${stoppedCount} stream(s) for thread ${threadId}`);
+      logger.info(
+        `Stopped ${stoppedCount} stream(s) for conversation ${conversationId}`
+      );
     }
   }
 

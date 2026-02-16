@@ -2,7 +2,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import { createLogger, ErrorCode, OrchestratorError } from "@lobu/core";
+import {
+  createLogger,
+  ErrorCode,
+  type ModelProviderModule,
+  OrchestratorError,
+} from "@lobu/core";
 
 // Type for SandboxManager singleton - using minimal interface for dynamic import
 interface ISandboxManager {
@@ -59,9 +64,10 @@ export class LocalDeploymentManager extends BaseDeploymentManager {
 
   constructor(
     config: OrchestratorConfig,
-    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder
+    moduleEnvVarsBuilder?: ModuleEnvVarsBuilder,
+    providerModules: ModelProviderModule[] = []
   ) {
-    super(config, moduleEnvVarsBuilder);
+    super(config, moduleEnvVarsBuilder, providerModules);
 
     // Resolve worker entry point path
     // In development: packages/worker/src/index.ts

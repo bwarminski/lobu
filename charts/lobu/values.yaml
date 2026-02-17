@@ -173,6 +173,11 @@ worker:
     DISABLE_AUTOUPDATER: "1"
     K8S_SKIP_TLS_VERIFY: "true"
 
+# Orchestrator settings
+orchestrator:
+  idleCleanupMinutes: "30"
+  maxWorkerDeployments: "30"
+
 # Development settings
 gateway:
   enabled: true

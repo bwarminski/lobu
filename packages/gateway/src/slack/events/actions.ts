@@ -5,13 +5,13 @@ const logger = createLogger("dispatcher");
 import type { IModuleRegistry } from "@lobu/core";
 import type { AnyBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
+import {
+  buildSettingsUrl,
+  generateSettingsToken,
+} from "../../auth/settings/token-service";
 import { resolveSpace } from "../../spaces";
 import type { SlackActionBody, SlackContext } from "../types";
 import type { MessageHandler } from "./messages";
-import {
-  generateSettingsToken,
-  buildSettingsUrl,
-} from "../../auth/settings/token-service";
 
 /**
  * Block action handlers for interactive elements

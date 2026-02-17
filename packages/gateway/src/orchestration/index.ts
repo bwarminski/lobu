@@ -153,7 +153,11 @@ export class Orchestrator {
   private isDockerAvailable(): boolean {
     try {
       const { execSync } = require("node:child_process");
-      execSync("docker version", { stdio: "ignore", timeout: 5000 });
+      execSync("docker version", {
+        stdio: "ignore",
+        timeout: 5000,
+        env: { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST },
+      });
       return true;
     } catch {
       return false;

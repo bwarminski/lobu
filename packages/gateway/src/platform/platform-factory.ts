@@ -4,8 +4,8 @@
  */
 
 import {
-  createLogger,
   type AgentOptions as CoreAgentOptions,
+  createLogger,
 } from "@lobu/core";
 import type { PlatformAdapter } from "../platform";
 

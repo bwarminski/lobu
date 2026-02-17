@@ -3,8 +3,8 @@
  */
 
 import {
-  createLogger,
   type AgentOptions as CoreAgentOptions,
+  createLogger,
   type UserInteraction,
   type UserSuggestion,
 } from "@lobu/core";

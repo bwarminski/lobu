@@ -269,7 +269,7 @@ export class WorkerGateway {
         ]);
 
       // Fetch tool lists for authenticated MCPs
-      let mcpTools: Record<string, McpTool[]> = {};
+      const mcpTools: Record<string, McpTool[]> = {};
       if (this.mcpProxy && contextData.mcpStatus.length > 0) {
         const authenticatedMcps = contextData.mcpStatus.filter(
           (mcp) =>
@@ -295,15 +295,21 @@ export class WorkerGateway {
         }
       }
 
+      const wsFileCount = [
+        contextData.workspaceFiles.identityMd,
+        contextData.workspaceFiles.soulMd,
+        contextData.workspaceFiles.userMd,
+      ].filter(Boolean).length;
       logger.info(
-        `Session context for ${userId}: ${Object.keys(mcpConfig.mcpServers || {}).length} MCPs, ${contextData.platformInstructions.length} chars platform instructions, ${contextData.networkInstructions.length} chars network instructions, ${contextData.workspaceInstructions.length} chars workspace instructions, ${contextData.skillsInstructions.length} chars skills instructions, ${contextData.mcpStatus.length} MCP status entries, ${Object.keys(mcpTools).length} MCP tool lists, ${unansweredInteractions.length} unanswered interactions`
+        `Session context for ${userId}: ${Object.keys(mcpConfig.mcpServers || {}).length} MCPs, ${contextData.platformInstructions.length} chars platform instructions, ${contextData.networkInstructions.length} chars network instructions, ${wsFileCount} workspace files, ${contextData.enabledSkills.length} enabled skills, ${contextData.skillsInstructions.length} chars skills instructions, ${contextData.mcpStatus.length} MCP status entries, ${Object.keys(mcpTools).length} MCP tool lists, ${unansweredInteractions.length} unanswered interactions`
       );
 
       return c.json({
         mcpConfig,
         platformInstructions: contextData.platformInstructions,
         networkInstructions: contextData.networkInstructions,
-        workspaceInstructions: contextData.workspaceInstructions,
+        workspaceFiles: contextData.workspaceFiles,
+        enabledSkills: contextData.enabledSkills,
         skillsInstructions: contextData.skillsInstructions,
         mcpStatus: contextData.mcpStatus,
         mcpTools,

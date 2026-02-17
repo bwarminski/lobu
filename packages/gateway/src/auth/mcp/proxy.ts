@@ -8,7 +8,7 @@ import type { McpCredentialStore } from "./credential-store";
 import type { McpInputStore } from "./input-store";
 import { mcpConfigStore } from "./mcp-config-store";
 import { substituteObject, substituteString } from "./string-substitution";
-import type { McpToolCache, McpTool } from "./tool-cache";
+import type { McpTool, McpToolCache } from "./tool-cache";
 
 const logger = createLogger("mcp-proxy");
 

@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import { WebClient } from "@slack/web-api";
+import { Hono } from "hono";
 
 type SlackInfo = {
   teamId: string;

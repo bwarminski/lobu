@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/node";
 import {
   createChildSpan,
   createLogger,
@@ -12,19 +11,20 @@ import {
   retryWithBackoff,
   SpanStatusCode,
 } from "@lobu/core";
+import * as Sentry from "@sentry/node";
 import { platformAuthRegistry } from "../auth/platform-auth";
 import type {
   IMessageQueue,
   QueueJob as SharedQueueJob,
 } from "../infrastructure/queue";
 import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
+import { SystemMessageLimiter } from "../infrastructure/redis/system-message-limiter";
 import {
   type BaseDeploymentManager,
   generateDeploymentName,
   type MessagePayload,
   type OrchestratorConfig,
 } from "./base-deployment-manager";
-import { SystemMessageLimiter } from "../infrastructure/redis/system-message-limiter";
 
 const logger = createLogger("orchestrator");
 

@@ -8,9 +8,9 @@ import { Readable } from "node:stream";
 import { createLogger, sanitizeFilename } from "@lobu/core";
 import {
   type AnyMessageContent,
+  type DownloadableMessage,
   downloadContentFromMessage,
   downloadMediaMessage,
-  type DownloadableMessage,
   type MediaType,
   type WAMessage,
 } from "@whiskeysockets/baileys";

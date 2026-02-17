@@ -3,6 +3,8 @@
 import { createLogger, moduleRegistry } from "@lobu/core";
 import { AdminStatusCache } from "../auth/admin-status-cache";
 import { AgentMetadataStore } from "../auth/agent-metadata-store";
+import { ApiKeyProviderModule } from "../auth/api-key-provider-module";
+import { ChatGPTOAuthModule } from "../auth/chatgpt";
 import { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { ClaudeModelPreferenceStore } from "../auth/claude/model-preference-store";
 import { ClaudeOAuthModule } from "../auth/claude/oauth-module";
@@ -14,20 +16,16 @@ import { McpOAuthModule } from "../auth/mcp/oauth-module";
 import { McpProxy } from "../auth/mcp/proxy";
 import { McpToolCache } from "../auth/mcp/tool-cache";
 import { OAuthDiscoveryService } from "../auth/oauth/discovery";
-import { UserAgentsStore } from "../auth/user-agents-store";
 import {
   type ClaudeOAuthStateStore,
   createClaudeOAuthStateStore,
   createMcpOAuthStateStore,
 } from "../auth/oauth/state-store";
-import { ApiKeyProviderModule } from "../auth/api-key-provider-module";
-import { ChatGPTOAuthModule } from "../auth/chatgpt";
 import { AgentSettingsStore } from "../auth/settings";
+import { UserAgentsStore } from "../auth/user-agents-store";
 import { ChannelBindingService } from "../channels";
 import type { GatewayConfig } from "../config";
 import { WorkerGateway } from "../gateway";
-import { SecretProxy } from "../proxy/secret-proxy";
-import { TokenRefreshJob } from "../proxy/token-refresh-job";
 import type { IMessageQueue } from "../infrastructure/queue";
 import {
   QueueProducer,
@@ -41,6 +39,8 @@ import {
   setScheduledWakeupService,
 } from "../orchestration/scheduled-wakeup";
 import { networkConfigStore } from "../proxy/network-config-store";
+import { SecretProxy } from "../proxy/secret-proxy";
+import { TokenRefreshJob } from "../proxy/token-refresh-job";
 import { InstructionService } from "./instruction-service";
 import { RedisSessionStore, SessionManager } from "./session-manager";
 import { TranscriptionService } from "./transcription-service";

@@ -1,9 +1,9 @@
 import { createLogger } from "@lobu/core";
+import type Redis from "ioredis";
 import type { ClaudeCredentialStore } from "../auth/claude/credential-store";
 import { ClaudeOAuthClient } from "../auth/oauth/claude-client";
 import type { AgentSettingsStore } from "../auth/settings/agent-settings-store";
 import { updateSecretValue } from "./secret-proxy";
-import type Redis from "ioredis";
 
 const logger = createLogger("token-refresh-job");
 

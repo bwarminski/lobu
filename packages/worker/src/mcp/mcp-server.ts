@@ -3,9 +3,9 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createLogger } from "@lobu/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { createLogger } from "@lobu/core";
 import { z } from "zod";
 import type {
   ProcessInfo,

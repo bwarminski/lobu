@@ -14,10 +14,10 @@ import type {
   QueueProducer,
 } from "../../infrastructure/queue/queue-producer";
 import type { InteractionService } from "../../interactions";
-import type { ISessionManager, ThreadSession } from "../../session";
-import { generateSessionKey } from "../../session";
 import { generateAgentSelectorToken } from "../../routes/public/agent-selector-page";
 import type { TranscriptionService } from "../../services/transcription-service";
+import type { ISessionManager, ThreadSession } from "../../session";
+import { generateSessionKey } from "../../session";
 import { resolveSpace } from "../../spaces";
 import type { MessageHandlerConfig } from "../config";
 import type { SlackContext, SlackMessageEvent } from "../types";

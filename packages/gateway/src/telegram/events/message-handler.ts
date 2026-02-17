@@ -4,9 +4,9 @@
  */
 
 import {
+  type AgentOptions as CoreAgentOptions,
   createLogger,
   generateTraceId,
-  type AgentOptions as CoreAgentOptions,
 } from "@lobu/core";
 import type { Bot } from "grammy";
 import type { AdminStatusCache } from "../../auth/admin-status-cache";
@@ -22,12 +22,12 @@ import type {
   MessagePayload,
   QueueProducer,
 } from "../../infrastructure/queue/queue-producer";
-import type { ISessionManager } from "../../session";
 import { generateAgentSelectorToken } from "../../routes/public/agent-selector-page";
+import type { ISessionManager } from "../../session";
 import { resolveSpace } from "../../spaces";
 import type { TelegramConfig } from "../config";
 import type { TelegramInteractionRenderer } from "../interactions";
-import { type TelegramContext, isGroupChat } from "../types";
+import { isGroupChat, type TelegramContext } from "../types";
 
 const logger = createLogger("telegram-message-handler");
 

@@ -3,13 +3,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger, type ToolsConfig } from "@lobu/core";
+import { getModel } from "@mariozechner/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
-import { getModel } from "@mariozechner/pi-ai";
 import type { InteractionClient } from "../common/interaction-client";
 import { BaseWorker } from "../core/base-worker";
 import type {
@@ -17,16 +17,16 @@ import type {
   SessionExecutionResult,
   WorkerConfig,
 } from "../core/types";
-import { OpenClawCoreInstructionProvider } from "./instructions";
 import { createOpenClawCustomTools } from "./custom-tools";
-import { createOpenClawTools } from "./tools";
+import { OpenClawCoreInstructionProvider } from "./instructions";
+import { OpenClawProgressProcessor } from "./processor";
+import { getOpenClawSessionContext } from "./session-context";
 import {
   buildToolPolicy,
   enforceBashCommandPolicy,
   isToolAllowedByPolicy,
 } from "./tool-policy";
-import { getOpenClawSessionContext } from "./session-context";
-import { OpenClawProgressProcessor } from "./processor";
+import { createOpenClawTools } from "./tools";
 
 const logger = createLogger("openclaw-worker");
 

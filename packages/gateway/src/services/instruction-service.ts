@@ -19,75 +19,26 @@ interface McpStatus {
   configured: boolean;
 }
 
+interface WorkspaceFiles {
+  identityMd?: string;
+  soulMd?: string;
+  userMd?: string;
+}
+
+interface EnabledSkill {
+  name: string;
+  repo: string;
+  description?: string;
+  content: string;
+}
+
 interface SessionContextData {
   platformInstructions: string;
   networkInstructions: string;
   skillsInstructions: string;
-  workspaceInstructions: string;
+  workspaceFiles: WorkspaceFiles;
+  enabledSkills: EnabledSkill[];
   mcpStatus: McpStatus[];
-}
-
-/**
- * Strip YAML frontmatter from markdown content.
- * Frontmatter is delimited by --- at the start and end.
- */
-function stripFrontMatter(content: string): string {
-  if (!content.startsWith("---")) return content;
-  const endIndex = content.indexOf("\n---", 3);
-  if (endIndex === -1) return content;
-  return content.slice(endIndex + "\n---".length).replace(/^\s+/, "");
-}
-
-/**
- * Provides workspace identity/instruction files (SOUL.md, USER.md, IDENTITY.md).
- * These define the agent's personality, user context, and identity.
- * Injected at highest priority since they shape all agent behavior.
- */
-class WorkspaceFilesInstructionProvider implements InstructionProvider {
-  name = "workspace-files";
-  priority = 5;
-
-  constructor(private agentSettingsStore?: AgentSettingsStore) {}
-
-  async getInstructions(context: InstructionContext): Promise<string> {
-    if (!this.agentSettingsStore || !context.agentId) {
-      return "";
-    }
-
-    try {
-      const settings = await this.agentSettingsStore.getSettings(
-        context.agentId
-      );
-      if (!settings) return "";
-
-      const sections: string[] = [];
-
-      if (settings.identityMd?.trim()) {
-        sections.push(
-          `## Agent Identity\n\n${stripFrontMatter(settings.identityMd)}`
-        );
-      }
-
-      if (settings.soulMd?.trim()) {
-        sections.push(
-          `## Agent Instructions\n\n${stripFrontMatter(settings.soulMd)}`
-        );
-      }
-
-      if (settings.userMd?.trim()) {
-        sections.push(
-          `## User Context\n\n${stripFrontMatter(settings.userMd)}`
-        );
-      }
-
-      if (sections.length === 0) return "";
-
-      return sections.join("\n\n");
-    } catch (error) {
-      logger.error("Failed to get workspace files instructions", { error });
-      return "";
-    }
-  }
 }
 
 /**
@@ -133,7 +84,7 @@ The following skills are installed and available. When a task matches a skill, r
 
 ${skillSummaries}
 
-**To read full skill instructions:** \`cat ~/.claude/skills/*/SKILL.md\` or \`npx skills list\` to see installed skill paths, then read the relevant SKILL.md file.
+**To read full skill instructions:** \`cat ~/.claude/skills/*/SKILL.md\` to read the relevant SKILL.md file.
 
 ---
 
@@ -147,15 +98,14 @@ ${this.getGenericSkillsInstructions()}`;
   private getGenericSkillsInstructions(): string {
     return `## Skills
 
-You can extend your capabilities by installing skills from [skills.sh](https://skills.sh), an open ecosystem of agent skills.
+You can extend your capabilities by installing skills from [ClawHub](https://clawhub.ai), the OpenClaw skill registry.
 
 **Available commands:**
-- \`npx skills find [query]\` - Search for skills interactively or by keyword
-- \`npx skills add owner/repo -g -y\` - Install a skill globally
-- \`npx skills check\` - Check installed skills for updates
-- \`npx skills update\` - Update all skills to latest versions
+- \`npx clawhub search [query]\` - Search for skills by keyword
+- \`npx clawhub install <slug>\` - Install a skill
+- \`npx clawhub list\` - List installed skills
 
-When the user asks about adding capabilities, finding tools, or extending functionality, search for relevant skills first using \`npx skills find\`.`;
+When the user asks about adding capabilities, finding tools, or extending functionality, search for relevant skills first using \`npx clawhub search\`.`;
   }
 }
 
@@ -245,18 +195,16 @@ You can only access the allowed domains listed above. All other external request
 export class InstructionService {
   private platformProviders = new Map<string, InstructionProvider>();
   private mcpConfigService?: McpConfigService;
+  private agentSettingsStore?: AgentSettingsStore;
   private skillsProvider: SkillsInstructionProvider;
-  private workspaceFilesProvider: WorkspaceFilesInstructionProvider;
 
   constructor(
     mcpConfigService?: McpConfigService,
     agentSettingsStore?: AgentSettingsStore
   ) {
     this.mcpConfigService = mcpConfigService;
+    this.agentSettingsStore = agentSettingsStore;
     this.skillsProvider = new SkillsInstructionProvider(agentSettingsStore);
-    this.workspaceFilesProvider = new WorkspaceFilesInstructionProvider(
-      agentSettingsStore
-    );
   }
 
   /**
@@ -311,16 +259,41 @@ export class InstructionService {
       logger.error("Failed to get network instructions:", error);
     }
 
-    // Get workspace files instructions (SOUL.md, USER.md, IDENTITY.md)
-    let workspaceInstructions = "";
-    try {
-      workspaceInstructions =
-        await this.workspaceFilesProvider.getInstructions(context);
-      logger.info(
-        `Got workspace instructions (${workspaceInstructions.length} chars)`
-      );
-    } catch (error) {
-      logger.error("Failed to get workspace instructions:", error);
+    // Get raw workspace files and enabled skills from agent settings
+    // Worker writes these to the filesystem before the session starts
+    let workspaceFiles: WorkspaceFiles = {};
+    let enabledSkills: EnabledSkill[] = [];
+    if (this.agentSettingsStore && context.agentId) {
+      try {
+        const settings = await this.agentSettingsStore.getSettings(
+          context.agentId
+        );
+        if (settings) {
+          workspaceFiles = {
+            identityMd: settings.identityMd,
+            soulMd: settings.soulMd,
+            userMd: settings.userMd,
+          };
+          enabledSkills = (settings.skillsConfig?.skills || [])
+            .filter((s) => s.enabled && s.content)
+            .map((s) => ({
+              name: s.name,
+              repo: s.repo,
+              description: s.description,
+              content: s.content!,
+            }));
+        }
+        const wsCount = [
+          settings?.identityMd,
+          settings?.soulMd,
+          settings?.userMd,
+        ].filter(Boolean).length;
+        logger.info(
+          `Got ${wsCount} workspace files, ${enabledSkills.length} enabled skills from settings`
+        );
+      } catch (error) {
+        logger.error("Failed to get workspace files / skills:", error);
+      }
     }
 
     // Get skills instructions (includes enabled skills from agent settings)
@@ -350,7 +323,8 @@ export class InstructionService {
       platformInstructions,
       networkInstructions,
       skillsInstructions,
-      workspaceInstructions,
+      workspaceFiles,
+      enabledSkills,
       mcpStatus,
     };
   }

@@ -2,6 +2,8 @@ import { createLogger } from "@lobu/core";
 
 const logger = createLogger("skills-fetcher");
 
+const CLAWHUB_API_URL = "https://wry-manatee-359.convex.site/api/v1";
+
 /**
  * Parsed skill metadata from SKILL.md file
  */
@@ -22,38 +24,60 @@ export interface CuratedSkill {
 }
 
 /**
- * Skill entry from skills.sh API
+ * Skill entry from ClawHub API (replaces SkillsShSkill)
+ * Kept as SkillsShSkill for backwards compatibility with route consumers
  */
 export interface SkillsShSkill {
-  id: string; // Full path like "vercel-labs/skills/find-skills"
-  skillId: string; // Short name
+  id: string; // ClawHub slug (e.g., "pdf")
+  skillId: string; // Same as slug
   name: string; // Display name
-  installs: number; // Popularity count
-  source: string; // Origin/namespace
+  installs: number; // Downloads count
+  source: string; // "clawhub"
 }
 
 /**
- * Response from skills.sh API
+ * ClawHub list response
  */
-interface SkillsShApiResponse {
-  skills: SkillsShSkill[];
-  hasMore: boolean;
+interface ClawHubListItem {
+  slug: string;
+  displayName: string;
+  summary?: string | null;
+  tags?: Record<string, string>;
+  stats?: {
+    downloads?: number;
+    installsCurrent?: number;
+    installsAllTime?: number;
+    stars?: number;
+  };
+  latestVersion?: { version: string } | null;
+}
+
+interface ClawHubListResponse {
+  items: ClawHubListItem[];
+  nextCursor: string | null;
 }
 
 /**
- * Response from skills.sh search API
+ * ClawHub search response
  */
-interface SkillsShSearchResponse {
-  query: string;
-  searchType: string;
-  skills: SkillsShSkill[];
+interface ClawHubSearchResult {
+  score: number;
+  slug: string;
+  displayName: string;
+  summary?: string | null;
+  version?: string | null;
+}
+
+interface ClawHubSearchResponse {
+  results: ClawHubSearchResult[];
 }
 
 /**
- * Service for fetching SKILL.md content from GitHub repositories.
+ * Service for fetching skills from ClawHub (OpenClaw skill registry).
  *
  * Responsibilities:
- * - Fetch SKILL.md from owner/repo paths via GitHub raw content API
+ * - Search and list skills via ClawHub REST API
+ * - Fetch SKILL.md content via ClawHub file endpoint
  * - Parse YAML frontmatter for name/description
  * - Cache content with TTL
  * - Provide curated popular skills list
@@ -62,63 +86,71 @@ export class SkillsFetcherService {
   private cache: Map<string, { data: SkillMetadata; fetchedAt: number }>;
   private readonly CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-  // Cache for skills.sh API results
-  private skillsShCache: { skills: SkillsShSkill[]; fetchedAt: number } | null =
+  // Cache for ClawHub list results
+  private listCache: { skills: SkillsShSkill[]; fetchedAt: number } | null =
     null;
-  private readonly SKILLS_SH_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-  private readonly SKILLS_SH_API_URL = "https://skills.sh/api/skills";
-  private readonly SKILLS_SH_SEARCH_URL = "https://skills.sh/api/search";
+  private readonly LIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
   /**
-   * Curated list of popular skills from skills.sh
+   * Curated list of popular skills from ClawHub
    * These appear in the settings page dropdown for easy discovery
-   * Note: repo format matches skills.sh IDs (owner/repo/skillName)
+   * repo field uses ClawHub slug format
    */
   static readonly CURATED_SKILLS: CuratedSkill[] = [
-    // Documents
+    // Productivity
     {
-      repo: "anthropics/skills/pdf",
-      name: "pdf",
-      description: "PDF document processing and generation",
-      category: "Documents",
+      repo: "gog",
+      name: "gog",
+      description:
+        "Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs",
+      category: "Productivity",
     },
     {
-      repo: "anthropics/skills/docx",
-      name: "docx",
-      description: "Word document creation and editing",
-      category: "Documents",
+      repo: "tavily-search",
+      name: "tavily-search",
+      description: "AI-optimized web search via Tavily API",
+      category: "Productivity",
     },
     {
-      repo: "anthropics/skills/xlsx",
-      name: "xlsx",
-      description: "Excel spreadsheet creation",
-      category: "Documents",
-    },
-    {
-      repo: "anthropics/skills/pptx",
-      name: "pptx",
-      description: "PowerPoint presentation creation",
-      category: "Documents",
+      repo: "summarize",
+      name: "summarize",
+      description:
+        "Summarize URLs or files (web, PDFs, images, audio, YouTube)",
+      category: "Productivity",
     },
     // Development
     {
-      repo: "anthropics/skills/frontend-design",
+      repo: "github",
+      name: "github",
+      description: "Interact with GitHub using the gh CLI",
+      category: "Development",
+    },
+    {
+      repo: "agent-browser",
+      name: "agent-browser",
+      description: "Headless browser automation CLI",
+      category: "Development",
+    },
+    {
+      repo: "frontend-design",
       name: "frontend-design",
       description: "Frontend design best practices",
       category: "Development",
     },
+    // Documents
     {
-      repo: "anthropics/skills/mcp-builder",
-      name: "mcp-builder",
-      description: "Build MCP servers",
-      category: "Development",
+      repo: "pdf",
+      name: "pdf",
+      description: "PDF document processing and generation",
+      category: "Documents",
     },
-    // Creative
+    // Agent
     {
-      repo: "remotion-dev/skills/remotion",
-      name: "remotion",
-      description: "Video creation with React",
-      category: "Creative",
+      repo: "self-improving-agent",
+      name: "self-improving-agent",
+      description:
+        "Captures learnings and corrections for continuous improvement",
+      category: "Agent",
     },
   ];
 
@@ -127,182 +159,59 @@ export class SkillsFetcherService {
   }
 
   /**
-   * Fetch SKILL.md content from GitHub.
-   * First tries common URL patterns, then falls back to GitHub tree API to find exact path.
+   * Fetch SKILL.md content from ClawHub.
+   * @param slug - ClawHub skill slug (e.g., "pdf", "cheese-brain")
    */
-  async fetchSkill(repo: string): Promise<SkillMetadata> {
+  async fetchSkill(slug: string): Promise<SkillMetadata> {
     // Check cache
-    const cached = this.cache.get(repo);
+    const cached = this.cache.get(slug);
     if (cached && Date.now() - cached.fetchedAt < this.CACHE_TTL_MS) {
-      logger.debug(`Returning cached skill: ${repo}`);
+      logger.debug(`Returning cached skill: ${slug}`);
       return cached.data;
     }
 
-    // Build list of possible GitHub URLs to try
-    const urls = this.buildPossibleGitHubUrls(repo);
-    logger.info(`Fetching skill from ${repo}, trying ${urls.length} URLs`);
-
-    // Try common patterns first (faster)
-    for (const url of urls) {
-      try {
-        logger.debug(`Trying: ${url}`);
-        const response = await fetch(url, {
-          headers: { Accept: "text/plain" },
-        });
-
-        if (response.ok) {
-          const content = await response.text();
-          const metadata = this.parseSkillContent(content, repo);
-
-          // Cache result
-          this.cache.set(repo, { data: metadata, fetchedAt: Date.now() });
-          logger.info(`Cached skill: ${repo} (${metadata.name}) from ${url}`);
-
-          return metadata;
-        }
-      } catch {
-        // Continue to next URL
-      }
-    }
-
-    // Fallback: Use GitHub tree API to find SKILL.md
-    logger.info(`Common patterns failed, using GitHub tree API for ${repo}`);
-    const skillPath = await this.findSkillPathViaTreeApi(repo);
-
-    if (skillPath) {
-      const parts = repo.split("/");
-      const owner = parts[0] || "";
-      const repoName = parts[1] || "";
-      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/main/${skillPath}`;
-
-      const response = await fetch(url, { headers: { Accept: "text/plain" } });
-      if (response.ok) {
-        const content = await response.text();
-        const metadata = this.parseSkillContent(content, repo);
-
-        this.cache.set(repo, { data: metadata, fetchedAt: Date.now() });
-        logger.info(`Cached skill: ${repo} (${metadata.name}) via tree API`);
-
-        return metadata;
-      }
-    }
-
-    throw new Error(`Failed to fetch skill from ${repo}: SKILL.md not found`);
-  }
-
-  /**
-   * Use GitHub's tree API to find SKILL.md path for a skill.
-   * This is slower but reliable when common patterns don't match.
-   */
-  private async findSkillPathViaTreeApi(repo: string): Promise<string | null> {
-    const parts = repo.split("/");
-    if (parts.length < 2) return null;
-
-    const owner = parts[0] || "";
-    const repoName = parts[1] || "";
-    const skillName = parts.length > 2 ? parts[parts.length - 1] : null;
+    logger.info(`Fetching skill from ClawHub: ${slug}`);
 
     try {
-      const treeUrl = `https://api.github.com/repos/${owner}/${repoName}/git/trees/main?recursive=1`;
-      const response = await fetch(treeUrl, {
-        headers: { Accept: "application/vnd.github+json" },
+      const url = `${CLAWHUB_API_URL}/skills/${encodeURIComponent(slug)}/file?path=SKILL.md`;
+      const response = await fetch(url, {
+        headers: { Accept: "text/plain" },
       });
 
       if (!response.ok) {
-        logger.warn(`GitHub tree API returned ${response.status} for ${repo}`);
-        return null;
-      }
-
-      interface TreeItem {
-        path: string;
-        type: string;
-      }
-      const data = (await response.json()) as { tree: TreeItem[] };
-      const skillMdFiles = data.tree
-        .filter(
-          (item) => item.path.endsWith("/SKILL.md") || item.path === "SKILL.md"
-        )
-        .map((item) => item.path);
-
-      if (skillMdFiles.length === 0) return null;
-
-      // If we have a skill name, find the matching SKILL.md
-      if (skillName) {
-        const match = skillMdFiles.find((path) =>
-          path.includes(`/${skillName}/SKILL.md`)
+        throw new Error(
+          `ClawHub returned ${response.status} for skill ${slug}`
         );
-        if (match) return match;
       }
 
-      // Return first SKILL.md found
-      return skillMdFiles[0] || null;
+      const content = await response.text();
+      const metadata = this.parseSkillContent(content, slug);
+
+      // Cache result
+      this.cache.set(slug, { data: metadata, fetchedAt: Date.now() });
+      logger.info(`Cached skill: ${slug} (${metadata.name})`);
+
+      return metadata;
     } catch (error) {
-      logger.error(`GitHub tree API failed for ${repo}`, { error });
-      return null;
+      logger.error(`Failed to fetch skill ${slug} from ClawHub`, { error });
+      throw new Error(
+        `Failed to fetch skill ${slug}: ${error instanceof Error ? error.message : "unknown error"}`
+      );
     }
-  }
-
-  /**
-   * Build list of possible GitHub raw content URLs to try.
-   * Skills.sh IDs like "anthropics/skills/pdf" may have SKILL.md at various locations:
-   * - /skills/{name}/SKILL.md
-   * - /.claude/skills/{name}/SKILL.md
-   * - /{path}/SKILL.md
-   * - /SKILL.md
-   */
-  private buildPossibleGitHubUrls(repo: string): string[] {
-    const parts = repo.split("/");
-
-    if (parts.length < 2) {
-      throw new Error(`Invalid skill repo format: ${repo}`);
-    }
-
-    const owner = parts[0] || "";
-    const repoName = parts[1] || "";
-    const base = `https://raw.githubusercontent.com/${owner}/${repoName}/main`;
-    const urls: string[] = [];
-
-    // If only owner/repo, try root SKILL.md
-    if (parts.length === 2) {
-      urls.push(`${base}/SKILL.md`);
-      urls.push(`${base}/skills/SKILL.md`);
-      urls.push(`${base}/.claude/skills/SKILL.md`);
-      return urls;
-    }
-
-    // For owner/repo/skillName format (e.g., anthropics/skills/pdf)
-    const skillName = parts[parts.length - 1] || "";
-    const path = parts.slice(2).join("/");
-
-    // Try common locations in order of likelihood
-    urls.push(`${base}/skills/${skillName}/SKILL.md`);
-    urls.push(`${base}/.claude/skills/${skillName}/SKILL.md`);
-    urls.push(`${base}/${path}/SKILL.md`);
-    urls.push(`${base}/SKILL.md`);
-
-    return urls;
   }
 
   /**
    * Parse SKILL.md content and extract YAML frontmatter.
-   * Frontmatter format:
-   * ---
-   * name: skill-name
-   * description: What this skill does
-   * ---
    */
-  private parseSkillContent(content: string, repo: string): SkillMetadata {
-    // Extract YAML frontmatter (between --- markers)
+  private parseSkillContent(content: string, slug: string): SkillMetadata {
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
 
-    // Default name from repo path
-    let name = repo.split("/").pop() || "unknown";
+    let name = slug;
     let description = "";
 
     if (frontmatterMatch?.[1]) {
       const frontmatter = frontmatterMatch[1];
 
-      // Simple YAML parsing for name and description
       const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
       if (nameMatch?.[1]) {
         name = nameMatch[1].trim();
@@ -326,12 +235,11 @@ export class SkillsFetcherService {
 
   /**
    * Clear cached skill content.
-   * @param repo - Specific repo to clear, or all if not provided
    */
-  clearCache(repo?: string): void {
-    if (repo) {
-      this.cache.delete(repo);
-      logger.debug(`Cleared cache for: ${repo}`);
+  clearCache(slug?: string): void {
+    if (slug) {
+      this.cache.delete(slug);
+      logger.debug(`Cleared cache for: ${slug}`);
     } else {
       this.cache.clear();
       logger.debug("Cleared all skill cache");
@@ -339,90 +247,96 @@ export class SkillsFetcherService {
   }
 
   /**
-   * Fetch all skills from skills.sh API (with caching).
-   * The API doesn't support server-side search, so we fetch all and filter client-side.
+   * Fetch popular skills from ClawHub API (with caching).
    */
   async fetchSkillsFromRegistry(): Promise<SkillsShSkill[]> {
-    // Check cache
     if (
-      this.skillsShCache &&
-      Date.now() - this.skillsShCache.fetchedAt < this.SKILLS_SH_CACHE_TTL_MS
+      this.listCache &&
+      Date.now() - this.listCache.fetchedAt < this.LIST_CACHE_TTL_MS
     ) {
       logger.debug(
-        `Returning cached skills.sh data (${this.skillsShCache.skills.length} skills)`
+        `Returning cached ClawHub data (${this.listCache.skills.length} skills)`
       );
-      return this.skillsShCache.skills;
+      return this.listCache.skills;
     }
 
-    logger.info("Fetching skills from skills.sh API...");
+    logger.info("Fetching skills from ClawHub API...");
 
     try {
-      // Fetch first page
-      const response = await fetch(this.SKILLS_SH_API_URL);
+      const response = await fetch(
+        `${CLAWHUB_API_URL}/skills?sort=downloads&limit=50`
+      );
       if (!response.ok) {
-        throw new Error(`skills.sh API returned ${response.status}`);
+        throw new Error(`ClawHub API returned ${response.status}`);
       }
 
-      const data = (await response.json()) as SkillsShApiResponse;
-      const allSkills = data.skills;
+      const data = (await response.json()) as ClawHubListResponse;
+      const skills = data.items.map((item) => this.toSkillsShSkill(item));
 
-      // The API returns skills sorted by popularity, top ~50 is usually enough
-      // If you need more, you could paginate, but for search purposes top skills suffice
-      logger.info(`Fetched ${allSkills.length} skills from skills.sh`);
+      logger.info(`Fetched ${skills.length} skills from ClawHub`);
 
-      // Cache the results
-      this.skillsShCache = {
-        skills: allSkills,
-        fetchedAt: Date.now(),
-      };
-
-      return allSkills;
+      this.listCache = { skills, fetchedAt: Date.now() };
+      return skills;
     } catch (error) {
-      logger.error("Failed to fetch skills from skills.sh", { error });
-      // Return empty array on error, don't break the UI
+      logger.error("Failed to fetch skills from ClawHub", { error });
       return [];
     }
   }
 
   /**
-   * Search skills from skills.sh registry using their search API.
-   * @param query - Search query (fuzzy matched against skill names and repos)
-   * @param limit - Maximum number of results (default 20)
+   * Search skills from ClawHub registry.
    */
   async searchSkills(query: string, limit = 20): Promise<SkillsShSkill[]> {
     if (!query.trim()) {
-      // Return top skills by popularity if no query
       const allSkills = await this.fetchSkillsFromRegistry();
       return allSkills.slice(0, limit);
     }
 
-    logger.info(`Searching skills.sh for: ${query}`);
+    logger.info(`Searching ClawHub for: ${query}`);
 
     try {
-      const url = `${this.SKILLS_SH_SEARCH_URL}?q=${encodeURIComponent(query)}`;
+      const url = `${CLAWHUB_API_URL}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
       const response = await fetch(url);
 
       if (!response.ok) {
-        throw new Error(`skills.sh search API returned ${response.status}`);
+        throw new Error(`ClawHub search API returned ${response.status}`);
       }
 
-      const data = (await response.json()) as SkillsShSearchResponse;
-      logger.info(`Found ${data.skills.length} skills for query: ${query}`);
+      const data = (await response.json()) as ClawHubSearchResponse;
+      logger.info(`Found ${data.results.length} skills for query: ${query}`);
 
-      return data.skills.slice(0, limit);
+      return data.results.slice(0, limit).map((result) => ({
+        id: result.slug,
+        skillId: result.slug,
+        name: result.displayName,
+        installs: 0,
+        source: "clawhub",
+      }));
     } catch (error) {
-      logger.error("Failed to search skills from skills.sh", { error, query });
-      // Fall back to client-side filtering on error
+      logger.error("Failed to search ClawHub", { error, query });
+      // Fall back to client-side filtering
       const allSkills = await this.fetchSkillsFromRegistry();
       const lowerQuery = query.toLowerCase().trim();
       return allSkills
         .filter(
           (skill) =>
             skill.name.toLowerCase().includes(lowerQuery) ||
-            skill.skillId.toLowerCase().includes(lowerQuery) ||
             skill.id.toLowerCase().includes(lowerQuery)
         )
         .slice(0, limit);
     }
+  }
+
+  /**
+   * Convert ClawHub list item to SkillsShSkill format
+   */
+  private toSkillsShSkill(item: ClawHubListItem): SkillsShSkill {
+    return {
+      id: item.slug,
+      skillId: item.slug,
+      name: item.displayName,
+      installs: item.stats?.downloads || 0,
+      source: "clawhub",
+    };
   }
 }

@@ -1,5 +1,5 @@
-import type Redis from "ioredis";
 import { createLogger } from "@lobu/core";
+import type Redis from "ioredis";
 
 const logger = createLogger("system-message-limiter");
 

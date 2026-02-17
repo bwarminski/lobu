@@ -1,14 +1,138 @@
 #!/usr/bin/env bun
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { Options as SDKOptions } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createLogger, sanitizeForLogging, type ToolsConfig } from "@lobu/core";
 import type { InteractionClient } from "../common/interaction-client";
 import type { ProgressCallback } from "../core/types";
 import { createCustomToolsServer } from "./custom-tools";
-import { getSessionContext } from "./session-manager";
+import {
+  type EnabledSkill,
+  getSessionContext,
+  type WorkspaceFiles,
+} from "./session-manager";
 
 const logger = createLogger("claude-sdk");
+
+function stripFrontMatter(content: string): string {
+  if (!content.startsWith("---")) return content;
+  const endIndex = content.indexOf("\n---", 3);
+  if (endIndex === -1) return content;
+  return content.slice(endIndex + "\n---".length).replace(/^\s+/, "");
+}
+
+async function readFileIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write settings UI content to workspace filesystem as fallback files.
+ * Only writes if no local file already exists (filesystem takes precedence).
+ * Also writes enabled skills to ~/.claude/skills/{name}/SKILL.md.
+ */
+async function syncSettingsToWorkspace(
+  workingDirectory: string,
+  workspaceFiles: WorkspaceFiles,
+  enabledSkills: EnabledSkill[]
+): Promise<void> {
+  const baseDir = process.env.WORKSPACE_DIR || "/workspace";
+  const searchDirs = [workingDirectory];
+  if (workingDirectory !== baseDir) {
+    searchDirs.push(baseDir);
+  }
+
+  // Write workspace identity files (only if no local file exists)
+  const identityFiles = [
+    { name: "IDENTITY.md", content: workspaceFiles.identityMd },
+    { name: "SOUL.md", content: workspaceFiles.soulMd },
+    { name: "USER.md", content: workspaceFiles.userMd },
+  ];
+
+  for (const file of identityFiles) {
+    if (!file.content?.trim()) continue;
+
+    // Check if file already exists on disk
+    let existsOnDisk = false;
+    for (const dir of searchDirs) {
+      const existing = await readFileIfExists(path.join(dir, file.name));
+      if (existing?.trim()) {
+        existsOnDisk = true;
+        break;
+      }
+    }
+
+    // Write to workspace root if no local file exists
+    if (!existsOnDisk) {
+      try {
+        await fs.writeFile(
+          path.join(baseDir, file.name),
+          file.content,
+          "utf-8"
+        );
+        logger.info(`Wrote ${file.name} to ${baseDir} from settings`);
+      } catch (error) {
+        logger.debug(`Could not write ${file.name}: ${error}`);
+      }
+    }
+  }
+
+  // Write enabled skills to ~/.claude/skills/{name}/SKILL.md
+  if (enabledSkills.length > 0) {
+    const homeDir = process.env.HOME || baseDir;
+    for (const skill of enabledSkills) {
+      const skillDir = path.join(homeDir, ".claude", "skills", skill.name);
+      const skillPath = path.join(skillDir, "SKILL.md");
+      try {
+        await fs.mkdir(skillDir, { recursive: true });
+        await fs.writeFile(skillPath, skill.content, "utf-8");
+        logger.info(`Wrote skill ${skill.name} to ${skillPath}`);
+      } catch (error) {
+        logger.debug(`Could not write skill ${skill.name}: ${error}`);
+      }
+    }
+  }
+}
+
+/**
+ * Resolve workspace identity files (SOUL.md, USER.md, IDENTITY.md).
+ * Reads from filesystem (after syncSettingsToWorkspace has run).
+ */
+async function resolveWorkspaceFiles(
+  workingDirectory: string
+): Promise<string> {
+  const baseDir = process.env.WORKSPACE_DIR || "/workspace";
+  const searchDirs = [workingDirectory];
+  if (workingDirectory !== baseDir) {
+    searchDirs.push(baseDir);
+  }
+
+  const files = [
+    { name: "IDENTITY.md", heading: "Agent Identity" },
+    { name: "SOUL.md", heading: "Agent Instructions" },
+    { name: "USER.md", heading: "User Context" },
+  ];
+
+  const sections: string[] = [];
+
+  for (const file of files) {
+    for (const dir of searchDirs) {
+      const content = await readFileIfExists(path.join(dir, file.name));
+      if (content?.trim()) {
+        sections.push(`## ${file.heading}\n\n${stripFrontMatter(content)}`);
+        logger.info(`Loaded ${file.name} from ${dir}`);
+        break;
+      }
+    }
+  }
+
+  return sections.join("\n\n");
+}
 
 /**
  * Type guard to check if object has setPermissionMode method
@@ -148,8 +272,17 @@ export async function runClaudeWithSDK(
   logger.info("Starting Claude SDK execution");
 
   try {
-    // Fetch session context (MCP config + gateway instructions) in a single request
-    const { mcpServers, gatewayInstructions } = await getSessionContext();
+    // Fetch session context (MCP config + gateway instructions + workspace files + skills)
+    const { mcpServers, gatewayInstructions, workspaceFiles, enabledSkills } =
+      await getSessionContext();
+
+    // Write settings UI content to workspace filesystem
+    // (workspace files as fallback when no local files exist, skills always written)
+    await syncSettingsToWorkspace(
+      workingDirectory || process.cwd(),
+      workspaceFiles,
+      enabledSkills
+    );
 
     const normalizeToolList = (
       value?: string | string[]
@@ -218,10 +351,17 @@ export async function runClaudeWithSDK(
       logger.info("Continuing most recent Claude session");
     }
 
+    // Resolve workspace identity files (SOUL.md, USER.md, IDENTITY.md)
+    // These were already synced to disk by syncSettingsToWorkspace above
+    const workspaceInstructions = await resolveWorkspaceFiles(
+      workingDirectory || process.cwd()
+    );
+
     // Add system prompts
-    // Merge gateway instructions (platform + MCP) with worker instructions
+    // Merge workspace + gateway + worker instructions
     const instructionParts = [
-      gatewayInstructions, // From gateway (platform + MCP built from status)
+      workspaceInstructions, // Identity/instructions from filesystem or settings UI
+      gatewayInstructions, // From gateway (platform + network + skills + MCP)
       options.appendSystemPrompt, // From worker (core + projects + process manager)
     ];
 

@@ -43,7 +43,8 @@ interface SessionContextResponse {
   mcpConfig?: MCPConfigResponse;
   platformInstructions: string;
   networkInstructions: string;
-  workspaceInstructions?: string;
+  workspaceFiles?: WorkspaceFiles;
+  enabledSkills?: EnabledSkill[];
   skillsInstructions?: string;
   mcpStatus: McpStatus[];
   mcpTools?: Record<string, import("@lobu/core").McpToolDef[]>;
@@ -94,9 +95,24 @@ function buildMcpInstructions(mcpStatus: McpStatus[]): string {
  * Fetch session context from gateway (unified endpoint)
  * Returns MCP config, platform instructions, MCP status data, and unanswered interactions
  */
+export interface WorkspaceFiles {
+  identityMd?: string;
+  soulMd?: string;
+  userMd?: string;
+}
+
+export interface EnabledSkill {
+  name: string;
+  repo: string;
+  description?: string;
+  content: string;
+}
+
 export async function getSessionContext(): Promise<{
   mcpServers?: Record<string, McpServerConfig>;
   gatewayInstructions: string;
+  workspaceFiles: WorkspaceFiles;
+  enabledSkills: EnabledSkill[];
   unansweredInteractions: PendingInteraction[];
 }> {
   const dispatcherUrl = process.env.DISPATCHER_URL;
@@ -104,7 +120,12 @@ export async function getSessionContext(): Promise<{
 
   if (!dispatcherUrl || !workerToken) {
     logger.warn("Missing dispatcher URL or worker token for session context");
-    return { gatewayInstructions: "", unansweredInteractions: [] };
+    return {
+      gatewayInstructions: "",
+      workspaceFiles: {},
+      enabledSkills: [],
+      unansweredInteractions: [],
+    };
   }
 
   try {
@@ -122,7 +143,12 @@ export async function getSessionContext(): Promise<{
       logger.warn("Gateway returned non-success status for session context", {
         status: response.status,
       });
-      return { gatewayInstructions: "", unansweredInteractions: [] };
+      return {
+        gatewayInstructions: "",
+        workspaceFiles: {},
+        enabledSkills: [],
+        unansweredInteractions: [],
+      };
     }
 
     const data = (await response.json()) as SessionContextResponse;
@@ -189,11 +215,11 @@ export async function getSessionContext(): Promise<{
         ? buildMcpToolInstructions(data.mcpTools, dispatcherUrl)
         : "";
 
-    // Merge workspace + platform + network + skills + MCP instructions
-    // Workspace instructions (SOUL.md, USER.md, IDENTITY.md) come first
-    // since they define the agent's core identity and behavior
+    // Merge platform + network + skills + MCP instructions
+    // Note: workspace instructions (SOUL.md, USER.md, IDENTITY.md) are handled
+    // by WorkspaceFilesLocalProvider on the worker side (filesystem-first),
+    // with gateway-provided content as fallback when no local files exist
     const gatewayInstructions = [
-      data.workspaceInstructions,
       data.platformInstructions,
       data.networkInstructions,
       data.skillsInstructions,
@@ -203,17 +229,29 @@ export async function getSessionContext(): Promise<{
       .filter(Boolean)
       .join("\n\n");
 
+    const wsFileCount = [
+      data.workspaceFiles?.identityMd,
+      data.workspaceFiles?.soulMd,
+      data.workspaceFiles?.userMd,
+    ].filter(Boolean).length;
     logger.info(
-      `Built gateway instructions: workspace (${(data.workspaceInstructions || "").length} chars) + platform (${data.platformInstructions.length} chars) + network (${data.networkInstructions.length} chars) + skills (${(data.skillsInstructions || "").length} chars) + MCP (${mcpInstructions.length} chars)`
+      `Built gateway instructions: platform (${data.platformInstructions.length} chars) + network (${data.networkInstructions.length} chars) + skills (${(data.skillsInstructions || "").length} chars) + MCP (${mcpInstructions.length} chars) + ${wsFileCount} workspace files from settings`
     );
 
     return {
       mcpServers: Object.keys(sdkServers).length > 0 ? sdkServers : undefined,
       gatewayInstructions,
+      workspaceFiles: data.workspaceFiles || {},
+      enabledSkills: data.enabledSkills || [],
       unansweredInteractions: data.unansweredInteractions || [],
     };
   } catch (error) {
     logger.error("Failed to fetch session context from gateway", { error });
-    return { gatewayInstructions: "", unansweredInteractions: [] };
+    return {
+      gatewayInstructions: "",
+      workspaceFiles: {},
+      enabledSkills: [],
+      unansweredInteractions: [],
+    };
   }
 }

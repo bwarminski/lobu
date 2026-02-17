@@ -1,6 +1,6 @@
-import { createLogger } from "@lobu/core";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "@lobu/core";
 
 // Load mcp-servers.json from CLI package
 const mcpServersPath = join(__dirname, "../../../cli/src/mcp-servers.json");

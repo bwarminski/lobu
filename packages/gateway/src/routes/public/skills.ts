@@ -58,8 +58,8 @@ const fetchRoute = createRoute({
   method: "post",
   path: "/fetch",
   tags: [TAG],
-  summary: "Fetch skill metadata from GitHub",
-  description: "Fetches skill name, description, and content from repo",
+  summary: "Fetch skill metadata from ClawHub",
+  description: "Fetches skill name, description, and content by slug",
   request: {
     query: z.object({ token: z.string() }),
     body: {
@@ -68,7 +68,7 @@ const fetchRoute = createRoute({
           schema: z.object({
             repo: z
               .string()
-              .openapi({ description: "GitHub repo (owner/repo)" }),
+              .openapi({ description: "ClawHub skill slug (e.g., 'pdf')" }),
             refresh: z
               .boolean()
               .optional()
@@ -133,8 +133,7 @@ export function createSkillsRoutes(): OpenAPIHono {
     if (!verifyToken(token)) return c.json({ error: "Unauthorized" }, 401);
 
     const { repo, refresh } = c.req.valid("json");
-    if (!repo?.includes("/"))
-      return c.json({ error: "Invalid repo format" }, 400);
+    if (!repo?.trim()) return c.json({ error: "Missing skill slug" }, 400);
 
     try {
       if (refresh) skillsFetcher.clearCache(repo);

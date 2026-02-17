@@ -8,7 +8,7 @@ import {
   type UserInteraction,
   type UserSuggestion,
 } from "@lobu/core";
-import { InlineKeyboard, type Bot } from "grammy";
+import { type Bot, InlineKeyboard } from "grammy";
 import type { InteractionService } from "../interactions";
 import {
   APPROVAL_OPTIONS,

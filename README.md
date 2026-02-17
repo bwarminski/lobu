@@ -30,7 +30,7 @@ docker compose up -d
 
 ```bash
 cp .env.example .env   # edit .env
-make deploy
+make deploy            # builds images, deploys Helm chart
 ```
 
 ### Local
@@ -95,7 +95,7 @@ flowchart LR
 
 **Multi-provider auth.** Claude (OAuth), ChatGPT (device-code flow), and API-key providers (Gemini, NVIDIA, etc.) via pluggable `ModelProviderModule`.
 
-**Skills.** Skills from [skills.sh](https://skills.sh) are fetched from GitHub, cached, and injected as progressive-disclosure instructions. Agents discover and install skills at runtime.
+**Skills.** Skills from [ClawhHub](https://clawhub.ai/) are fetched from GitHub, cached, and injected as progressive-disclosure instructions. Agents discover and install skills at runtime.
 
 **Workspace instructions.** Per-agent `IDENTITY.md`, `SOUL.md`, `USER.md` files shape personality and behavior.
 
@@ -116,13 +116,12 @@ This project started in **July 2025** and was first published under [peerbot.ai]
 |---|---|---|
 | **Scale to zero** | Workers scale down when idle | Requires always-on computer |
 | **Multi-tenant** | Single bot, per-channel/DM isolation | One instance per setup |
-| **Multi-platform** | Slack, Telegram, WhatsApp, REST API | Platform-specific setup |
+| **Multi-platform** | Slack, Telegram, WhatsApp, REST API | [15+ chat platforms](https://openclaw.ai/integrations) |
 | **Runtimes** | Claude SDK + OpenClaw Pi Agent | OpenClaw only |
-| **Model providers** | Claude, ChatGPT, Gemini, NVIDIA, etc. | Runtime-dependent |
+| **User onboarding** | Configure page with OAuth login per provider | CLI setup required |
 | **MCP access** | Proxied through gateway, secrets isolated | Direct from agent |
-| **Skills** | skills.sh ecosystem | OpenClaw skills |
 | **Network isolation** | Workers sandboxed, domain-filtered egress | No built-in isolation |
-| **Deployment** | K8s, Docker, Local (sandbox runtime) | Single mode |
+| **Deployment** | K8s, Docker, Local (sandbox runtime) | Single node |
 
 ## Security and Privacy
 

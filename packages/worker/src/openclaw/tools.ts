@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import {
   createBashTool,
@@ -9,6 +8,7 @@ import {
   createReadTool,
   createWriteTool,
 } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 
 type RequiredParamGroup = {
   keys: readonly string[];

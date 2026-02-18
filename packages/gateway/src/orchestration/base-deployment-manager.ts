@@ -168,12 +168,14 @@ export abstract class BaseDeploymentManager {
   protected abstract getDispatcherHost(): string;
 
   /**
-   * Create worker deployment for handling messages
+   * Create worker deployment for handling messages.
+   * @param existingDeployments - Optional pre-fetched deployment list to avoid redundant API calls
    */
   async createWorkerDeployment(
     userId: string,
     conversationId: string,
-    messageData?: MessagePayload
+    messageData?: MessagePayload,
+    existingDeployments?: DeploymentInfo[]
   ): Promise<void> {
     const deploymentName = generateDeploymentName(userId, conversationId);
 
@@ -182,8 +184,8 @@ export abstract class BaseDeploymentManager {
     );
 
     try {
-      // Check if deployment already exists by getting the list and filtering
-      const deployments = await this.listDeployments();
+      // Use pre-fetched list or fetch fresh
+      const deployments = existingDeployments ?? (await this.listDeployments());
       const existingDeployment = deployments.find(
         (d) => d.deploymentName === deploymentName
       );
@@ -360,6 +362,8 @@ export abstract class BaseDeploymentManager {
     // Build proxy URL with deployment identification via Basic auth
     // Format: http://<deploymentName>:<workerToken>@<host>:<proxyPort>
     // The proxy extracts deploymentName from username and looks up per-deployment config
+    // Note: Credentials in proxy URL is standard for transparent HTTP proxying.
+    // The workerToken is short-lived and scoped to this deployment only.
     const proxyUrl = `http://${deploymentName}:${workerToken}@${dispatcherHost}:${proxyPort}`;
 
     let envVars: { [key: string]: string } = {
@@ -436,10 +440,21 @@ export abstract class BaseDeploymentManager {
       });
     }
 
+    // System-critical env vars that must not be overridden by user config
+    const PROTECTED_ENV_VARS = new Set([
+      "QUEUE_URL",
+      "DEPLOYMENT_NAME",
+      "WORKER_TOKEN",
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "DISPATCHER_URL",
+      "NODE_ENV",
+    ]);
+
     // Merge user environment variables (they take precedence over defaults)
     Object.entries(userEnvVars).forEach(([key, value]) => {
-      // User env vars can override any default except system-critical ones
-      if (key !== "QUEUE_URL" && key !== "DEPLOYMENT_NAME") {
+      if (!PROTECTED_ENV_VARS.has(key)) {
         envVars[key] = value;
       }
     });
@@ -546,52 +561,67 @@ export abstract class BaseDeploymentManager {
       );
 
       let processedCount = 0;
+      const BATCH_SIZE = 10; // Process up to 10 deletions in parallel
 
-      // Process each deployment based on its state
+      // Collect actions to perform
+      const toDelete: string[] = [];
+      const toScaleDown: string[] = [];
+
       for (const analysis of sortedDeployments) {
         const { deploymentName, replicas, isIdle, isVeryOld } = analysis;
 
         if (isVeryOld) {
-          // Delete very old deployments (>= 7 days)
-          try {
-            await this.deleteWorkerDeployment(deploymentName);
-            processedCount++;
-          } catch (error) {
-            logger.error(
-              `❌ Failed to delete deployment ${deploymentName}:`,
-              error
-            );
-          }
+          toDelete.push(deploymentName);
         } else if (isIdle && replicas > 0) {
-          // Scale down idle deployments
-          try {
-            await this.scaleDeployment(deploymentName, 0);
-            processedCount++;
-          } catch (error) {
-            logger.error(
-              `❌ Failed to scale down deployment ${deploymentName}:`,
-              error
-            );
-          }
+          toScaleDown.push(deploymentName);
         }
       }
 
-      // Check if we exceed max deployments (after cleanup)
+      // Check if we exceed max deployments
       const remainingDeployments = sortedDeployments.filter(
         (d) => !d.isVeryOld
       );
       if (remainingDeployments.length > maxDeployments) {
         const excessCount = remainingDeployments.length - maxDeployments;
-
         const deploymentsToDelete = remainingDeployments.slice(0, excessCount);
         for (const { deploymentName } of deploymentsToDelete) {
-          try {
-            await this.deleteWorkerDeployment(deploymentName);
+          if (!toDelete.includes(deploymentName)) {
+            toDelete.push(deploymentName);
+          }
+        }
+      }
+
+      // Process deletions in parallel batches
+      for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
+        const batch = toDelete.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map((name) => this.deleteWorkerDeployment(name))
+        );
+        for (let j = 0; j < results.length; j++) {
+          if (results[j]!.status === "fulfilled") {
             processedCount++;
-          } catch (error) {
+          } else {
             logger.error(
-              `❌ Failed to remove deployment ${deploymentName}:`,
-              error
+              `❌ Failed to delete deployment ${batch[j]}:`,
+              (results[j] as PromiseRejectedResult).reason
+            );
+          }
+        }
+      }
+
+      // Process scale-downs in parallel batches
+      for (let i = 0; i < toScaleDown.length; i += BATCH_SIZE) {
+        const batch = toScaleDown.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map((name) => this.scaleDeployment(name, 0))
+        );
+        for (let j = 0; j < results.length; j++) {
+          if (results[j]!.status === "fulfilled") {
+            processedCount++;
+          } else {
+            logger.error(
+              `❌ Failed to scale down deployment ${batch[j]}:`,
+              (results[j] as PromiseRejectedResult).reason
             );
           }
         }

@@ -541,7 +541,8 @@ export class MessageConsumer {
             await this.deploymentManager.createWorkerDeployment(
               data.userId,
               conversationId,
-              dataWithTrace
+              dataWithTrace,
+              existingDeployments
             );
             logger.info({ traceId, deploymentName }, "Created deployment");
           } finally {
@@ -593,7 +594,8 @@ export class MessageConsumer {
   }
 
   /**
-   * Track failed deployment creation for monitoring and potential recovery
+   * Track failed deployment creation for monitoring and potential recovery.
+   * Also sends an error response to the user via the thread_response queue.
    */
   private async trackFailedDeployment(
     deploymentName: string,
@@ -624,6 +626,25 @@ export class MessageConsumer {
       logger.info(
         `Tracked deployment failure in Redis: ${failureKey} (TTL: 24h)`
       );
+
+      // Notify user that their message could not be processed
+      try {
+        const responseQueue = "thread_response";
+        await this.queue.createQueue(responseQueue);
+        await this.queue.send(responseQueue, {
+          messageId: data.messageId,
+          userId: data.userId,
+          channelId: data.channelId,
+          conversationId: data.conversationId,
+          platform: data.platform,
+          platformMetadata: data.platformMetadata,
+          content:
+            "Sorry, I was unable to start a worker to process your message. Please try again in a moment.",
+          processedMessageIds: [data.messageId],
+        });
+      } catch (notifyError) {
+        logger.error("Failed to send error notification to user:", notifyError);
+      }
     } catch (trackError) {
       // Don't fail the main flow if tracking fails
       logger.error("Failed to track deployment failure:", trackError);

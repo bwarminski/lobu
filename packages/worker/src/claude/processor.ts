@@ -94,6 +94,8 @@ export class ProgressProcessor {
   private chronologicalOutput: string = "";
   private lastSentContent: string = "";
   private verboseLogging: boolean = false;
+  // Maximum size for chronologicalOutput to prevent memory pressure on long sessions
+  private static readonly MAX_OUTPUT_SIZE = 512 * 1024; // 512KB
 
   /**
    * Enable or disable verbose logging mode.
@@ -276,6 +278,23 @@ export class ProgressProcessor {
 
     if (!hasUpdate) {
       return null;
+    }
+
+    // Trim chronologicalOutput if it exceeds max size to prevent memory pressure
+    if (this.chronologicalOutput.length > ProgressProcessor.MAX_OUTPUT_SIZE) {
+      // Keep the last portion after trimming, preserving the most recent context
+      const keepFrom =
+        this.chronologicalOutput.length -
+        ProgressProcessor.MAX_OUTPUT_SIZE * 0.75;
+      // Find the next newline to avoid cutting mid-line
+      const nextNewline = this.chronologicalOutput.indexOf("\n", keepFrom);
+      const cutPoint = nextNewline > 0 ? nextNewline + 1 : Math.floor(keepFrom);
+      this.chronologicalOutput = this.chronologicalOutput.slice(cutPoint);
+      // Reset lastSentContent since we truncated the beginning
+      this.lastSentContent = "";
+      logger.info(
+        `Trimmed chronologicalOutput to ${this.chronologicalOutput.length} chars`
+      );
     }
 
     return { text: this.formatFullUpdate(), isFinal: false };

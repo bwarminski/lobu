@@ -44,6 +44,8 @@ export interface SlackConfig {
   botUserId?: string;
   botId?: string;
   apiUrl: string;
+  clientId?: string;
+  clientSecret?: string;
 }
 
 /**
@@ -74,20 +76,22 @@ export interface MessageHandlerConfig {
 
 /**
  * Build Slack-specific configuration from environment variables
- * Returns null if SLACK_BOT_TOKEN is not set (Slack disabled)
+ * Returns null if neither SLACK_BOT_TOKEN nor SLACK_CLIENT_ID is set (Slack disabled)
  */
 export function buildSlackConfig(): SlackConfig | null {
   const botToken = process.env.SLACK_BOT_TOKEN;
+  const clientId = process.env.SLACK_CLIENT_ID;
+  const clientSecret = process.env.SLACK_CLIENT_SECRET;
 
-  // If no bot token, Slack is disabled
-  if (!botToken) {
+  // Slack is enabled if we have a bot token OR OAuth client credentials
+  if (!botToken && !clientId) {
     return null;
   }
 
   const socketMode = process.env.SLACK_HTTP_MODE !== "true";
 
   return {
-    token: botToken,
+    token: botToken || "",
     appToken: process.env.SLACK_APP_TOKEN,
     signingSecret: process.env.SLACK_SIGNING_SECRET,
     socketMode,
@@ -95,6 +99,8 @@ export function buildSlackConfig(): SlackConfig | null {
     botUserId: process.env.SLACK_BOT_USER_ID,
     botId: undefined, // Will be set during initialization
     apiUrl: getOptionalEnv("SLACK_API_URL", SLACK_DEFAULTS.SLACK_API_URL),
+    clientId,
+    clientSecret,
   };
 }
 
@@ -116,6 +122,9 @@ export function displaySlackConfig(
       `  App Token: ${config.appToken ? `${config.appToken.substring(0, tokenPreviewLength)}... (${config.appToken.length} chars)` : "not set"}`
     );
     console.log(`  API URL: ${config.apiUrl}`);
+    console.log(
+      `  OAuth Distribution: ${config.clientId ? `enabled (client_id: ${config.clientId.substring(0, 8)}...)` : "disabled"}`
+    );
   } else {
     console.log("\nSlack: disabled");
   }

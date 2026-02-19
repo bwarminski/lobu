@@ -119,6 +119,38 @@ function setupServer(
     );
   }
 
+  // Slack OAuth routes for multi-workspace distribution
+  if (platformRegistry) {
+    const slackAdapter = platformRegistry.get?.("slack");
+    const slackInstallationStore = slackAdapter?.getInstallationStore?.();
+    const slackClientId = process.env.SLACK_CLIENT_ID;
+    const slackClientSecret = process.env.SLACK_CLIENT_SECRET;
+    const publicGatewayUrl = process.env.PUBLIC_GATEWAY_URL;
+
+    if (
+      slackInstallationStore &&
+      slackClientId &&
+      slackClientSecret &&
+      publicGatewayUrl
+    ) {
+      const { createSlackOAuthRoutes } = require("../slack/oauth-routes");
+      const redis = coreServices?.getQueue?.()?.getRedisClient?.();
+      if (redis) {
+        const slackOAuthRouter = createSlackOAuthRoutes({
+          clientId: slackClientId,
+          clientSecret: slackClientSecret,
+          installationStore: slackInstallationStore,
+          redis,
+          publicGatewayUrl,
+        });
+        app.route("/slack", slackOAuthRouter);
+        logger.info(
+          "Slack OAuth routes enabled at :8080/slack/install and :8080/slack/oauth_callback"
+        );
+      }
+    }
+  }
+
   // File routes (already Hono)
   if (fileHandler && sessionManager) {
     const { createFileRoutes } = require("../routes/internal/files");
@@ -130,7 +162,10 @@ function setupServer(
   // History routes (already Hono)
   {
     const { createHistoryRoutes } = require("../routes/internal/history");
-    const historyRouter = createHistoryRoutes();
+    // Pass Slack installation store for multi-workspace token resolution
+    const slackAdapter = platformRegistry?.get?.("slack");
+    const slackInstallationStore = slackAdapter?.getInstallationStore?.();
+    const historyRouter = createHistoryRoutes(slackInstallationStore);
     app.route("/internal", historyRouter);
     logger.info("History routes enabled at :8080/internal/history");
   }

@@ -7,7 +7,7 @@
 import type { IModuleRegistry } from "@lobu/core";
 import { AsyncLock, createLogger, DEFAULTS, REDIS_KEYS } from "@lobu/core";
 import type { AnyBlock } from "@slack/types";
-import type { WebClient } from "@slack/web-api";
+import { WebClient } from "@slack/web-api";
 import type Redis from "ioredis";
 import type {
   IMessageQueue,
@@ -20,6 +20,7 @@ import {
 } from "./converters/block-builder";
 import { extractCodeBlockActions } from "./converters/blockkit";
 import { convertMarkdownToSlack } from "./converters/markdown";
+import type { SlackInstallationStore } from "./installation-store";
 
 const logger = createLogger("slack-response-renderer");
 
@@ -229,7 +230,10 @@ class StreamSession {
 class StreamSessionManager {
   private sessions = new Map<string, StreamSession>();
 
-  constructor(private slackClient: WebClient) {}
+  constructor(
+    private slackClient: WebClient,
+    private clientResolver?: (teamId?: string) => Promise<WebClient>
+  ) {}
 
   async handleDelta(
     sessionId: string,
@@ -243,13 +247,11 @@ class StreamSessionManager {
     let session = this.sessions.get(sessionId);
 
     if (!session) {
-      session = new StreamSession(
-        this.slackClient,
-        channelId,
-        threadTs,
-        userId,
-        teamId
-      );
+      // Resolve the client for this team
+      const client = this.clientResolver
+        ? await this.clientResolver(teamId)
+        : this.slackClient;
+      session = new StreamSession(client, channelId, threadTs, userId, teamId);
       this.sessions.set(sessionId, session);
     }
 
@@ -302,15 +304,53 @@ export class SlackResponseRenderer implements ResponseRenderer {
   private blockBuilder: SlackBlockBuilder;
   private streamSessionManager: StreamSessionManager;
   private readonly BOT_MESSAGES_PREFIX = REDIS_KEYS.BOT_MESSAGES;
+  private installationStore?: SlackInstallationStore;
+  private teamClients = new Map<string, WebClient>();
+  private teamClientTimestamps = new Map<string, number>();
 
   constructor(
     queue: IMessageQueue,
     private slackClient: WebClient,
-    private moduleRegistry: IModuleRegistry
+    private moduleRegistry: IModuleRegistry,
+    installationStore?: SlackInstallationStore
   ) {
     this.redis = queue.getRedisClient();
     this.blockBuilder = new SlackBlockBuilder();
-    this.streamSessionManager = new StreamSessionManager(slackClient);
+    this.installationStore = installationStore;
+    this.streamSessionManager = new StreamSessionManager(
+      slackClient,
+      (teamId) => this.getClientForTeam(teamId)
+    );
+  }
+
+  private static readonly CLIENT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+  /**
+   * Get a WebClient for a specific team, caching instances with TTL.
+   * Falls back to the default client when no team-specific token is found.
+   */
+  private async getClientForTeam(teamId?: string): Promise<WebClient> {
+    if (!teamId || !this.installationStore) {
+      return this.slackClient;
+    }
+
+    const cached = this.teamClients.get(teamId);
+    const cachedAt = this.teamClientTimestamps.get(teamId);
+    if (
+      cached &&
+      cachedAt &&
+      Date.now() - cachedAt < SlackResponseRenderer.CLIENT_CACHE_TTL_MS
+    ) {
+      return cached;
+    }
+
+    const token = await this.installationStore.getTokenForTeam(teamId);
+    if (!token) return this.slackClient;
+
+    const client = new WebClient(token);
+    this.teamClients.set(teamId, client);
+    this.teamClientTimestamps.set(teamId, Date.now());
+    return client;
   }
 
   private async getBotMessageTs(sessionKey: string): Promise<string | null> {
@@ -374,7 +414,8 @@ export class SlackResponseRenderer implements ResponseRenderer {
     } else {
       // Clear status even if no session exists
       try {
-        await this.slackClient.apiCall("assistant.threads.setStatus", {
+        const client = await this.getClientForTeam(payload.teamId);
+        await client.apiCall("assistant.threads.setStatus", {
           channel_id: payload.channelId,
           thread_ts: payload.conversationId,
           status: "",
@@ -408,8 +449,9 @@ export class SlackResponseRenderer implements ResponseRenderer {
     );
 
     try {
+      const client = await this.getClientForTeam(payload.teamId);
       if (isFirstResponse) {
-        await this.slackClient.chat.postMessage({
+        await client.chat.postMessage({
           channel: payload.channelId,
           thread_ts: payload.conversationId,
           text: errorResult.text,
@@ -423,7 +465,7 @@ export class SlackResponseRenderer implements ResponseRenderer {
           existingBotMessageTs ||
           payload.botResponseId ||
           payload.conversationId;
-        await this.slackClient.chat.update({
+        await client.chat.update({
           channel: payload.channelId,
           ts: botTs,
           text: errorResult.text,
@@ -458,7 +500,8 @@ export class SlackResponseRenderer implements ResponseRenderer {
     ];
 
     try {
-      await this.slackClient.apiCall("assistant.threads.setStatus", {
+      const client = await this.getClientForTeam(payload.teamId);
+      await client.apiCall("assistant.threads.setStatus", {
         channel_id: payload.channelId,
         thread_ts: payload.conversationId,
         status: statusText,
@@ -478,7 +521,8 @@ export class SlackResponseRenderer implements ResponseRenderer {
         payload
       );
 
-      await this.slackClient.chat.postEphemeral({
+      const client = await this.getClientForTeam(payload.teamId);
+      await client.chat.postEphemeral({
         channel: payload.channelId,
         user: payload.userId,
         thread_ts: payload.conversationId,

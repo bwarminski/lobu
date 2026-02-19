@@ -24,6 +24,7 @@ import type { AgentOptions, SlackPlatformConfig } from "./config";
 import { SlackEventHandlers } from "./event-router";
 import { SlackFileHandler } from "./file-handler";
 import { SocketHealthMonitor } from "./health/socket-health-monitor";
+import { createAuthorize, SlackInstallationStore } from "./installation-store";
 import { SlackInstructionProvider } from "./instructions/provider";
 import { SlackInteractionRenderer } from "./interactions";
 import { SlackResponseRenderer } from "./response-renderer";
@@ -46,6 +47,7 @@ export class SlackPlatform implements PlatformAdapter {
   private fileHandler?: SlackFileHandler;
   private interactionRenderer?: SlackInteractionRenderer;
   private eventHandlers?: SlackEventHandlers;
+  private installationStore?: SlackInstallationStore;
 
   constructor(
     private readonly config: SlackPlatformConfig,
@@ -58,8 +60,11 @@ export class SlackPlatform implements PlatformAdapter {
 
   /**
    * Initialize Slack app (HTTP or Socket Mode)
+   * When clientId is configured, uses Bolt's authorize callback for multi-workspace support.
    */
   private initializeSlackApp(): void {
+    const useAuthorize = !!this.config.slack.clientId;
+
     if (this.config.slack.socketMode === false) {
       // HTTP mode
       this.receiver = new ExpressReceiver({
@@ -78,16 +83,37 @@ export class SlackPlatform implements PlatformAdapter {
         next();
       });
 
-      this.app = new App({
-        token: this.config.slack.token,
+      // When using authorize, don't pass a static token
+      const appOptions: Record<string, any> = {
         receiver: this.receiver,
         logLevel: this.config.logLevel || LogLevel.DEBUG,
         ignoreSelf: false,
-      });
+      };
 
-      logger.info("Slack app initialized in HTTP mode");
+      if (useAuthorize) {
+        // authorize will be set in initialize() after Redis is available
+        // For now, use fallback token if available
+        appOptions.authorize = async () => ({
+          botToken: this.config.slack.token || "",
+          botId: "",
+          botUserId: "",
+          teamId: "",
+        });
+      } else {
+        appOptions.token = this.config.slack.token;
+      }
+
+      this.app = new App(appOptions);
+
+      logger.info(
+        `Slack app initialized in HTTP mode${useAuthorize ? " (multi-workspace)" : ""}`
+      );
     } else {
       // Socket mode
+      if (!this.config.slack.token) {
+        throw new Error("SLACK_BOT_TOKEN is required for Socket Mode");
+      }
+
       const appConfig: AppOptions = {
         signingSecret: this.config.slack.signingSecret,
         socketMode: true,
@@ -98,10 +124,6 @@ export class SlackPlatform implements PlatformAdapter {
         processBeforeResponse: true,
         token: this.config.slack.token,
       };
-
-      if (!this.config.slack.token) {
-        throw new Error("SLACK_BOT_TOKEN is required");
-      }
 
       this.app = new App(appConfig);
       logger.info("Slack app initialized in Socket mode");
@@ -131,17 +153,56 @@ export class SlackPlatform implements PlatformAdapter {
     logger.info("Initializing Slack platform...");
     this.services = services;
 
-    // Get bot info
-    await this.initializeBotInfo();
+    // Create installation store for multi-workspace support
+    const redis = services.getQueue().getRedisClient();
+    this.installationStore = new SlackInstallationStore(redis);
 
-    // Create file handler
-    this.fileHandler = new SlackFileHandler(this.app.client);
+    // If using authorize mode, wire up the real authorize callback
+    if (this.config.slack.clientId) {
+      const authorize = createAuthorize(
+        this.installationStore,
+        this.config.slack.token || undefined
+      );
+      // Replace the placeholder authorize on the Bolt app
+      (this.app as any).authorize = authorize;
+      logger.info("Multi-workspace authorize callback configured");
+    }
+
+    // Get bot info and seed installation store (only if we have a static token)
+    if (this.config.slack.token) {
+      const authResult = await this.initializeBotInfo();
+
+      // Seed installation store with current workspace for backward compat
+      if (authResult?.team_id) {
+        await this.installationStore.setInstallation(authResult.team_id, {
+          teamId: authResult.team_id,
+          teamName: authResult.team || "Default Workspace",
+          botToken: this.config.slack.token,
+          botUserId: authResult.user_id || this.config.slack.botUserId || "",
+          botId: authResult.bot_id || this.config.slack.botId || "",
+          installedBy: "env",
+          installedAt: Date.now(),
+          appId: "",
+        });
+        logger.info(
+          `Seeded installation store with current workspace: ${authResult.team_id}`
+        );
+      }
+    }
+
+    // Create file handler - pass installation store for token resolution
+    this.fileHandler = new SlackFileHandler(
+      this.app.client,
+      this.config.slack.token || undefined,
+      this.installationStore
+    );
 
     // Create response renderer for unified thread consumer
     this.responseRenderer = new SlackResponseRenderer(
       services.getQueue(),
       this.app.client,
-      moduleRegistry
+      moduleRegistry,
+      this.installationStore
     );
 
     // Create interaction renderer
@@ -347,7 +408,7 @@ export class SlackPlatform implements PlatformAdapter {
   }
 
   /**
-   * Check if token matches this platform's configured bot token
+   * Check if token matches any of this platform's configured bot tokens
    */
   isOwnBotToken(token: string): boolean {
     return token === this.config.slack.token;
@@ -732,44 +793,60 @@ export class SlackPlatform implements PlatformAdapter {
   }
 
   /**
-   * Initialize bot info (bot user ID and bot ID)
+   * Initialize bot info (bot user ID and bot ID).
+   * Returns the auth.test result for reuse (e.g. seeding installation store).
    */
-  private async initializeBotInfo(): Promise<void> {
-    if (!this.config.slack.botUserId || !this.config.slack.botId) {
-      logger.info("Bot IDs not configured, calling auth.test...");
+  private async initializeBotInfo(): Promise<{
+    ok: boolean;
+    user_id?: string;
+    bot_id?: string;
+    team_id?: string;
+    team?: string;
+  } | null> {
+    logger.info("Calling auth.test...");
 
-      const response = await fetch(`${this.config.slack.apiUrl}/auth.test`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.config.slack.token}`,
-          "Content-Type": "application/json",
-        },
-      });
+    const response = await fetch(`${this.config.slack.apiUrl}/auth.test`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.slack.token}`,
+        "Content-Type": "application/json",
+      },
+    });
 
-      const authResult = (await response.json()) as {
-        ok: boolean;
-        user_id?: string;
-        bot_id?: string;
-        error?: string;
-      };
+    const authResult = (await response.json()) as {
+      ok: boolean;
+      user_id?: string;
+      bot_id?: string;
+      team_id?: string;
+      team?: string;
+      error?: string;
+    };
 
-      if (!authResult.ok || !authResult.user_id || !authResult.bot_id) {
-        throw new Error(
-          `Auth test failed: ${authResult.error || "Unknown error"}`
-        );
-      }
-
-      this.config.slack.botUserId = authResult.user_id;
-      this.config.slack.botId = authResult.bot_id;
-
-      logger.info(
-        `Bot initialized - User ID: ${authResult.user_id}, Bot ID: ${authResult.bot_id}`
-      );
-    } else {
-      logger.info(
-        `Using configured bot IDs - User ID: ${this.config.slack.botUserId}, Bot ID: ${this.config.slack.botId}`
+    if (!authResult.ok || !authResult.user_id || !authResult.bot_id) {
+      throw new Error(
+        `Auth test failed: ${authResult.error || "Unknown error"}`
       );
     }
+
+    if (!this.config.slack.botUserId) {
+      this.config.slack.botUserId = authResult.user_id;
+    }
+    if (!this.config.slack.botId) {
+      this.config.slack.botId = authResult.bot_id;
+    }
+
+    logger.info(
+      `Bot initialized - User ID: ${authResult.user_id}, Bot ID: ${authResult.bot_id}`
+    );
+
+    return authResult;
+  }
+
+  /**
+   * Get installation store for multi-workspace token resolution
+   */
+  getInstallationStore(): SlackInstallationStore | undefined {
+    return this.installationStore;
   }
 
   /**
@@ -1020,6 +1097,7 @@ export class SlackPlatform implements PlatformAdapter {
     }
 
     // Publish to user's app home
+    // Use the default app client (event handlers pass per-workspace clients)
     await this.app.client.views.publish({
       user_id: userId,
       view: {
@@ -1091,7 +1169,7 @@ const slackFactory: PlatformFactory = {
   name: "slack",
 
   isEnabled(configs: PlatformConfigs): boolean {
-    return !!configs.slack?.token;
+    return !!(configs.slack?.token || configs.slack?.clientId);
   },
 
   create(

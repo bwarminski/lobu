@@ -40,8 +40,18 @@ function buildSlackDmLink(teamId: string, botUserId: string): string {
   return `https://slack.com/app_redirect?${params.toString()}`;
 }
 
-async function fetchSlackInfo(): Promise<SlackInfo | null> {
+async function fetchSlackInfo(
+  slackInstallationStore?: import("../../slack/installation-store").SlackInstallationStore
+): Promise<SlackInfo | null> {
   const token = process.env.SLACK_BOT_TOKEN;
+
+  // If no env token, try getting the first installation from the store
+  // (The store is populated during OAuth or startup seeding)
+  if (!token && slackInstallationStore) {
+    // We don't have a "list all" method, so rely on env token for landing page
+    // The landing page is informational - multi-workspace installs use their own tokens
+  }
+
   if (!token) return null;
 
   const client = new WebClient(token);

@@ -3,6 +3,7 @@
 import { createLogger, verifyWorkerToken } from "@lobu/core";
 import { Hono } from "hono";
 import { platformRegistry } from "../../platform";
+import type { SlackInstallationStore } from "../../slack/installation-store";
 
 const logger = createLogger("history-routes");
 
@@ -34,7 +35,9 @@ interface HistoryResponse {
  * Create internal history routes (Hono)
  * Provides channel history to workers via MCP tool
  */
-export function createHistoryRoutes(): Hono<WorkerContext> {
+export function createHistoryRoutes(
+  slackInstallationStore?: SlackInstallationStore
+): Hono<WorkerContext> {
   const router = new Hono<WorkerContext>();
 
   // Worker authentication middleware
@@ -83,7 +86,9 @@ export function createHistoryRoutes(): Hono<WorkerContext> {
           channelId,
           conversationId,
           limit,
-          before
+          before,
+          worker.teamId,
+          slackInstallationStore
         );
         return c.json(response);
       } else if (platform === "whatsapp") {
@@ -172,9 +177,18 @@ async function fetchSlackHistory(
   channelId: string,
   conversationId: string | undefined,
   limit: number,
-  before: string | undefined
+  before: string | undefined,
+  teamId?: string,
+  installationStore?: SlackInstallationStore
 ): Promise<HistoryResponse> {
-  const slackToken = process.env.SLACK_BOT_TOKEN;
+  // Resolve token: try installation store first, then fall back to env
+  let slackToken: string | null = null;
+  if (teamId && installationStore) {
+    slackToken = await installationStore.getTokenForTeam(teamId);
+  }
+  if (!slackToken) {
+    slackToken = process.env.SLACK_BOT_TOKEN || null;
+  }
   if (!slackToken) {
     throw new Error("Slack token not configured");
   }

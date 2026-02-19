@@ -89,7 +89,8 @@ export class MessageHandler {
    */
   private async transcribeAudioFiles(
     userRequest: string,
-    files: any[] | undefined
+    files: any[] | undefined,
+    slackToken?: string
   ): Promise<string> {
     if (!files?.length || !this.transcriptionService) {
       return userRequest;
@@ -130,9 +131,11 @@ export class MessageHandler {
           continue;
         }
 
+        const token =
+          slackToken || this.config.slack.token || process.env.SLACK_BOT_TOKEN;
         const response = await fetch(downloadUrl, {
           headers: {
-            Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+            Authorization: `Bearer ${token}`,
           },
         });
 
@@ -318,7 +321,8 @@ export class MessageHandler {
     // Transcribe audio files if present
     const processedRequest = await this.transcribeAudioFiles(
       userRequest,
-      files
+      files,
+      client.token
     );
 
     // CRITICAL: Always use thread_ts for thread identification

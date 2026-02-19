@@ -12,6 +12,7 @@ import type {
   FileUploadResult,
   IFileHandler,
 } from "../platform/file-handler";
+import type { SlackInstallationStore } from "./installation-store";
 
 const logger = createLogger("slack-file-handler");
 
@@ -31,16 +32,31 @@ interface SlackFileMetadata extends FileMetadata {
 export class SlackFileHandler implements IFileHandler {
   private uploadedFiles = new Map<string, Set<string>>();
   private bearerToken: string;
+  private installationStore?: SlackInstallationStore;
 
   constructor(
     private slackClient: WebClient,
-    bearerToken?: string
+    bearerToken?: string,
+    installationStore?: SlackInstallationStore
   ) {
     // Get token from parameter or environment
     this.bearerToken = bearerToken || process.env.SLACK_BOT_TOKEN || "";
-    if (!this.bearerToken) {
+    this.installationStore = installationStore;
+    if (!this.bearerToken && !installationStore) {
       logger.warn("No Slack bearer token provided - file downloads will fail");
     }
+  }
+
+  /**
+   * Resolve the bearer token for a given team.
+   * Falls back to the default token if no team-specific token is found.
+   */
+  async resolveToken(teamId?: string): Promise<string> {
+    if (teamId && this.installationStore) {
+      const token = await this.installationStore.getTokenForTeam(teamId);
+      if (token) return token;
+    }
+    return this.bearerToken;
   }
 
   async downloadFile(

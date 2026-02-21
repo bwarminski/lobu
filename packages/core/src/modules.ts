@@ -47,6 +47,11 @@ export interface WorkerModule<TModuleData = unknown>
   onBeforeResponse(context: WorkerContext): Promise<TModuleData | null>;
 }
 
+export interface ModelOption {
+  value: string;
+  label: string;
+}
+
 export interface OrchestratorModule<TModuleData = unknown>
   extends ModuleInterface<TModuleData> {
   /** Build environment variables for worker container */
@@ -87,6 +92,8 @@ export interface ModelProviderModule extends OrchestratorModule {
   ): Record<string, string>;
   /** Return Hono app for auth routes, if any */
   getApp?(): any;
+  /** Return model list exposed to UI */
+  getModelOptions?(agentId: string, userId: string): Promise<ModelOption[]>;
 }
 
 export interface DispatcherContext<TModuleData = unknown> {
@@ -196,6 +203,13 @@ export abstract class BaseModule<TModuleData = unknown>
   ): Promise<Record<string, string>> {
     // Default: pass through unchanged
     return baseEnv;
+  }
+
+  async getModelOptions(
+    _agentId: string,
+    _userId: string
+  ): Promise<ModelOption[]> {
+    return [];
   }
 
   getContainerAddress(): string {

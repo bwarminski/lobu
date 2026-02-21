@@ -430,6 +430,29 @@ export abstract class BaseWorker implements WorkerExecutor {
   }
 
   /**
+   * Build system note about pending unanswered interactions
+   */
+  protected buildPendingInteractionNote(
+    unanswered: Array<{ type: string; question: string }>
+  ): string {
+    const notes = unanswered.map((i) => {
+      switch (i.type) {
+        case "plan_approval":
+          return "Note: You previously asked the user to approve executing your plan, but they haven't responded yet. They've now sent a new message instead. You can ask them again if needed, or proceed based on their new request.";
+        case "tool_approval":
+          return "Note: You previously asked the user to approve a tool execution, but they haven't responded yet. They've sent a new message instead.";
+        case "question":
+        case "form":
+          return `Note: You asked the user: "${i.question.substring(0, 100)}${i.question.length > 100 ? "..." : ""}", but they sent a new message instead of answering.`;
+        default:
+          return `Note: You have an unanswered interaction with the user.`;
+      }
+    });
+
+    return `## Pending Interactions\n\n${notes.join("\n\n")}`;
+  }
+
+  /**
    * Get file I/O instructions for the AI agent
    */
   private getFileIOInstructions(): string {

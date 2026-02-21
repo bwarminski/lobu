@@ -276,6 +276,13 @@ export class LocalDeploymentManager extends BaseDeploymentManager {
     );
   }
 
+  async validateWorkerImage(): Promise<void> {
+    // Local mode runs worker code directly from source/dist, not a container image.
+    logger.info(
+      `ℹ️  Local mode worker entry configured: ${this.workerEntryPath}`
+    );
+  }
+
   async createDeployment(
     deploymentName: string,
     username: string,

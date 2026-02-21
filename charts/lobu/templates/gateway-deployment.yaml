@@ -120,8 +120,6 @@ spec:
                   name: {{ include "lobu.fullname" . }}-secrets
                   key: slack-client-secret
                   optional: true
-            - name: SLACK_HTTP_MODE
-              value: {{ if .Values.slack.socketMode }}"false"{{ else }}"true"{{ end }}
             - name: SLACK_ALLOW_DIRECT_MESSAGES
               value: "{{ .Values.slack.allowDirectMessages }}"
             - name: SLACK_ALLOW_PRIVATE_CHANNELS
@@ -163,8 +161,21 @@ spec:
               value: "{{ .Values.global.imageRegistry }}{{ .Values.worker.image.repository }}"
             - name: WORKER_IMAGE_TAG
               value: "{{ .Values.worker.image.tag }}"
+            - name: WORKER_IMAGE_DIGEST
+              value: "{{ .Values.worker.image.digest }}"
             - name: WORKER_IMAGE_PULL_POLICY
               value: "{{ .Values.worker.image.pullPolicy }}"
+            {{- if .Values.worker.imagePullSecrets }}
+            - name: WORKER_IMAGE_PULL_SECRETS
+              value: "{{ join "," .Values.worker.imagePullSecrets }}"
+            {{- else if .Values.global.imagePullSecrets }}
+            - name: WORKER_IMAGE_PULL_SECRETS
+              value: "{{- range $index, $secret := .Values.global.imagePullSecrets -}}{{- if gt $index 0 -}},{{- end -}}{{- if kindIs "map" $secret -}}{{ $secret.name }}{{- else -}}{{ $secret }}{{- end -}}{{- end -}}"
+            {{- end }}
+            - name: WORKER_SERVICE_ACCOUNT_NAME
+              value: "{{ default (printf "%s-worker" (include "lobu.fullname" .)) .Values.worker.serviceAccountName }}"
+            - name: WORKER_STARTUP_TIMEOUT_SECONDS
+              value: "{{ default 90 .Values.worker.startupTimeoutSeconds }}"
             - name: WORKER_CPU_REQUEST
               value: "{{ .Values.worker.resources.requests.cpu }}"
             - name: WORKER_MEMORY_REQUEST
@@ -283,6 +294,12 @@ spec:
                   optional: true
             
             # Anthropic proxy configuration (always enabled)
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lobu.fullname" . }}-secrets
+                  key: anthropic-api-key
+                  optional: true
             - name: CLAUDE_CODE_OAUTH_TOKEN
               valueFrom:
                 secretKeyRef:

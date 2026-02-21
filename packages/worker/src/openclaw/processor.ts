@@ -1,138 +1,8 @@
 import { createLogger } from "@lobu/core";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import { formatToolExecution } from "../shared/processor-utils";
 
 const logger = createLogger("openclaw-processor");
-
-/**
- * Tool display configuration - maps tool names to emoji and description formatting.
- * Shared display format with Claude processor.
- */
-const TOOL_DISPLAY_CONFIG: Record<
-  string,
-  {
-    emoji: string;
-    action: string;
-    getParam: (params: Record<string, unknown>) => string;
-  }
-> = {
-  Write: {
-    emoji: "✏️",
-    action: "Writing",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  Edit: {
-    emoji: "✏️",
-    action: "Editing",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  Bash: {
-    emoji: "👾",
-    action: "Running",
-    getParam: (p) => {
-      const cmd = String(p.command || p.description || "command");
-      return `\`${cmd.length > 50 ? `${cmd.substring(0, 50)}...` : cmd}\``;
-    },
-  },
-  bash: {
-    emoji: "👾",
-    action: "Running",
-    getParam: (p) => {
-      const cmd = String(p.command || p.description || "command");
-      return `\`${cmd.length > 50 ? `${cmd.substring(0, 50)}...` : cmd}\``;
-    },
-  },
-  Read: {
-    emoji: "📖",
-    action: "Reading",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  read: {
-    emoji: "📖",
-    action: "Reading",
-    getParam: (p) => `\`${p.file_path || p.path || ""}\``,
-  },
-  write: {
-    emoji: "✏️",
-    action: "Writing",
-    getParam: (p) => `\`${p.file_path || p.path || ""}\``,
-  },
-  Grep: {
-    emoji: "🔍",
-    action: "Searching",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  grep: {
-    emoji: "🔍",
-    action: "Searching",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  Glob: {
-    emoji: "🔍",
-    action: "Finding",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  glob: {
-    emoji: "🔍",
-    action: "Finding",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  WebFetch: {
-    emoji: "🌐",
-    action: "Fetching",
-    getParam: (p) => `\`${p.url || ""}\``,
-  },
-  WebSearch: {
-    emoji: "🔎",
-    action: "Searching web",
-    getParam: (p) => `\`${p.query || ""}\``,
-  },
-};
-
-/**
- * Format MCP-style tool names: prefix__server__tool -> prefix.server.tool
- */
-function formatMcpToolName(toolName: string): string {
-  const pattern = /^([^_]+)__([^_]+)__(.+)$/;
-  const match = toolName.match(pattern);
-  if (match) {
-    const [, prefix, server, tool] = match;
-    return `${prefix}.${server}.${tool}`;
-  }
-  return toolName;
-}
-
-/**
- * Format tool execution for user-friendly display
- */
-function formatToolExecution(
-  toolName: string,
-  args: unknown,
-  verboseLogging: boolean
-): string {
-  const params =
-    args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-
-  const config = TOOL_DISPLAY_CONFIG[toolName];
-
-  if (verboseLogging) {
-    const formattedName = config ? toolName : formatMcpToolName(toolName);
-    const emoji = config?.emoji || "🔧";
-    const inputStr =
-      Object.keys(params).length > 0
-        ? `\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``
-        : "";
-    return `└ ${emoji} **${formattedName}**${inputStr}`;
-  }
-
-  if (!config) {
-    const formattedName = formatMcpToolName(toolName);
-    return `└ 🔧 **Using** ${formattedName}`;
-  }
-
-  const param = config.getParam(params);
-  const description = param ? `**${config.action}** ${param}` : config.action;
-  return `└ ${config.emoji} ${description}`;
-}
 
 /**
  * Processes Pi agent streaming events and extracts user-friendly content.
@@ -225,9 +95,13 @@ export class OpenClawProgressProcessor {
       }
 
       case "tool_execution_start": {
+        const params =
+          event.args && typeof event.args === "object"
+            ? (event.args as Record<string, unknown>)
+            : {};
         const formatted = formatToolExecution(
           event.toolName,
-          event.args,
+          params,
           this.verboseLogging
         );
         if (formatted) {

@@ -18,13 +18,29 @@ import {
   BASE_WORKER_LABELS,
   buildDeploymentInfoSummary,
   getVeryOldThresholdDays,
-  LOBU_FINALIZER,
   resolvePlatformDeploymentMetadata,
-  WORKER_SECURITY,
-  WORKER_SELECTOR_LABELS,
 } from "../deployment-utils";
 
 const logger = createLogger("k8s-deployment");
+
+const LOBU_FINALIZER = "lobu.io/cleanup";
+
+/**
+ * Worker security constants - must match Dockerfile.worker user configuration
+ * The 'claude' user is created with UID/GID 1001 in the worker image
+ */
+const WORKER_SECURITY = {
+  USER_ID: 1001,
+  GROUP_ID: 1001,
+  TMP_SIZE_LIMIT: "100Mi",
+  BUN_CACHE_SIZE_LIMIT: "200Mi",
+} as const;
+
+const WORKER_SELECTOR_LABELS = {
+  "app.kubernetes.io/name": BASE_WORKER_LABELS["app.kubernetes.io/name"],
+  "app.kubernetes.io/component":
+    BASE_WORKER_LABELS["app.kubernetes.io/component"],
+} as const;
 
 // K8s-specific type definitions
 interface K8sProbe {
@@ -68,6 +84,7 @@ interface SimpleDeployment {
       };
       spec: {
         serviceAccountName?: string;
+        imagePullSecrets?: Array<{ name: string }>;
         runtimeClassName?: string;
         securityContext?: {
           fsGroup?: number;
@@ -79,6 +96,7 @@ interface SimpleDeployment {
         initContainers?: Array<{
           name: string;
           image: string;
+          imagePullPolicy?: string;
           command?: string[];
           args?: string[];
           securityContext?: {
@@ -164,6 +182,13 @@ interface SimpleDeployment {
     };
   };
 }
+
+const IMAGE_PULL_FAILURE_REASONS = new Set([
+  "ImagePullBackOff",
+  "ErrImagePull",
+  "InvalidImageName",
+  "RegistryUnavailable",
+]);
 
 export class K8sDeploymentManager extends BaseDeploymentManager {
   private kc: k8s.KubeConfig;
@@ -314,49 +339,294 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     }
   }
 
+  private getWorkerServiceAccountName(): string {
+    return this.config.worker.serviceAccountName || "lobu-worker";
+  }
+
+  private getWorkerImagePullSecrets(): Array<{ name: string }> | undefined {
+    const configured = this.config.worker.imagePullSecrets || [];
+    const names = configured.map((name) => name.trim()).filter(Boolean);
+    if (names.length === 0) return undefined;
+    return names.map((name) => ({ name }));
+  }
+
+  private getWorkerStartupTimeoutMs(): number {
+    const timeoutSeconds = this.config.worker.startupTimeoutSeconds ?? 90;
+    return Math.max(timeoutSeconds, 5) * 1000;
+  }
+
+  private async listRawWorkerDeployments(): Promise<k8s.V1Deployment[]> {
+    const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
+      this.config.kubernetes.namespace,
+      undefined, // pretty
+      undefined, // allowWatchBookmarks
+      undefined, // _continue
+      undefined, // fieldSelector
+      "app.kubernetes.io/component=worker" // labelSelector - only worker deployments
+    );
+
+    const response = k8sDeployments as {
+      body?: { items?: k8s.V1Deployment[] };
+    };
+
+    return response.body?.items || [];
+  }
+
   /**
    * Validate that the worker image exists and is pullable
    * Called on gateway startup to ensure workers can be created
    */
   async validateWorkerImage(): Promise<void> {
-    const imageName = `${this.config.worker.image.repository}:${this.config.worker.image.tag}`;
-
-    // For K8s, we can't directly validate if the image exists without creating a pod
-    // Instead, we log a warning and rely on imagePullPolicy and K8s error handling
+    const imageName = this.getWorkerImageReference();
     logger.info(
       `ℹ️  Worker image configured: ${imageName} (pullPolicy: ${this.config.worker.image.pullPolicy || "Always"})`
     );
 
-    // If pull policy is "Never", warn that image must be pre-loaded
     if (this.config.worker.image.pullPolicy === "Never") {
       logger.warn(
         `⚠️  Worker image pullPolicy is 'Never'. Ensure image ${imageName} is pre-loaded on all nodes.`
+      );
+      return;
+    }
+
+    await this.runImagePullPreflight(imageName);
+  }
+
+  private async runImagePullPreflight(imageName: string): Promise<void> {
+    const namespace = this.config.kubernetes.namespace;
+    const podName = `lobu-worker-image-preflight-${Date.now().toString(36)}`;
+    const timeoutMs = 45_000;
+    const startMs = Date.now();
+
+    const pod: k8s.V1Pod = {
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: {
+        name: podName,
+        namespace,
+        labels: {
+          "app.kubernetes.io/name": "lobu",
+          "app.kubernetes.io/component": "worker-image-preflight",
+          "lobu/managed-by": "orchestrator",
+        },
+      },
+      spec: {
+        restartPolicy: "Never",
+        serviceAccountName: this.getWorkerServiceAccountName(),
+        imagePullSecrets: this.getWorkerImagePullSecrets(),
+        containers: [
+          {
+            name: "preflight",
+            image: imageName,
+            imagePullPolicy: this.config.worker.image.pullPolicy || "Always",
+            command: ["/bin/sh", "-lc", "echo preflight"],
+            securityContext: {
+              runAsUser: WORKER_SECURITY.USER_ID,
+              runAsGroup: WORKER_SECURITY.GROUP_ID,
+              runAsNonRoot: true,
+              readOnlyRootFilesystem: true,
+              allowPrivilegeEscalation: false,
+              capabilities: { drop: ["ALL"] },
+            },
+          },
+        ],
+      },
+    };
+
+    try {
+      await this.coreV1Api.createNamespacedPod(namespace, pod);
+
+      while (Date.now() - startMs < timeoutMs) {
+        const podResp = await this.coreV1Api.readNamespacedPod(
+          podName,
+          namespace
+        );
+        const podBody = (podResp as { body?: k8s.V1Pod }).body;
+        const status = podBody?.status;
+        const containerStatus = status?.containerStatuses?.find(
+          (c) => c.name === "preflight"
+        );
+        const waiting = containerStatus?.state?.waiting;
+
+        if (waiting?.reason && IMAGE_PULL_FAILURE_REASONS.has(waiting.reason)) {
+          throw new OrchestratorError(
+            ErrorCode.DEPLOYMENT_CREATE_FAILED,
+            `Worker image preflight failed (${waiting.reason}): ${waiting.message || "image pull failed"}`,
+            { imageName, waitingReason: waiting.reason },
+            true
+          );
+        }
+
+        if (
+          containerStatus?.state?.running ||
+          containerStatus?.state?.terminated
+        ) {
+          logger.info(`✅ Worker image preflight passed: ${imageName}`);
+          return;
+        }
+
+        if (status?.phase === "Running" || status?.phase === "Succeeded") {
+          logger.info(`✅ Worker image preflight passed: ${imageName}`);
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      throw new OrchestratorError(
+        ErrorCode.DEPLOYMENT_CREATE_FAILED,
+        `Timed out validating worker image pullability: ${imageName}`,
+        { imageName, timeoutMs },
+        true
+      );
+    } catch (error) {
+      const k8sError = error as { statusCode?: number; message?: string };
+      if (k8sError.statusCode === 403) {
+        logger.warn(
+          `⚠️  Skipping worker image preflight due to RBAC restrictions (cannot create pods): ${k8sError.message || "forbidden"}`
+        );
+        return;
+      }
+      throw error;
+    } finally {
+      try {
+        await this.coreV1Api.deleteNamespacedPod(
+          podName,
+          namespace,
+          undefined,
+          undefined,
+          0
+        );
+      } catch (error) {
+        const k8sError = error as { statusCode?: number };
+        if (k8sError.statusCode !== 404) {
+          logger.warn(
+            `Failed to delete preflight pod ${podName}: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
+  }
+
+  async reconcileWorkerDeploymentImages(): Promise<void> {
+    const desiredImage = this.getWorkerImageReference();
+    const desiredPullPolicy = this.config.worker.image.pullPolicy || "Always";
+    const desiredServiceAccount = this.getWorkerServiceAccountName();
+    const desiredImagePullSecrets = this.getWorkerImagePullSecrets();
+
+    try {
+      const deployments = await this.listRawWorkerDeployments();
+      let patchedCount = 0;
+
+      for (const deployment of deployments) {
+        const deploymentName = deployment.metadata?.name;
+        if (!deploymentName) continue;
+
+        const templateSpec = deployment.spec?.template.spec;
+        const workerContainer = templateSpec?.containers?.find(
+          (container) => container.name === "worker"
+        );
+        if (!workerContainer) continue;
+
+        const initContainer = templateSpec?.initContainers?.find(
+          (container) => container.name === "nix-bootstrap"
+        );
+        const currentSecrets = (templateSpec?.imagePullSecrets || [])
+          .map((secret) => secret.name || "")
+          .filter(Boolean)
+          .sort();
+        const desiredSecrets = (desiredImagePullSecrets || [])
+          .map((secret) => secret.name)
+          .sort();
+        const secretsMatch =
+          currentSecrets.length === desiredSecrets.length &&
+          currentSecrets.every(
+            (secret, index) => secret === desiredSecrets[index]
+          );
+
+        const needsPatch =
+          workerContainer.image !== desiredImage ||
+          workerContainer.imagePullPolicy !== desiredPullPolicy ||
+          (initContainer ? initContainer.image !== desiredImage : false) ||
+          templateSpec?.serviceAccountName !== desiredServiceAccount ||
+          !secretsMatch;
+
+        if (!needsPatch) continue;
+
+        const patch: Record<string, unknown> = {
+          spec: {
+            template: {
+              spec: {
+                serviceAccountName: desiredServiceAccount,
+                imagePullSecrets: desiredImagePullSecrets || null,
+                containers: [
+                  {
+                    name: "worker",
+                    image: desiredImage,
+                    imagePullPolicy: desiredPullPolicy,
+                  },
+                ],
+              },
+            },
+          },
+        };
+
+        if (initContainer) {
+          (
+            patch.spec as {
+              template: { spec: Record<string, unknown> };
+            }
+          ).template.spec.initContainers = [
+            {
+              name: "nix-bootstrap",
+              image: desiredImage,
+              imagePullPolicy: desiredPullPolicy,
+            },
+          ];
+        }
+
+        await this.appsV1Api.patchNamespacedDeployment(
+          deploymentName,
+          this.config.kubernetes.namespace,
+          patch,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            headers: {
+              "Content-Type": "application/strategic-merge-patch+json",
+            },
+          }
+        );
+
+        patchedCount += 1;
+        logger.info(
+          `🔁 Reconciled worker deployment image for ${deploymentName} -> ${desiredImage}`
+        );
+      }
+
+      if (patchedCount > 0) {
+        logger.info(
+          `✅ Reconciled ${patchedCount} worker deployment(s) to image ${desiredImage}`
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        `Failed to reconcile worker deployment images: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
 
   async listDeployments(): Promise<DeploymentInfo[]> {
     try {
-      // Only list worker deployments using label selector
-      const k8sDeployments = await this.appsV1Api.listNamespacedDeployment(
-        this.config.kubernetes.namespace,
-        undefined, // pretty
-        undefined, // allowWatchBookmarks
-        undefined, // _continue
-        undefined, // fieldSelector
-        "app.kubernetes.io/component=worker" // labelSelector - only worker deployments
-      );
-
       const now = Date.now();
       const idleThresholdMinutes = this.config.worker.idleCleanupMinutes;
       const veryOldDays = getVeryOldThresholdDays(this.config);
-
-      const response = k8sDeployments as {
-        body?: { items?: k8s.V1Deployment[] };
-      };
       const results: DeploymentInfo[] = [];
 
-      for (const deployment of response.body?.items || []) {
+      for (const deployment of await this.listRawWorkerDeployments()) {
         const deploymentName = deployment.metadata?.name || "";
 
         // Clean up orphaned finalizers on Terminating deployments (avoids extra API call)
@@ -495,6 +765,126 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     }
   }
 
+  private async listDeploymentPods(
+    deploymentName: string
+  ): Promise<k8s.V1Pod[]> {
+    const pods = await this.coreV1Api.listNamespacedPod(
+      this.config.kubernetes.namespace,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "app.kubernetes.io/component=worker"
+    );
+
+    const podItems = (
+      (pods as { body?: { items?: k8s.V1Pod[] } }).body?.items || []
+    ).filter((pod) =>
+      (pod.metadata?.ownerReferences || []).some(
+        (owner) =>
+          owner.kind === "ReplicaSet" &&
+          owner.name?.startsWith(`${deploymentName}-`)
+      )
+    );
+
+    return podItems;
+  }
+
+  private async getPodFailureMessage(podName: string): Promise<string> {
+    try {
+      const events = await this.coreV1Api.listNamespacedEvent(
+        this.config.kubernetes.namespace,
+        undefined,
+        undefined,
+        undefined,
+        `involvedObject.name=${podName}`
+      );
+      const items = (events as { body?: { items?: k8s.CoreV1Event[] } }).body
+        ?.items;
+      const latest = items
+        ?.filter((event) =>
+          ["Failed", "BackOff", "ErrImagePull", "ImagePullBackOff"].includes(
+            event.reason || ""
+          )
+        )
+        .sort(
+          (a, b) =>
+            new Date(
+              b.lastTimestamp ||
+                b.eventTime ||
+                b.metadata?.creationTimestamp ||
+                0
+            ).getTime() -
+            new Date(
+              a.lastTimestamp ||
+                a.eventTime ||
+                a.metadata?.creationTimestamp ||
+                0
+            ).getTime()
+        )[0];
+
+      if (latest?.message) {
+        return latest.message;
+      }
+    } catch {
+      // Ignore event lookup failures (RBAC/compat).
+    }
+
+    return "";
+  }
+
+  private async waitForWorkerReady(deploymentName: string): Promise<void> {
+    const timeoutMs = this.getWorkerStartupTimeoutMs();
+    const startedAt = Date.now();
+    const namespace = this.config.kubernetes.namespace;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const deployment = await this.appsV1Api.readNamespacedDeployment(
+        deploymentName,
+        namespace
+      );
+      const deploymentBody = (deployment as { body?: k8s.V1Deployment }).body;
+      const availableReplicas = deploymentBody?.status?.availableReplicas || 0;
+
+      if (availableReplicas > 0) {
+        return;
+      }
+
+      const pods = await this.listDeploymentPods(deploymentName);
+      for (const pod of pods) {
+        const podName = pod.metadata?.name || "unknown";
+        const workerStatus = pod.status?.containerStatuses?.find(
+          (status) => status.name === "worker"
+        );
+        const waiting = workerStatus?.state?.waiting;
+
+        if (waiting?.reason && IMAGE_PULL_FAILURE_REASONS.has(waiting.reason)) {
+          const eventMessage = await this.getPodFailureMessage(podName);
+          throw new OrchestratorError(
+            ErrorCode.DEPLOYMENT_CREATE_FAILED,
+            `Worker startup failed (${waiting.reason}) for ${deploymentName}: ${eventMessage || waiting.message || "image pull failed"}`,
+            {
+              deploymentName,
+              podName,
+              waitingReason: waiting.reason,
+              waitingMessage: waiting.message,
+            },
+            true
+          );
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    throw new OrchestratorError(
+      ErrorCode.DEPLOYMENT_CREATE_FAILED,
+      `Timed out waiting for worker deployment ${deploymentName} to become ready`,
+      { deploymentName, timeoutMs },
+      true
+    );
+  }
+
   async createDeployment(
     deploymentName: string,
     username: string,
@@ -537,6 +927,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     );
 
     const platform = messageData?.platform || "unknown";
+    const workerImage = this.getWorkerImageReference();
 
     const deployment: SimpleDeployment = {
       apiVersion: "apps/v1",
@@ -575,7 +966,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
             },
           },
           spec: {
-            serviceAccountName: "lobu-worker",
+            serviceAccountName: this.getWorkerServiceAccountName(),
+            imagePullSecrets: this.getWorkerImagePullSecrets(),
             // Only set runtimeClassName if configured and available (validated on startup)
             ...(this.config.worker.runtimeClassName
               ? { runtimeClassName: this.config.worker.runtimeClassName }
@@ -590,7 +982,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
                   initContainers: [
                     {
                       name: "nix-bootstrap",
-                      image: `${this.config.worker.image.repository}:${this.config.worker.image.tag}`,
+                      image: workerImage,
+                      imagePullPolicy:
+                        this.config.worker.image.pullPolicy || "Always",
                       command: [
                         "bash",
                         "-c",
@@ -620,7 +1014,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
             containers: [
               {
                 name: "worker",
-                image: `${this.config.worker.image.repository}:${this.config.worker.image.tag}`,
+                image: workerImage,
                 imagePullPolicy:
                   this.config.worker.image.pullPolicy || "Always",
                 securityContext: {
@@ -743,6 +1137,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         this.config.kubernetes.namespace,
         deployment
       );
+      await this.waitForWorkerReady(deploymentName);
+
       const statusResponse = response as { response?: { statusCode?: number } };
       workerSpan?.setAttribute(
         "http.status_code",
@@ -752,7 +1148,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
       workerSpan?.end();
       logger.info(
         { deploymentName, status: statusResponse.response?.statusCode },
-        "Deployment created successfully"
+        "Deployment created and worker became ready"
       );
     } catch (error) {
       const k8sError = error as {
@@ -857,6 +1253,10 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
             },
           }
         );
+      }
+
+      if (replicas > 0) {
+        await this.waitForWorkerReady(deploymentName);
       }
     } catch (error) {
       throw new OrchestratorError(
@@ -1034,6 +1434,7 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
    * duplicate API calls (listDeployments already iterates raw K8s objects).
    */
   async reconcileDeployments(): Promise<void> {
+    await this.reconcileWorkerDeploymentImages();
     await this.cleanupOrphanedPvcFinalizers();
     await super.reconcileDeployments();
   }

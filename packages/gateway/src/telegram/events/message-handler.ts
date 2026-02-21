@@ -11,11 +11,7 @@ import {
 import type { Bot } from "grammy";
 import type { AdminStatusCache } from "../../auth/admin-status-cache";
 import type { AgentMetadataStore } from "../../auth/agent-metadata-store";
-import {
-  type AgentSettingsStore,
-  buildSettingsUrl,
-  generateSettingsToken,
-} from "../../auth/settings";
+import type { AgentSettingsStore } from "../../auth/settings";
 import type { UserAgentsStore } from "../../auth/user-agents-store";
 import type { ChannelBindingService } from "../../channels";
 import type {
@@ -25,6 +21,8 @@ import type {
 import { generateAgentSelectorToken } from "../../routes/public/agent-selector-page";
 import type { ISessionManager } from "../../session";
 import { resolveSpace } from "../../spaces";
+import type { CommandDispatcher } from "../../commands/command-dispatcher";
+import { createTelegramReply } from "../../commands/command-reply-adapters";
 import type { TelegramConfig } from "../config";
 import type { TelegramInteractionRenderer } from "../interactions";
 import { isGroupChat, type TelegramContext } from "../types";
@@ -60,6 +58,7 @@ export class TelegramMessageHandler {
   private userAgentsStore?: UserAgentsStore;
   private agentMetadataStore?: AgentMetadataStore;
   private adminStatusCache?: AdminStatusCache;
+  private commandDispatcher?: CommandDispatcher;
   private botUsername?: string;
 
   constructor(
@@ -92,6 +91,10 @@ export class TelegramMessageHandler {
 
   setAdminStatusCache(cache: AdminStatusCache): void {
     this.adminStatusCache = cache;
+  }
+
+  setCommandDispatcher(dispatcher: CommandDispatcher): void {
+    this.commandDispatcher = dispatcher;
   }
 
   /**
@@ -384,6 +387,19 @@ export class TelegramMessageHandler {
     const userId = String(context.senderId);
     const chatId = String(context.chatId);
 
+    // Handle slash commands via shared dispatcher before normal message routing
+    if (this.commandDispatcher) {
+      const handled = await this.commandDispatcher.tryHandleSlashText(body, {
+        platform: "telegram",
+        userId,
+        channelId: chatId,
+        isGroup: context.isGroup,
+        conversationId,
+        reply: createTelegramReply(this.bot, context.chatId),
+      });
+      if (handled) return;
+    }
+
     logger.info(
       { traceId, messageId, conversationId, userId },
       "Message received"
@@ -422,28 +438,6 @@ export class TelegramMessageHandler {
         isGroup: context.isGroup,
       });
       agentId = space.agentId;
-    }
-
-    // Handle /configure command
-    if (body.trim().toLowerCase() === "/configure") {
-      logger.info({ userId, agentId }, "User requested /configure");
-      try {
-        const token = generateSettingsToken(agentId, userId, "telegram");
-        const settingsUrl = buildSettingsUrl(token);
-
-        await this.bot.api.sendMessage(
-          context.chatId,
-          `Here's your settings link (valid for 1 hour):\n${settingsUrl}\n\nUse this page to configure your agent's model, network access, git repository, and more.`
-        );
-        logger.info({ userId }, "Sent settings link");
-      } catch (error) {
-        logger.error({ error }, "Failed to generate settings link");
-        await this.bot.api.sendMessage(
-          context.chatId,
-          "Sorry, I couldn't generate a settings link. Please try again later."
-        );
-      }
-      return;
     }
 
     // Clean up body - remove bot mention

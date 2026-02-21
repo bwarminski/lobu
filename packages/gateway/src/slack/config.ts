@@ -88,7 +88,20 @@ export function buildSlackConfig(): SlackConfig | null {
     return null;
   }
 
-  const socketMode = process.env.SLACK_HTTP_MODE !== "true";
+  // Use HTTP/webhooks when a public gateway URL is available (not localhost);
+  // fall back to Socket Mode for local development.
+  const publicUrl = process.env.PUBLIC_GATEWAY_URL;
+  let socketMode = true;
+  if (publicUrl) {
+    try {
+      const host = new URL(publicUrl).hostname;
+      if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+        socketMode = false;
+      }
+    } catch {
+      // invalid URL, keep socket mode
+    }
+  }
 
   return {
     token: botToken || "",

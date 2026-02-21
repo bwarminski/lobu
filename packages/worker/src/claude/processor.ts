@@ -5,6 +5,7 @@ import type {
   SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { createLogger } from "@lobu/core";
+import { formatToolExecution } from "../shared/processor-utils";
 
 const logger = createLogger("claude-processor");
 
@@ -22,67 +23,6 @@ interface ToolUseBlock {
   name: string;
   input?: unknown;
 }
-
-/**
- * Tool display configuration - maps tool names to emoji and description formatting
- */
-const TOOL_DISPLAY_CONFIG: Record<
-  string,
-  {
-    emoji: string;
-    action: string;
-    getParam: (params: Record<string, unknown>) => string;
-  }
-> = {
-  Write: {
-    emoji: "✏️",
-    action: "Writing",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  Edit: {
-    emoji: "✏️",
-    action: "Editing",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  Bash: {
-    emoji: "👾",
-    action: "Running",
-    getParam: (p) => {
-      const cmd = String(p.command || p.description || "command");
-      return `\`${cmd.length > 50 ? `${cmd.substring(0, 50)}...` : cmd}\``;
-    },
-  },
-  Read: {
-    emoji: "📖",
-    action: "Reading",
-    getParam: (p) => `\`${p.file_path || ""}\``,
-  },
-  Grep: {
-    emoji: "🔍",
-    action: "Searching",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  Glob: {
-    emoji: "🔍",
-    action: "Finding",
-    getParam: (p) => `\`${p.pattern || ""}\``,
-  },
-  TodoWrite: {
-    emoji: "📝",
-    action: "Updating task list",
-    getParam: () => "",
-  },
-  WebFetch: {
-    emoji: "🌐",
-    action: "Fetching",
-    getParam: (p) => `\`${p.url || ""}\``,
-  },
-  WebSearch: {
-    emoji: "🔎",
-    action: "Searching web",
-    getParam: (p) => `\`${p.query || ""}\``,
-  },
-};
 
 /**
  * Processes Claude SDK streaming updates and extracts user-friendly content
@@ -301,25 +241,6 @@ export class ProgressProcessor {
   }
 
   /**
-   * Format tool names from prefix__something__something to prefix.something.something
-   * Examples: mcp__github__get_me -> mcp.github.get_me
-   *           custom__server__action -> custom.server.action
-   */
-  private formatMcpToolName(toolName: string): string {
-    // Match pattern: anything__something__something
-    const pattern = /^([^_]+)__([^_]+)__(.+)$/;
-    const match = toolName.match(pattern);
-
-    if (match) {
-      const [, prefix, server, tool] = match;
-      return `${prefix}.${server}.${tool}`;
-    }
-
-    // Return as-is if pattern doesn't match
-    return toolName;
-  }
-
-  /**
    * Format tool execution for user-friendly display in bullet lists
    */
   private formatToolExecution(toolUse: ToolUseBlock): string {
@@ -334,32 +255,7 @@ export class ProgressProcessor {
       return "";
     }
 
-    const config = TOOL_DISPLAY_CONFIG[toolName];
-
-    // In verbose mode, show full tool input
-    if (this.verboseLogging) {
-      const formattedName = config
-        ? toolName
-        : this.formatMcpToolName(toolName);
-      const emoji = config?.emoji || "🔧";
-      const inputStr =
-        Object.keys(params).length > 0
-          ? `\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``
-          : "";
-      return `└ ${emoji} **${formattedName}**${inputStr}`;
-    }
-
-    if (!config) {
-      const formattedName = this.formatMcpToolName(toolName);
-      // For Task tool, include description if available
-      const description =
-        typeof params.description === "string" ? `: ${params.description}` : "";
-      return `└ 🔧 **Using** ${formattedName}${description}`;
-    }
-
-    const param = config.getParam(params);
-    const description = param ? `**${config.action}** ${param}` : config.action;
-    return `└ ${config.emoji} ${description}`;
+    return formatToolExecution(toolName, params, this.verboseLogging);
   }
 
   /**

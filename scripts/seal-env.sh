@@ -73,6 +73,7 @@ SECRET_ARGS=()
 [[ -n "$SLACK_CLIENT_SECRET" ]] && SECRET_ARGS+=(--from-literal=slack-client-secret="$SLACK_CLIENT_SECRET")
 
 # Claude/Anthropic credentials
+[[ -n "$ANTHROPIC_API_KEY" ]] && SECRET_ARGS+=(--from-literal=anthropic-api-key="$ANTHROPIC_API_KEY")
 [[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]] && SECRET_ARGS+=(--from-literal=claude-code-oauth-token="$CLAUDE_CODE_OAUTH_TOKEN")
 
 # Encryption key

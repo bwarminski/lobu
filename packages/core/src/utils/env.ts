@@ -48,17 +48,3 @@ export function getOptionalBoolean(
   const lower = value.toLowerCase();
   return lower === "true" || lower === "1" || lower === "yes";
 }
-
-/**
- * Get optional float environment variable with default
- * Throws ConfigError if value is not a valid number
- */
-export function getOptionalFloat(name: string, defaultValue: number): number {
-  const value = process.env[name];
-  if (!value) return defaultValue;
-  const parsed = parseFloat(value);
-  if (Number.isNaN(parsed)) {
-    throw new ConfigError(`Invalid float for ${name}: ${value}`);
-  }
-  return parsed;
-}

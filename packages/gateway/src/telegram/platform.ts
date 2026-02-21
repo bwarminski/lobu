@@ -4,6 +4,7 @@
 
 import {
   type AgentOptions as CoreAgentOptions,
+  type CommandRegistry,
   createLogger,
   type UserInteraction,
   type UserSuggestion,
@@ -19,6 +20,7 @@ import {
   platformFactoryRegistry,
 } from "../platform/platform-factory";
 import type { ResponseRenderer } from "../platform/response-renderer";
+import { CommandDispatcher } from "../commands/command-dispatcher";
 import { TelegramAuthAdapter } from "./auth-adapter";
 import type { TelegramConfig } from "./config";
 import { shouldUseWebhook, TELEGRAM_WEBHOOK_PATH } from "./config";
@@ -47,6 +49,7 @@ export class TelegramPlatform implements PlatformAdapter {
   private responseRenderer?: TelegramResponseRenderer;
   private interactionRenderer?: TelegramInteractionRenderer;
   private authAdapter?: TelegramAuthAdapter;
+  private commandRegistry?: CommandRegistry;
   private running = false;
   private useWebhook = false;
   private webhookRoute?: Hono;
@@ -137,6 +140,18 @@ export class TelegramPlatform implements PlatformAdapter {
       logger.info("Agent settings store wired to Telegram message handler");
     }
 
+    // Wire up command dispatcher
+    const commandRegistry = services.getCommandRegistry();
+    this.commandRegistry = commandRegistry;
+    const commandDispatcher = new CommandDispatcher({
+      registry: commandRegistry,
+      channelBindingService: services.getChannelBindingService(),
+    });
+    if (this.messageHandler) {
+      this.messageHandler.setCommandDispatcher(commandDispatcher);
+      logger.info("Command dispatcher wired to Telegram message handler");
+    }
+
     // Wire up user agent configuration stores
     if (this.messageHandler) {
       const userAgentsStore = services.getUserAgentsStore();
@@ -159,6 +174,26 @@ export class TelegramPlatform implements PlatformAdapter {
     // Setup message handler before starting bot
     if (this.messageHandler) {
       this.messageHandler.start();
+    }
+
+    // Register bot commands menu with Telegram
+    if (this.commandRegistry) {
+      const commands = this.commandRegistry.getAll().map((cmd) => ({
+        command: cmd.name,
+        description: cmd.description,
+      }));
+      try {
+        await this.bot.api.setMyCommands(commands);
+        logger.info(
+          { count: commands.length },
+          "Telegram bot commands menu registered"
+        );
+      } catch (err) {
+        logger.warn(
+          { error: String(err) },
+          "Failed to set Telegram bot commands menu"
+        );
+      }
     }
 
     // Register error handler

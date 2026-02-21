@@ -26,9 +26,9 @@ RUN apt-get update && apt-get install -y \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && curl -fsSL https://get.docker.com -o get-docker.sh \
-    && sh get-docker.sh \
-    && rm get-docker.sh \
+    && DOCKER_ARCH=$(case "$(dpkg --print-architecture)" in amd64) echo x86_64;; arm64) echo aarch64;; *) echo x86_64;; esac) \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-27.5.1.tgz" \
+       | tar xz --strip-components=1 -C /usr/local/bin docker/docker \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -52,8 +52,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Create a non-root user with home directory and sudo access
 RUN addgroup --gid 1001 claude && \
     adduser --system --uid 1001 --ingroup claude --home /home/claude claude && \
-    echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
-    usermod -aG docker claude
+    echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Install Nix (single-user mode for container simplicity)
 # This allows workers to use nix-shell or nix develop for custom environments

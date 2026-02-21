@@ -13,6 +13,7 @@ import type { WebClient } from "@slack/web-api";
 import type { QueueProducer } from "../infrastructure/queue";
 import type { InteractionService } from "../interactions";
 import type { ISessionManager } from "../session";
+import type { CommandDispatcher } from "../commands/command-dispatcher";
 
 const logger = createLogger("slack-events");
 
@@ -731,6 +732,14 @@ export class SlackEventHandlers {
     cache: import("../auth/admin-status-cache").AdminStatusCache
   ): void {
     this.messageHandler.setAdminStatusCache(cache);
+  }
+
+  /**
+   * Set the command dispatcher for slash/text command handling
+   */
+  setCommandDispatcher(dispatcher: CommandDispatcher): void {
+    this.shortcutCommandHandler.setCommandDispatcher(dispatcher);
+    this.messageHandler.setCommandDispatcher(dispatcher);
   }
 
   /**

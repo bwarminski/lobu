@@ -2,13 +2,21 @@ import { createLogger } from "@lobu/core";
 import type { App } from "@slack/bolt";
 import type { AnyBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
+import type { CommandDispatcher } from "../../commands/command-dispatcher";
+import { createSlackEphemeralReply } from "../../commands/command-reply-adapters";
 import type { ModalViewWithState } from "../types";
 import { sendSlackMessage } from "./message-utils";
 
 const logger = createLogger("dispatcher");
 
 export class ShortcutCommandHandler {
+  private commandDispatcher?: CommandDispatcher;
+
   constructor(private app: App) {}
+
+  setCommandDispatcher(dispatcher: CommandDispatcher): void {
+    this.commandDispatcher = dispatcher;
+  }
 
   /**
    * Setup all shortcut and slash command handlers
@@ -97,16 +105,43 @@ export class ShortcutCommandHandler {
   private setupSlashCommands(): void {
     logger.info("Setting up slash command handlers...");
 
-    // Handle /lobu command - always show context-aware welcome
+    // Handle /lobu command with optional subcommands
     this.app.command("/lobu", async ({ ack, body, client }) => {
       await ack();
 
-      const { user_id, channel_id } = body;
+      const { user_id, channel_id, text } = body;
+      const subcommand = text?.trim().split(/\s+/)[0]?.toLowerCase();
+      const subcommandArgs = text?.trim().split(/\s+/).slice(1).join(" ") || "";
+      const teamId = (body as { team_id?: string }).team_id;
+      const isGroup = !channel_id.startsWith("D");
+
       logger.info(
-        `/lobu command received from user=${user_id}, channel=${channel_id}`
+        `/lobu command received from user=${user_id}, channel=${channel_id}, subcommand=${subcommand || "(none)"}`
       );
 
-      // Send context-aware welcome message (no thread for slash commands)
+      // Try shared command dispatcher for subcommands
+      if (subcommand && this.commandDispatcher) {
+        const handled = await this.commandDispatcher.tryHandle(
+          subcommand,
+          subcommandArgs,
+          {
+            platform: "slack",
+            userId: user_id,
+            channelId: channel_id,
+            teamId,
+            isGroup,
+            reply: createSlackEphemeralReply(
+              client as WebClient,
+              channel_id,
+              user_id
+            ),
+          }
+        );
+
+        if (handled) return;
+      }
+
+      // No subcommand or unrecognized - show welcome
       await this.sendContextAwareWelcome(user_id, channel_id, client as any);
     });
   }

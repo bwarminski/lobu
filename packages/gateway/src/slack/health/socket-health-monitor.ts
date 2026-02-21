@@ -2,6 +2,8 @@ import { createLogger } from "@lobu/core";
 
 const logger = createLogger("socket-health-monitor");
 
+const MAX_RECONNECT_ATTEMPTS = 3;
+
 interface SocketHealthConfig {
   /** How often to check for zombie connection (ms) */
   checkIntervalMs: number;
@@ -17,7 +19,8 @@ interface SocketHealthConfig {
  * Detects zombie Socket Mode connections by monitoring Socket Mode event activity.
  * Socket Mode emits internal events (heartbeats, keepalives) every ~30-60 seconds
  * even in quiet workspaces. If no events are received for the threshold period,
- * the connection is considered stale/zombie and triggers a process exit for restart.
+ * the connection is considered stale/zombie and triggers a reconnection attempt.
+ * Only exits the process after MAX_RECONNECT_ATTEMPTS consecutive failures.
  */
 export class SocketHealthMonitor {
   private config: SocketHealthConfig;
@@ -25,6 +28,9 @@ export class SocketHealthMonitor {
   private healthCheckInterval?: NodeJS.Timeout;
   private isRunning = false;
   private getActiveWorkerCountFn?: () => number;
+  private reconnectFn?: () => Promise<void>;
+  private consecutiveStaleChecks = 0;
+  private isReconnecting = false;
 
   constructor(config: SocketHealthConfig) {
     this.config = config;
@@ -34,15 +40,20 @@ export class SocketHealthMonitor {
   /**
    * Start health monitoring
    */
-  start(getActiveWorkerCount: () => number): void {
+  start(
+    getActiveWorkerCount: () => number,
+    reconnectFn?: () => Promise<void>
+  ): void {
     if (this.isRunning) {
       logger.warn("Health monitor already running");
       return;
     }
 
     this.getActiveWorkerCountFn = getActiveWorkerCount;
+    this.reconnectFn = reconnectFn;
     this.isRunning = true;
     this.lastEventTimestamp = Date.now(); // Reset on start
+    this.consecutiveStaleChecks = 0;
 
     logger.info("Socket health monitor started", {
       checkIntervalMs: this.config.checkIntervalMs,
@@ -74,13 +85,14 @@ export class SocketHealthMonitor {
    */
   recordSocketEvent(): void {
     this.lastEventTimestamp = Date.now();
+    this.consecutiveStaleChecks = 0;
   }
 
   /**
    * Perform health check - detect zombie connection
    */
   private performHealthCheck(): void {
-    if (!this.isRunning) {
+    if (!this.isRunning || this.isReconnecting) {
       return;
     }
 
@@ -90,29 +102,40 @@ export class SocketHealthMonitor {
 
     // Check if connection is stale
     if (timeSinceLastEvent > this.config.staleThresholdMs) {
+      this.consecutiveStaleChecks++;
+
       logger.warn("🚨 Zombie Socket Mode connection detected!", {
         timeSinceLastEvent,
         staleThresholdMs: this.config.staleThresholdMs,
         activeWorkers,
+        attempt: this.consecutiveStaleChecks,
+        maxAttempts: MAX_RECONNECT_ATTEMPTS,
       });
 
       // Check if we should protect active workers
       if (this.config.protectActiveWorkers && activeWorkers > 0) {
         logger.info(
-          `Delaying restart to protect ${activeWorkers} active worker(s)`
+          `Delaying reconnect to protect ${activeWorkers} active worker(s)`
         );
         return;
       }
 
-      // Trigger restart by exiting process
-      logger.error(
-        "Socket Mode connection is stale - exiting for container restart"
-      );
-      logger.error(
-        "Docker/Kubernetes will automatically restart the gateway container"
-      );
+      // Attempt reconnection if callback is available
+      if (
+        this.reconnectFn &&
+        this.consecutiveStaleChecks <= MAX_RECONNECT_ATTEMPTS
+      ) {
+        logger.warn(
+          `Attempting Socket Mode reconnection (attempt ${this.consecutiveStaleChecks}/${MAX_RECONNECT_ATTEMPTS})`
+        );
+        this.attemptReconnect();
+        return;
+      }
 
-      // Exit with code 0 to indicate intentional restart (not a failure)
+      // All reconnect attempts exhausted — exit for container restart
+      logger.error(
+        `Socket Mode connection stale after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts - exiting for container restart`
+      );
       process.exit(0);
     }
 
@@ -124,6 +147,23 @@ export class SocketHealthMonitor {
         status: "degraded",
       });
     }
+  }
+
+  private attemptReconnect(): void {
+    this.isReconnecting = true;
+    this.reconnectFn!()
+      .then(() => {
+        logger.info(
+          "Socket Mode reconnection initiated, resetting event timer"
+        );
+        this.lastEventTimestamp = Date.now();
+      })
+      .catch((err) => {
+        logger.error("Socket Mode reconnection failed", err);
+      })
+      .finally(() => {
+        this.isReconnecting = false;
+      });
   }
 
   /**

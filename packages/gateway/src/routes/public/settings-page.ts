@@ -4,6 +4,7 @@
 
 import type { AgentSettings } from "../../auth/settings";
 import type { SettingsTokenPayload } from "../../auth/settings/token-service";
+import type { ModelOption } from "@lobu/core";
 import { platformRegistry } from "../../platform";
 import { settingsPageCSS } from "./settings-page-styles";
 
@@ -66,18 +67,19 @@ export interface ProviderMeta {
   apiKeyPlaceholder: string;
 }
 
-export interface GitHubOptions {
+export interface SettingsPageOptions {
   githubAppConfigured: boolean;
   githubAppInstallUrl?: string;
   githubOAuthConfigured?: boolean;
   providers?: ProviderMeta[];
+  providerModelOptions?: Record<string, ModelOption[]>;
 }
 
 export function renderSettingsPage(
   payload: SettingsTokenPayload,
   settings: AgentSettings | null,
   token: string,
-  options?: GitHubOptions
+  options?: SettingsPageOptions
 ): string {
   const s: Partial<AgentSettings> = settings || {};
   const githubAppConfigured = options?.githubAppConfigured ?? false;
@@ -101,6 +103,27 @@ export function renderSettingsPage(
       apiKeyPlaceholder: "",
     },
   ];
+
+  const providerModelOptions: Record<string, ModelOption[]> =
+    options?.providerModelOptions || {};
+
+  const modelOptionGroupsHtml = providers
+    .map((provider) => {
+      const opts = providerModelOptions[provider.id] || [];
+      if (!opts.length) {
+        return "";
+      }
+      const optionsHtml = opts
+        .map(
+          (opt) =>
+            `<option value="${escapeHtml(opt.value)}" ${
+              s.model === opt.value ? "selected" : ""
+            }>${escapeHtml(opt.label)}</option>`
+        )
+        .join("");
+      return `<optgroup label="${escapeHtml(provider.name)}">${optionsHtml}</optgroup>`;
+    })
+    .join("");
 
   const envVarsValue = (() => {
     const existingEnvVars = s.envVars || {};
@@ -238,14 +261,14 @@ export function renderSettingsPage(
             <div>
               <p class="text-sm font-medium text-gray-800">${escapeHtml(p.name)}</p>
               <p class="text-xs"
-                :class="providerState['${p.id}']?.connected ? 'text-emerald-600' : 'text-gray-500'"
+                :class="providerState['${p.id}']?.connected ? (providerState['${p.id}']?.userConnected ? 'text-emerald-600' : 'text-amber-600') : 'text-gray-500'"
                 x-text="providerState['${p.id}']?.status || 'Checking...'"></p>
             </div>
           </div>
-          <button type="button" @click="providerState['${p.id}']?.connected ? disconnectProvider('${p.id}') : connectProvider('${p.id}')"
+          <button type="button" @click="providerState['${p.id}']?.userConnected ? disconnectProvider('${p.id}') : connectProvider('${p.id}')"
             class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
-            :class="providerState['${p.id}']?.connected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'"
-            x-text="providerState['${p.id}']?.connected ? 'Disconnect' : 'Connect'">
+            :class="providerState['${p.id}']?.userConnected ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'"
+            x-text="providerState['${p.id}']?.userConnected ? 'Disconnect' : 'Connect'">
           </button>
         </div>
         ${
@@ -298,19 +321,7 @@ export function renderSettingsPage(
           <label class="block text-xs font-medium text-gray-700 mt-3 pt-3 border-t border-gray-200 mb-1">Model</label>
           <select id="model" name="model" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
             <option value="">Default</option>
-            <optgroup label="Claude">
-              <option value="claude-sonnet-4" ${s.model === "claude-sonnet-4" ? "selected" : ""}>Claude Sonnet 4</option>
-              <option value="claude-sonnet-4-5" ${s.model === "claude-sonnet-4-5" ? "selected" : ""}>Claude Sonnet 4.5</option>
-              <option value="claude-opus-4" ${s.model === "claude-opus-4" ? "selected" : ""}>Claude Opus 4</option>
-              <option value="claude-haiku-4" ${s.model === "claude-haiku-4" ? "selected" : ""}>Claude Haiku 4</option>
-              <option value="claude-haiku-4-5" ${s.model === "claude-haiku-4-5" ? "selected" : ""}>Claude Haiku 4.5</option>
-            </optgroup>
-            <optgroup label="ChatGPT">
-              <option value="openclaw/openai-codex/gpt-5.2-codex" ${s.model === "openclaw/openai-codex/gpt-5.2-codex" ? "selected" : ""}>GPT-5.2 Codex</option>
-              <option value="openclaw/openai-codex/gpt-5.1" ${s.model === "openclaw/openai-codex/gpt-5.1" ? "selected" : ""}>GPT-5.1</option>
-              <option value="openclaw/openai-codex/gpt-5.1-codex-max" ${s.model === "openclaw/openai-codex/gpt-5.1-codex-max" ? "selected" : ""}>GPT-5.1 Codex Max</option>
-              <option value="openclaw/openai-codex/gpt-5.1-codex-mini" ${s.model === "openclaw/openai-codex/gpt-5.1-codex-mini" ? "selected" : ""}>GPT-5.1 Codex Mini</option>
-            </optgroup>
+            ${modelOptionGroupsHtml}
           </select>
         </div>
       </div>
@@ -912,6 +923,8 @@ export function renderSettingsPage(
             this.providerState[pid] = {
               status: 'Checking...',
               connected: false,
+              userConnected: false,
+              systemConnected: false,
               showCodeInput: false,
               showDeviceCode: false,
               showApiKeyInput: false,
@@ -1086,7 +1099,12 @@ export function renderSettingsPage(
             var data = await resp.json();
             for (var provider in (data.providers || {})) {
               var info = data.providers[provider];
-              this.updateProviderStatus(provider, info.connected);
+              this.updateProviderStatus(
+                provider,
+                info.connected,
+                info.userConnected,
+                info.systemConnected
+              );
             }
           } catch (e) {
             if (this.providerState['claude']) {
@@ -1095,10 +1113,17 @@ export function renderSettingsPage(
           }
         },
 
-        updateProviderStatus(provider, connected) {
+        updateProviderStatus(provider, connected, userConnected, systemConnected) {
           if (!this.providerState[provider]) return;
-          this.providerState[provider].connected = connected;
-          this.providerState[provider].status = connected ? 'Connected' : 'Not connected';
+          var ps = this.providerState[provider];
+          ps.connected = !!connected;
+          ps.userConnected = !!userConnected;
+          ps.systemConnected = !!systemConnected;
+          ps.status = !ps.connected
+            ? 'Not connected'
+            : ps.userConnected
+              ? 'Connected'
+              : 'Using system key';
         },
 
         connectProvider(provider) {
@@ -1141,7 +1166,7 @@ export function renderSettingsPage(
             if (resp.ok) {
               this.providerState[provider].showCodeInput = false;
               this.providerState[provider].code = '';
-              this.updateProviderStatus(provider, true);
+              this.updateProviderStatus(provider, true, true, false);
               this.successMsg = 'Connected to ' + (this.PROVIDERS[provider]?.name || provider) + '!';
             } else {
               throw new Error(result.error || 'Failed to verify code');
@@ -1167,7 +1192,7 @@ export function renderSettingsPage(
             if (resp.ok) {
               this.providerState[provider].showApiKeyInput = false;
               this.providerState[provider].apiKey = '';
-              this.updateProviderStatus(provider, true);
+              this.updateProviderStatus(provider, true, true, false);
               this.successMsg = 'Connected to ' + (this.PROVIDERS[provider]?.name || provider) + '!';
             } else {
               throw new Error(result.error || 'Failed to save API key');
@@ -1223,7 +1248,7 @@ export function renderSettingsPage(
               clearInterval(this.chatgptPollTimer);
               this.chatgptPollTimer = null;
               ps.showDeviceCode = false;
-              this.updateProviderStatus(provider, true);
+              this.updateProviderStatus(provider, true, true, false);
               this.successMsg = 'Connected to ' + (this.PROVIDERS[provider]?.name || provider) + '!';
             } else if (data.error) {
               clearInterval(this.chatgptPollTimer);

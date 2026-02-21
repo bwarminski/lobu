@@ -2,6 +2,7 @@ import {
   BaseModule,
   createLogger,
   decrypt,
+  type ModelOption,
   type ModelProviderModule,
 } from "@lobu/core";
 import type { Context } from "hono";
@@ -82,10 +83,13 @@ export class ClaudeOAuthModule
     envVars: Record<string, string>
   ): Record<string, string> {
     if (!envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
-      const systemKey =
-        process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN;
-      if (systemKey) {
-        envVars.ANTHROPIC_API_KEY = systemKey;
+      const systemApiKey = process.env.ANTHROPIC_API_KEY;
+      const systemOAuthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+      if (systemApiKey) {
+        envVars.ANTHROPIC_API_KEY = systemApiKey;
+      } else if (systemOAuthToken) {
+        envVars.CLAUDE_CODE_OAUTH_TOKEN = systemOAuthToken;
       }
     }
     return envVars;
@@ -130,6 +134,49 @@ export class ClaudeOAuthModule
     }
 
     return envVars;
+  }
+
+  async getModelOptions(
+    agentId: string,
+    userId: string
+  ): Promise<ModelOption[]> {
+    const [availableModels, preferredModel, hasSpaceCredentials] =
+      await Promise.all([
+        this.modelPreferenceStore.getAvailableModels(),
+        this.modelPreferenceStore.getModelPreference(userId),
+        this.credentialStore.hasCredentials(agentId),
+      ]);
+    logger.debug("Building Claude model options", {
+      agentId,
+      userId,
+      preferredModel,
+      hasSpaceCredentials,
+    });
+    const defaultModel =
+      preferredModel ||
+      process.env.AGENT_DEFAULT_MODEL ||
+      "claude-sonnet-4-20250514";
+    const options: ModelOption[] = [];
+    const seen = new Set<string>();
+
+    const addOption = (value: string, label: string) => {
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    };
+
+    const defaultEntry = availableModels.find((m) => m.id === defaultModel);
+    addOption(
+      defaultModel,
+      defaultEntry?.display_name ||
+        `Claude ${defaultModel.replace(/^claude-/, "")}`
+    );
+
+    for (const model of availableModels) {
+      addOption(model.id, model.display_name || model.id);
+    }
+
+    return options;
   }
 
   /**

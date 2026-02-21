@@ -365,10 +365,11 @@ export class WorkerGateway {
    * Handle interaction response and send to worker via SSE
    */
   private async handleInteractionResponse(interaction: any): Promise<void> {
-    const deploymentName = generateDeploymentName(
-      interaction.userId,
-      interaction.conversationId
-    );
+    const deploymentName = generateDeploymentName({
+      userId: interaction.userId,
+      channelId: interaction.channelId,
+      conversationId: interaction.conversationId,
+    });
     const connection = this.connectionManager.getConnection(deploymentName);
 
     if (!connection) {

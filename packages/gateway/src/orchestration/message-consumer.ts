@@ -20,6 +20,7 @@ import type {
 import { RedisQueue, type RedisQueueConfig } from "../infrastructure/queue";
 import { SystemMessageLimiter } from "../infrastructure/redis/system-message-limiter";
 import {
+  buildCanonicalConversationKey,
   type BaseDeploymentManager,
   generateDeploymentName,
   type MessagePayload,
@@ -105,6 +106,13 @@ export class MessageConsumer {
   async stop(): Promise<void> {
     this.isRunning = false;
     await this.queue.stop();
+  }
+
+  /**
+   * Refresh provider modules after module registry initialization.
+   */
+  setProviderModules(providerModules: ModelProviderModule[]): void {
+    this.providerModules = providerModules;
   }
 
   private getSystemMessageLimiter(): SystemMessageLimiter {
@@ -319,13 +327,20 @@ export class MessageConsumer {
         }
       }
 
-      const deploymentName = generateDeploymentName(
-        data.userId,
-        effectiveConversationId
-      );
+      const canonicalConversationKey = buildCanonicalConversationKey({
+        platform: data.platform,
+        channelId: data.channelId,
+        conversationId: effectiveConversationId,
+      });
+      const deploymentName = generateDeploymentName({
+        userId: data.userId,
+        platform: data.platform,
+        channelId: data.channelId,
+        conversationId: effectiveConversationId,
+      });
 
       logger.info(
-        `Conversation routing - effectiveConversationId: ${effectiveConversationId}, deploymentName: ${deploymentName}`
+        `Conversation routing - effectiveConversationId: ${effectiveConversationId}, canonicalKey: ${canonicalConversationKey}, deploymentName: ${deploymentName}`
       );
 
       // 1) Send to thread queue immediately (Redis persists; worker will drain on attach)
@@ -627,6 +642,14 @@ export class MessageConsumer {
         `Tracked deployment failure in Redis: ${failureKey} (TTL: 24h)`
       );
 
+      const failureReason =
+        error instanceof Error ? error.message : String(error);
+      const isImagePullFailure =
+        /ImagePullBackOff|ErrImagePull|image pull/i.test(failureReason);
+      const userMessage = isImagePullFailure
+        ? "Worker startup failed due to a Kubernetes image pull error. Please retry after the deployment image/registry configuration is fixed."
+        : "Worker startup failed and your request could not be processed. Please retry in a moment.";
+
       // Notify user that their message could not be processed
       try {
         const responseQueue = "thread_response";
@@ -638,8 +661,7 @@ export class MessageConsumer {
           conversationId: data.conversationId,
           platform: data.platform,
           platformMetadata: data.platformMetadata,
-          content:
-            "Sorry, I was unable to start a worker to process your message. Please try again in a moment.",
+          content: userMessage,
           processedMessageIds: [data.messageId],
         });
       } catch (notifyError) {

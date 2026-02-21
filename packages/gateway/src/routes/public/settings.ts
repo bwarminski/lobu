@@ -15,6 +15,7 @@ import { moduleRegistry } from "@lobu/core";
 import type { AgentSettingsStore } from "../../auth/settings";
 import { verifySettingsToken } from "../../auth/settings/token-service";
 import type { GitHubAppAuth } from "../../modules/git-filesystem/github-app";
+import { collectProviderModelOptions } from "../../auth/provider-model-options";
 import { renderErrorPage, renderSettingsPage } from "./settings-page";
 
 export interface SettingsPageConfig {
@@ -63,18 +64,21 @@ export function createSettingsPageRoutes(
       apiKeyPlaceholder: m.apiKeyPlaceholder || "",
     }));
 
+    const providerModelOptions = await collectProviderModelOptions(
+      payload.agentId,
+      payload.userId
+    );
+
     return c.html(
       renderSettingsPage(payload, settings, token, {
         githubAppConfigured: !!config.githubAuth,
         githubAppInstallUrl: config.githubAppInstallUrl,
         githubOAuthConfigured: !!config.githubOAuthClientId,
         providers,
+        providerModelOptions,
       })
     );
   });
 
   return app;
 }
-
-// Re-export for backwards compatibility during transition
-export { createSettingsPageRoutes as createSettingsRoutes };

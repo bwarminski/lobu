@@ -1,6 +1,6 @@
 # Development Makefile for Lobu
 
-.PHONY: help setup build compile prod test clean logs restart deploy down build-packages check-build dev
+.PHONY: help setup build test clean logs deploy down build-packages dev
 
 # Default target
 help:
@@ -25,10 +25,6 @@ build-packages:
 	@echo "   3️⃣  Building packages/worker..."
 	@cd packages/worker && bun run build
 	@echo "✅ All packages built successfully!"
-
-# Check if packages need rebuilding
-check-build:
-	@./scripts/check-build-status.sh
 
 # Start dev environment with Docker Compose Watch
 dev:
@@ -107,10 +103,20 @@ deploy:
 	if [ -n "$$GITHUB_ACTIONS" ]; then \
 		IMAGE_REPO="$${DOCKER_NAMESPACE:-buremba}"; \
 		IMAGE_TAG="$${IMAGE_TAG:-latest}"; \
+		WORKER_IMAGE_DIGEST="$${WORKER_IMAGE_DIGEST:-}"; \
+		WORKER_IMAGE_REPO="$$IMAGE_REPO/lobu-worker-base"; \
+		if [ -n "$$WORKER_IMAGE_DIGEST" ]; then \
+			WORKER_IMAGE_REF="$$WORKER_IMAGE_REPO@$$WORKER_IMAGE_DIGEST"; \
+		else \
+			WORKER_IMAGE_REF="$$WORKER_IMAGE_REPO:$$IMAGE_TAG"; \
+		fi; \
+		echo "🔎 Running worker image preflight: $$WORKER_IMAGE_REF"; \
+		./scripts/preflight-worker-image.sh "$$WORKER_IMAGE_REF"; \
 		IMAGE_OVERRIDES="--set gateway.image.repository=$$IMAGE_REPO/lobu-gateway \
 			--set gateway.image.tag=$$IMAGE_TAG \
-			--set worker.image.repository=$$IMAGE_REPO/lobu-worker \
-			--set worker.image.tag=$$IMAGE_TAG"; \
+			--set worker.image.repository=$$WORKER_IMAGE_REPO \
+			--set worker.image.tag=$$IMAGE_TAG \
+			--set worker.image.digest=$$WORKER_IMAGE_DIGEST"; \
 	else \
 		IMAGE_OVERRIDES=""; \
 	fi; \

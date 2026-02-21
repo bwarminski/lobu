@@ -20,6 +20,7 @@ import {
 } from "../platform/platform-factory";
 import type { ResponseRenderer } from "../platform/response-renderer";
 import { resolveSpace } from "../spaces";
+import { CommandDispatcher } from "../commands/command-dispatcher";
 import type { AgentOptions, SlackPlatformConfig } from "./config";
 import { SlackEventHandlers } from "./event-router";
 import { SlackFileHandler } from "./file-handler";
@@ -282,6 +283,14 @@ export class SlackPlatform implements PlatformAdapter {
     logger.info(
       "✅ User agents and admin status stores wired to Slack event handlers"
     );
+
+    // Wire up shared command dispatcher for slash commands
+    const commandDispatcher = new CommandDispatcher({
+      registry: services.getCommandRegistry(),
+      channelBindingService: services.getChannelBindingService(),
+    });
+    this.eventHandlers.setCommandDispatcher(commandDispatcher);
+    logger.info("✅ Command dispatcher wired to Slack event handlers");
 
     logger.info("✅ Slack platform initialized");
   }
@@ -886,6 +895,8 @@ export class SlackPlatform implements PlatformAdapter {
           once: (event: string, handler: (...args: unknown[]) => void) => void;
           isConnected?: () => boolean;
           stateMachine?: { getCurrentState?: () => string };
+          disconnect: () => Promise<void>;
+          start: () => Promise<unknown>;
         }
       | undefined;
 
@@ -963,7 +974,16 @@ export class SlackPlatform implements PlatformAdapter {
       if (this.socketHealthMonitor && this.services.getWorkerGateway()) {
         this.socketHealthMonitor.start(
           () =>
-            this.services.getWorkerGateway()?.getActiveConnections().length || 0
+            this.services.getWorkerGateway()?.getActiveConnections().length ||
+            0,
+          async () => {
+            logger.warn(
+              "Health monitor requesting Socket Mode reconnection..."
+            );
+            await socketModeClient.disconnect();
+            await socketModeClient.start();
+            logger.info("Socket Mode reconnection completed");
+          }
         );
         logger.info("✅ Socket health monitoring enabled");
       }

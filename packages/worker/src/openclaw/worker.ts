@@ -29,6 +29,7 @@ import {
   isToolAllowedByPolicy,
 } from "./tool-policy";
 import { createOpenClawTools } from "./tools";
+import { getProviderAuthHintFromError } from "../shared/provider-auth-hints";
 
 const logger = createLogger("openclaw-worker");
 
@@ -318,11 +319,48 @@ Use it when the user references past discussions or you need context.`);
     } catch (error) {
       session.dispose();
       doneReject?.(error as Error);
+
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      const authHint = getProviderAuthHintFromError(errorMsg);
+      if (authHint) {
+        try {
+          const resp = await fetch(`${gatewayUrl}/internal/settings-link`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${workerToken}`,
+            },
+            body: JSON.stringify({
+              reason: `Connect your ${authHint.providerName} account to use ${modelId} models`,
+              prefillEnvVars: [authHint.envVar],
+            }),
+          });
+
+          if (resp.ok) {
+            const { url } = (await resp.json()) as { url: string };
+            const friendlyMsg = `To use ${modelId}, you need to connect your ${authHint.providerName} account.\n\nOpen settings to add your API key: ${url}`;
+            return {
+              success: false,
+              exitCode: 1,
+              output: "",
+              error: friendlyMsg,
+              sessionKey: this.config.sessionKey,
+            };
+          }
+        } catch (linkError) {
+          logger.error(
+            "Failed to generate settings link for missing API key",
+            linkError
+          );
+        }
+      }
+
       return {
         success: false,
         exitCode: 1,
         output: "",
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
         sessionKey: this.config.sessionKey,
       };
     } finally {
@@ -358,26 +396,6 @@ Use it when the user references past discussions or you need context.`);
 
   protected async cleanupSession(_sessionKey: string): Promise<void> {
     logger.info("Cleanup for OpenClaw session (no-op)");
-  }
-
-  private buildPendingInteractionNote(
-    unanswered: Array<{ type: string; question: string }>
-  ): string {
-    const notes = unanswered.map((i) => {
-      switch (i.type) {
-        case "plan_approval":
-          return "Note: You previously asked the user to approve executing your plan, but they haven't responded yet. They've now sent a new message instead. You can ask them again if needed, or proceed based on their new request.";
-        case "tool_approval":
-          return "Note: You previously asked the user to approve a tool execution, but they haven't responded yet. They've sent a new message instead.";
-        case "question":
-        case "form":
-          return `Note: You asked the user: "${i.question.substring(0, 100)}${i.question.length > 100 ? "..." : ""}", but they sent a new message instead of answering.`;
-        default:
-          return `Note: You have an unanswered interaction with the user.`;
-      }
-    });
-
-    return `## Pending Interactions\n\n${notes.join("\n\n")}`;
   }
 }
 

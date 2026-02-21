@@ -1,0 +1,69 @@
+import { createLogger } from "./logger";
+
+const logger = createLogger("command-registry");
+
+/**
+ * Context passed to command handlers.
+ * Shaped to match OpenClaw's registerCommand() API for future migration.
+ */
+export interface CommandContext {
+  userId: string;
+  channelId: string;
+  conversationId?: string;
+  agentId?: string;
+  args: string;
+  reply: (text: string) => Promise<void>;
+  platform: string;
+}
+
+/**
+ * A registered command definition.
+ */
+export interface CommandDefinition {
+  name: string;
+  description: string;
+  handler: (ctx: CommandContext) => Promise<void>;
+}
+
+/**
+ * Shared command registry used by all platform adapters.
+ * Matches OpenClaw's registerCommand() shape so migration is a simple swap.
+ */
+export class CommandRegistry {
+  private commands = new Map<string, CommandDefinition>();
+
+  register(cmd: CommandDefinition): void {
+    this.commands.set(cmd.name, cmd);
+    logger.debug({ command: cmd.name }, "Command registered");
+  }
+
+  get(name: string): CommandDefinition | undefined {
+    return this.commands.get(name);
+  }
+
+  getAll(): CommandDefinition[] {
+    return Array.from(this.commands.values());
+  }
+
+  /**
+   * Try to handle a command by name. Returns true if handled.
+   */
+  async tryHandle(name: string, ctx: CommandContext): Promise<boolean> {
+    const cmd = this.commands.get(name);
+    if (!cmd) return false;
+
+    try {
+      await cmd.handler(ctx);
+      return true;
+    } catch (error) {
+      logger.error(
+        { command: name, error: String(error) },
+        "Command handler failed"
+      );
+      await ctx.reply(
+        "Sorry, something went wrong executing that command. Please try again."
+      );
+      return true;
+    }
+  }
+}

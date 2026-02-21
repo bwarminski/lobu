@@ -6,10 +6,12 @@
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { createLogger } from "@lobu/core";
+import type { ProviderStatus } from "../../auth/provider-status";
 import type { AgentSettings, AgentSettingsStore } from "../../auth/settings";
 import { verifySettingsToken } from "../../auth/settings/token-service";
 import type { IMessageQueue } from "../../infrastructure/queue";
 import type { GitHubAppAuth } from "../../modules/git-filesystem/github-app";
+import { collectModelValues } from "../../auth/provider-model-options";
 
 const TAG = "Agents";
 const ErrorResponse = z.object({ error: z.string() });
@@ -34,7 +36,11 @@ const getConfigRoute = createRoute({
             settings: z.any(),
             providers: z.record(
               z.string(),
-              z.object({ connected: z.boolean() })
+              z.object({
+                connected: z.boolean(),
+                userConnected: z.boolean(),
+                systemConnected: z.boolean(),
+              })
             ),
             github: z.object({
               configured: z.boolean(),
@@ -197,19 +203,24 @@ export function createAgentConfigRoutes(
     const settings = await config.agentSettingsStore.getSettings(agentId);
 
     // Provider status
-    const providers: Record<string, { connected: boolean }> = {};
+    const providers: Record<string, ProviderStatus> = {};
     if (config.providerStores) {
       for (const [name, store] of Object.entries(config.providerStores)) {
         try {
-          const overrideConnected = config.providerConnectedOverrides?.[name];
-          if (overrideConnected === true) {
-            providers[name] = { connected: true };
-            continue;
-          }
-
-          providers[name] = { connected: await store.hasCredentials(agentId) };
+          const hasSystemCredentials =
+            config.providerConnectedOverrides?.[name] === true;
+          const hasUserCredentials = await store.hasCredentials(agentId);
+          providers[name] = {
+            connected: hasUserCredentials || hasSystemCredentials,
+            userConnected: hasUserCredentials,
+            systemConnected: hasSystemCredentials,
+          };
         } catch {
-          providers[name] = { connected: false };
+          providers[name] = {
+            connected: false,
+            userConnected: false,
+            systemConnected: false,
+          };
         }
       }
     }
@@ -281,6 +292,7 @@ export function createAgentConfigRoutes(
     try {
       const existingSettings =
         await config.agentSettingsStore.getSettings(agentId);
+      const availableModels = await collectModelValues(agentId, payload.userId);
       const body = c.req.valid("json");
 
       const updates: Partial<AgentSettings> = {};
@@ -304,7 +316,10 @@ export function createAgentConfigRoutes(
       }
 
       if (Object.keys(body).length > 0) {
-        const validated = validateSettings(body as Partial<AgentSettings>);
+        const validated = await validateSettings(
+          body as Partial<AgentSettings>,
+          availableModels
+        );
         Object.assign(updates, validated);
       }
 
@@ -338,9 +353,10 @@ export function createAgentConfigRoutes(
 
 // --- Validation ---
 
-function validateSettings(
-  input: Partial<AgentSettings>
-): Omit<AgentSettings, "updatedAt"> {
+async function validateSettings(
+  input: Partial<AgentSettings>,
+  availableModels: Set<string>
+): Promise<Omit<AgentSettings, "updatedAt">> {
   const settings: Omit<AgentSettings, "updatedAt"> = {};
 
   if (typeof input.soulMd === "string") {
@@ -354,19 +370,14 @@ function validateSettings(
   }
 
   if (input.model) {
-    const validModels = [
-      "claude-sonnet-4",
-      "claude-sonnet-4-5",
-      "claude-opus-4",
-      "claude-haiku-4",
-      "claude-haiku-4-5",
-      "openclaw/openai-codex/gpt-5.2-codex",
-      "openclaw/openai-codex/gpt-5.1",
-      "openclaw/openai-codex/gpt-5.1-codex-max",
-      "openclaw/openai-codex/gpt-5.1-codex-mini",
-    ];
-    if (!validModels.includes(input.model))
+    if (availableModels.size === 0) {
+      throw new Error(
+        "No models are currently available from configured providers."
+      );
+    }
+    if (!availableModels.has(input.model)) {
       throw new Error(`Invalid model: ${input.model}`);
+    }
     settings.model = input.model;
   }
 

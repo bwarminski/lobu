@@ -1,4 +1,9 @@
-import { BaseModule, createLogger, type ModelProviderModule } from "@lobu/core";
+import {
+  BaseModule,
+  createLogger,
+  type ModelOption,
+  type ModelProviderModule,
+} from "@lobu/core";
 import { Hono } from "hono";
 import type { AgentSettingsStore } from "../settings/agent-settings-store";
 import { ChatGPTDeviceCodeClient } from "./device-code-client";
@@ -64,6 +69,21 @@ export class ChatGPTOAuthModule
       }
     }
     return envVars;
+  }
+
+  async getModelOptions(): Promise<ModelOption[]> {
+    return [
+      { value: "openclaw/openai-codex/gpt-5.2-codex", label: "GPT-5.2 Codex" },
+      { value: "openclaw/openai-codex/gpt-5.1", label: "GPT-5.1" },
+      {
+        value: "openclaw/openai-codex/gpt-5.1-codex-max",
+        label: "GPT-5.1 Codex Max",
+      },
+      {
+        value: "openclaw/openai-codex/gpt-5.1-codex-mini",
+        label: "GPT-5.1 Codex Mini",
+      },
+    ];
   }
 
   /**

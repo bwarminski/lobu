@@ -48,6 +48,14 @@ export class Orchestrator {
       this.deploymentManager.setRedisClient(redisClient);
     }
 
+    // Refresh provider modules after gateway/core services have registered them.
+    const providerModules = moduleRegistry.getModelProviderModules();
+    this.deploymentManager.setProviderModules(providerModules);
+    this.queueConsumer.setProviderModules(providerModules);
+    logger.info(
+      `✅ Provider modules injected into orchestrator (${providerModules.length})`
+    );
+
     logger.info("✅ Core services injected into orchestrator");
   }
 
@@ -172,14 +180,22 @@ export class Orchestrator {
       await moduleRegistry.initAll();
       logger.info("✅ Modules initialized for orchestration");
 
-      // Validate worker image exists (Docker mode only)
-      if (this.deploymentManager instanceof DockerDeploymentManager) {
-        await this.deploymentManager.validateWorkerImage();
-      }
+      // Module registration can happen during initAll(); refresh providers
+      // so deployment/message processing uses the latest auth modules.
+      const providerModules = moduleRegistry.getModelProviderModules();
+      this.deploymentManager.setProviderModules(providerModules);
+      this.queueConsumer.setProviderModules(providerModules);
+      logger.info(
+        `✅ Refreshed provider modules for orchestrator (${providerModules.length})`
+      );
 
-      // Start K8s informer for watch-based reconciliation
+      // Validate configured worker runtime/image before consuming messages.
+      await this.deploymentManager.validateWorkerImage();
+
+      // Start K8s informer for watch-based reconciliation and reconcile stale worker templates
       if (this.deploymentManager instanceof K8sDeploymentManager) {
         await this.deploymentManager.startInformer();
+        await this.deploymentManager.reconcileWorkerDeploymentImages();
       }
 
       // Start queue consumer

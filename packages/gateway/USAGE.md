@@ -34,23 +34,17 @@ This document describes all environment variables used by the Lobu Gateway.
 ## Slack Configuration
 
 ### `SLACK_APP_TOKEN`
-**Description**: Slack App-Level Token for Socket Mode
+**Description**: Slack App-Level Token for Socket Mode (local development only)
 **Format**: Starts with `xapp-`
 **Example**: `xapp-1-A123456-789-abc`
-**Required**: Only if `SLACK_HTTP_MODE` is not `true`
+**Required**: Only when `PUBLIC_GATEWAY_URL` is not set or points to localhost
 **Used by**: Socket Mode WebSocket connection
 
 ### `SLACK_SIGNING_SECRET`
 **Description**: Slack signing secret for request verification
 **Format**: Alphanumeric string
 **Example**: `a1b2c3d4e5f6g7h8i9j0`
-**Used by**: Slack request signature verification
-
-### `SLACK_HTTP_MODE`
-**Description**: Use HTTP mode instead of Socket Mode
-**Format**: `true` or `false`
-**Default**: `false` (Socket Mode)
-**Used by**: Connection mode selection
+**Used by**: Slack request signature verification (HTTP mode)
 
 ### `SLACK_BOT_USER_ID`
 **Description**: Bot user ID (optional, auto-detected if not provided)

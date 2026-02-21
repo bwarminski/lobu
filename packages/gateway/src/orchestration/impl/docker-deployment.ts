@@ -14,9 +14,40 @@ import {
   BASE_WORKER_LABELS,
   buildDeploymentInfoSummary,
   getVeryOldThresholdDays,
-  ResourceParser,
   resolvePlatformDeploymentMetadata,
 } from "../deployment-utils";
+
+/**
+ * Resource parsing utilities for memory and CPU limits
+ */
+class ResourceParser {
+  static parseMemory(memoryStr: string): number {
+    const units: Record<string, number> = {
+      Ki: 1024,
+      Mi: 1024 * 1024,
+      Gi: 1024 * 1024 * 1024,
+      k: 1000,
+      M: 1000 * 1000,
+      G: 1000 * 1000 * 1000,
+    };
+    for (const [unit, multiplier] of Object.entries(units)) {
+      if (memoryStr.endsWith(unit)) {
+        const value = parseFloat(memoryStr.replace(unit, ""));
+        return value * multiplier;
+      }
+    }
+    return parseInt(memoryStr, 10);
+  }
+
+  static parseCpu(cpuStr: string): number {
+    if (cpuStr.endsWith("m")) {
+      const millicores = parseInt(cpuStr.replace("m", ""), 10);
+      return (millicores / 1000) * 1e9;
+    }
+    const cores = parseFloat(cpuStr);
+    return cores * 1e9;
+  }
+}
 
 const logger = createLogger("orchestrator");
 
@@ -86,7 +117,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
    * Called on gateway startup to ensure workers can be created
    */
   async validateWorkerImage(): Promise<void> {
-    const imageName = `${this.config.worker.image.repository}:${this.config.worker.image.tag}`;
+    const imageName = this.getWorkerImageReference();
 
     try {
       await this.docker.getImage(imageName).inspect();
@@ -300,7 +331,7 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
 
       const createOptions: Docker.ContainerCreateOptions = {
         name: deploymentName,
-        Image: `${this.config.worker.image.repository}:${this.config.worker.image.tag}`,
+        Image: this.getWorkerImageReference(),
         Env: envVars,
         Labels: {
           ...BASE_WORKER_LABELS,

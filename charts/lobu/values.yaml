@@ -15,6 +15,7 @@ secrets:
   githubToken: ""  # Optional: GitHub token
   githubClientSecret: ""  # Optional: GitHub OAuth Client Secret
   encryptionKey: ""  # Optional: 32-char key for AES-GCM at-rest encryption
+  anthropicApiKey: ""  # Optional: Anthropic API key (recommended for prod runtime)
   claudeCodeOAuthToken: ""  # Required: Claude Code OAuth token
   whatsappCredentials: ""  # Optional: Base64-encoded WhatsApp credentials JSON
   telegramBotToken: ""  # Optional: Telegram bot token (enables Telegram when set)
@@ -31,6 +32,7 @@ sealedSecrets:
   encryptedData: {}
     # slack-bot-token: "AgBx..." (encrypted value from kubeseal)
     # slack-app-token: "AgBy..."
+    # anthropic-api-key: "AgBv..."
     # claude-code-oauth-token: "AgBz..."
     # github-token: "AgBw..."
 
@@ -103,7 +105,6 @@ limitRange:
 
 slack:
   enabled: false  # Disabled by default, enable with credentials
-  socketMode: true
   allowDirectMessages: true
   allowPrivateChannels: true
 
@@ -139,11 +140,15 @@ gitCache:
 # Disable static worker deployment - workers are created dynamically by dispatcher
 worker:
   enabled: false
+  imagePullSecrets: []  # Optional secrets for pulling private worker images
+  serviceAccountName: ""  # Optional override; default is "<release>-worker"
+  startupTimeoutSeconds: 90
   runtimeClassName: ""  # Empty uses default runtime; set to "gvisor" after manual setup
   image:
     repository: buremba/lobu-worker-base
     pullPolicy: Always
     tag: latest
+    digest: ""  # Prefer immutable digest in production: "sha256:..."
   resources:
     requests:
       memory: "512Mi" # Reduced for security

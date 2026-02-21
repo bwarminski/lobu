@@ -129,7 +129,7 @@ export class QueueProducer {
         retryLimit: options?.retryLimit || 3,
         retryDelay: options?.retryDelay || 30,
         expireInSeconds: options?.expireInSeconds || 300, // 5 minutes = 300 seconds
-        singletonKey: `message-${payload.userId}-${payload.conversationId}-${payload.messageId || Date.now()}`, // Prevent duplicates
+        singletonKey: `message-${payload.platform}-${payload.channelId}-${payload.conversationId}-${payload.messageId || Date.now()}`, // Prevent duplicates within canonical conversation identity
       });
 
       logger.info(

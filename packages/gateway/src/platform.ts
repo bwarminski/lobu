@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import type {
+  CommandRegistry,
   InstructionProvider,
   UserInteraction,
   UserSuggestion,
@@ -50,6 +51,7 @@ export interface CoreServices {
   getUserAgentsStore(): UserAgentsStore;
   getAgentMetadataStore(): AgentMetadataStore;
   getAdminStatusCache(): AdminStatusCache;
+  getCommandRegistry(): CommandRegistry;
 }
 
 // ============================================================================

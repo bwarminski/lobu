@@ -2,11 +2,7 @@ import { createLogger, DEFAULTS } from "@lobu/core";
 import type { WebClient } from "@slack/web-api";
 import type { AdminStatusCache } from "../../auth/admin-status-cache";
 import type { AgentMetadataStore } from "../../auth/agent-metadata-store";
-import {
-  type AgentSettingsStore,
-  buildSettingsUrl,
-  generateSettingsToken,
-} from "../../auth/settings";
+import type { AgentSettingsStore } from "../../auth/settings";
 import type { UserAgentsStore } from "../../auth/user-agents-store";
 import type { ChannelBindingService } from "../../channels";
 import type {
@@ -19,6 +15,8 @@ import type { TranscriptionService } from "../../services/transcription-service"
 import type { ISessionManager, ThreadSession } from "../../session";
 import { generateSessionKey } from "../../session";
 import { resolveSpace } from "../../spaces";
+import type { CommandDispatcher } from "../../commands/command-dispatcher";
+import { createSlackThreadReply } from "../../commands/command-reply-adapters";
 import type { MessageHandlerConfig } from "../config";
 import type { SlackContext, SlackMessageEvent } from "../types";
 
@@ -32,6 +30,7 @@ export class MessageHandler {
   private userAgentsStore?: UserAgentsStore;
   private agentMetadataStore?: AgentMetadataStore;
   private adminStatusCache?: AdminStatusCache;
+  private commandDispatcher?: CommandDispatcher;
 
   constructor(
     private queueProducer: QueueProducer,
@@ -81,6 +80,10 @@ export class MessageHandler {
    */
   setAdminStatusCache(cache: AdminStatusCache): void {
     this.adminStatusCache = cache;
+  }
+
+  setCommandDispatcher(dispatcher: CommandDispatcher): void {
+    this.commandDispatcher = dispatcher;
   }
 
   /**
@@ -353,6 +356,28 @@ export class MessageHandler {
     // Check if this is a Direct Message channel (DMs start with 'D')
     const isDirectMessage = context.channelId.startsWith("D");
 
+    // Handle slash commands via shared dispatcher before normal message routing
+    if (this.commandDispatcher) {
+      const handled = await this.commandDispatcher.tryHandleSlashText(
+        userRequest,
+        {
+          platform: "slack",
+          userId: context.userId,
+          channelId: context.channelId,
+          teamId: context.teamId,
+          isGroup: !isDirectMessage,
+          conversationId: normalizedThreadTs,
+          reply: createSlackThreadReply(
+            client,
+            context.channelId,
+            normalizedThreadTs
+          ),
+        }
+      );
+
+      if (handled) return;
+    }
+
     // Check for channel binding first (explicit agent assignment)
     let agentId: string;
     if (this.channelBindingService) {
@@ -399,32 +424,6 @@ export class MessageHandler {
       logger.info(
         `Resolved agentId: ${agentId} (isGroup: ${!isDirectMessage})`
       );
-    }
-
-    // Handle /configure command - send settings magic link
-    if (userRequest.trim().toLowerCase() === "/configure") {
-      logger.info(
-        `User ${context.userId} requested /configure for agent ${agentId}`
-      );
-      try {
-        const token = generateSettingsToken(agentId, context.userId, "slack");
-        const settingsUrl = buildSettingsUrl(token);
-
-        await client.chat.postMessage({
-          channel: context.channelId,
-          thread_ts: normalizedThreadTs,
-          text: `Here's your settings link (valid for 1 hour):\n${settingsUrl}\n\nUse this page to configure your agent's model, network access, git repository, and more.`,
-        });
-        logger.info(`Sent settings link to user ${context.userId}`);
-      } catch (error) {
-        logger.error("Failed to generate settings link", { error });
-        await client.chat.postMessage({
-          channel: context.channelId,
-          thread_ts: normalizedThreadTs,
-          text: "Sorry, I couldn't generate a settings link. Please try again later.",
-        });
-      }
-      return;
     }
 
     // Only check thread ownership for non-DM channels

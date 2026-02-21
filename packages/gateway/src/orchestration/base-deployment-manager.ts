@@ -22,25 +22,68 @@ export type { MessagePayload };
 
 const logger = createLogger("orchestrator");
 
+export interface DeploymentIdentity {
+  conversationId: string;
+  channelId?: string;
+  platform?: string;
+  userId?: string;
+}
+
 /**
- * Generate a consistent worker runtime ID from user ID and conversation ID.
- * This ensures all messages in the same conversation route to the same worker runtime.
- * K8s names must be lowercase alphanumeric with hyphens only
+ * Build a canonical conversation identity key for runtime routing.
+ * Preferred format: platform:channelId:conversationId
+ */
+export function buildCanonicalConversationKey(
+  identity: DeploymentIdentity
+): string {
+  const { conversationId, channelId, platform } = identity;
+  if (platform && channelId) {
+    return `${platform}:${channelId}:${conversationId}`;
+  }
+  if (channelId) {
+    return `${channelId}:${conversationId}`;
+  }
+  return conversationId;
+}
+
+function sanitizeNameHint(value: string | undefined, fallback: string): string {
+  const sanitized = (value || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return (sanitized.slice(0, 8) || fallback).toLowerCase();
+}
+
+/**
+ * Generate a consistent worker runtime ID from canonical conversation identity.
+ * Overload preserved for compatibility with older callers.
+ * K8s names must be lowercase alphanumeric with hyphens only.
  */
 export function generateDeploymentName(
   userId: string,
   conversationId: string
+): string;
+export function generateDeploymentName(identity: DeploymentIdentity): string;
+export function generateDeploymentName(
+  arg1: string | DeploymentIdentity,
+  arg2?: string
 ): string {
-  // Keep a short, readable user prefix, but ensure uniqueness via hash.
-  const sanitizedUserId = userId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-  const shortUserId = (sanitizedUserId.slice(0, 8) || "user").toLowerCase();
+  if (typeof arg1 === "string") {
+    const userId = arg1;
+    const conversationId = arg2 || "";
+    const shortHint = sanitizeNameHint(userId, "user");
+    const hash = createHash("sha256")
+      .update(`${userId}:${conversationId}`)
+      .digest("hex")
+      .slice(0, 12);
+    return `lobu-worker-${shortHint}-${hash}`;
+  }
 
+  const identity = arg1;
+  const canonicalKey = buildCanonicalConversationKey(identity);
+  const hint = sanitizeNameHint(identity.platform || identity.userId, "ctx");
   const hash = createHash("sha256")
-    .update(`${userId}:${conversationId}`)
+    .update(canonicalKey)
     .digest("hex")
     .slice(0, 12);
-
-  return `lobu-worker-${shortUserId}-${hash}`;
+  return `lobu-worker-${hint}-${hash}`;
 }
 
 // Type for module environment variable builder function
@@ -62,9 +105,13 @@ export interface OrchestratorConfig {
     image: {
       repository: string;
       tag: string;
+      digest?: string;
       pullPolicy: string;
     };
+    serviceAccountName?: string;
+    imagePullSecrets?: string[];
     runtimeClassName?: string; // Optional - if not set or unavailable, uses default container runtime
+    startupTimeoutSeconds?: number;
     resources: {
       requests: { cpu: string; memory: string };
       limits: { cpu: string; memory: string };
@@ -139,6 +186,13 @@ export abstract class BaseDeploymentManager {
   }
 
   /**
+   * Refresh provider modules after module registry initialization.
+   */
+  setProviderModules(providerModules: ModelProviderModule[]): void {
+    this.providerModules = providerModules;
+  }
+
+  /**
    * Get the dispatcher URL for the worker gateway service (port 8080)
    */
   protected getDispatcherUrl(): string {
@@ -160,12 +214,31 @@ export abstract class BaseDeploymentManager {
   ): Promise<void>;
   abstract deleteDeployment(deploymentName: string): Promise<void>;
   abstract updateDeploymentActivity(deploymentName: string): Promise<void>;
+  abstract validateWorkerImage(): Promise<void>;
 
   /**
    * Get the dispatcher service host (without port)
    * Implementations return the appropriate host for their deployment mode
    */
   protected abstract getDispatcherHost(): string;
+
+  /**
+   * Resolve worker image reference.
+   * If digest is configured, prefer immutable digest reference (repo@sha256:...).
+   */
+  protected getWorkerImageReference(): string {
+    const { repository, tag, digest } = this.config.worker.image;
+    const normalizedDigest = digest?.trim();
+
+    if (normalizedDigest) {
+      const digestWithAlgo = normalizedDigest.startsWith("sha256:")
+        ? normalizedDigest
+        : `sha256:${normalizedDigest}`;
+      return `${repository}@${digestWithAlgo}`;
+    }
+
+    return `${repository}:${tag}`;
+  }
 
   /**
    * Create worker deployment for handling messages.
@@ -177,10 +250,18 @@ export abstract class BaseDeploymentManager {
     messageData?: MessagePayload,
     existingDeployments?: DeploymentInfo[]
   ): Promise<void> {
-    const deploymentName = generateDeploymentName(userId, conversationId);
+    const deploymentIdentity: DeploymentIdentity = {
+      userId,
+      conversationId,
+      channelId: messageData?.channelId,
+      platform: messageData?.platform,
+    };
+    const deploymentName = generateDeploymentName(deploymentIdentity);
+    const canonicalConversationKey =
+      buildCanonicalConversationKey(deploymentIdentity);
 
     logger.info(
-      `Worker deployment - conversationId: ${conversationId}, deploymentName: ${deploymentName}`
+      `Worker deployment - conversationId: ${conversationId}, canonicalKey: ${canonicalConversationKey}, deploymentName: ${deploymentName}`
     );
 
     try {
@@ -240,17 +321,12 @@ export abstract class BaseDeploymentManager {
   }
 
   /**
-   * Generate environment variables common to all deployment types
+   * Validate that messageData has all required fields for deployment.
    */
-  protected async generateEnvironmentVariables(
-    username: string,
-    userId: string,
+  private validateMessageData(
     deploymentName: string,
-    messageData?: MessagePayload,
-    includeSecrets: boolean = true,
-    userEnvVars: Record<string, string> = {}
-  ): Promise<{ [key: string]: string }> {
-    // Validate required fields
+    messageData?: MessagePayload
+  ): MessagePayload {
     if (!messageData) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,
@@ -260,46 +336,31 @@ export abstract class BaseDeploymentManager {
       );
     }
 
-    const { conversationId, channelId, platformMetadata } = messageData as any;
-    const effectiveConversationId = conversationId;
-
-    if (!effectiveConversationId || !channelId) {
+    const { conversationId, channelId } = messageData;
+    if (!conversationId || !channelId) {
       throw new OrchestratorError(
         ErrorCode.DEPLOYMENT_CREATE_FAILED,
         "conversationId and channelId are required in message data",
         {
           deploymentName,
-          hasConversationId: !!effectiveConversationId,
+          hasConversationId: !!conversationId,
           hasChannelId: !!channelId,
         },
         true
       );
     }
 
-    // Generate worker authentication token with platform info
-    // Check both top-level teamId (WhatsApp) and platformMetadata.teamId (Slack)
-    const teamId = messageData.teamId || platformMetadata?.teamId;
-    const agentId = messageData.agentId!;
-    // Extract traceId for end-to-end observability
-    const traceId = extractTraceId(messageData);
-    const workerToken = generateWorkerToken(
-      userId,
-      effectiveConversationId,
-      deploymentName,
-      {
-        channelId,
-        teamId,
-        platform: messageData.platform,
-        agentId,
-        traceId,
-      }
-    );
+    return messageData;
+  }
 
-    // Get the dispatcher host for proxy configuration
-    const dispatcherHost = this.getDispatcherHost();
-
+  /**
+   * Auto-add Nix cache domains and persist network/MCP configs for the deployment.
+   */
+  private async storeDeploymentConfigs(
+    deploymentName: string,
+    messageData: MessagePayload
+  ): Promise<void> {
     // Auto-add Nix cache domains when Nix packages are configured
-    // Workers need to download packages from cache.nixos.org etc.
     if (
       messageData.nixConfig?.packages?.length ||
       messageData.nixConfig?.flakeUrl
@@ -322,9 +383,6 @@ export abstract class BaseDeploymentManager {
       }
     }
 
-    // Store per-deployment network config for proxy lookup
-    // The HTTP proxy extracts deploymentName from Proxy-Authorization header
-    // and looks up the config from networkConfigStore
     if (messageData.networkConfig) {
       await networkConfigStore.set(deploymentName, messageData.networkConfig);
       logger.debug(
@@ -332,65 +390,46 @@ export abstract class BaseDeploymentManager {
       );
     }
 
-    // Store per-deployment MCP config for session-context lookup
     if (messageData.mcpConfig) {
       await mcpConfigStore.set(deploymentName, messageData.mcpConfig);
       logger.debug(
         `Stored MCP config for ${deploymentName}: ${Object.keys(messageData.mcpConfig.mcpServers).length} servers`
       );
     }
+  }
 
-    // Extract git config for workspace initialization
-    // These are passed to worker and used by GitFilesystemModule.buildEnvVars()
-    const gitEnvVars: Record<string, string> = {};
-    if (messageData.gitConfig) {
-      const { repoUrl, branch, sparse } = messageData.gitConfig;
-      if (repoUrl) {
-        gitEnvVars.GIT_REPO_URL = repoUrl;
-      }
-      if (branch) {
-        gitEnvVars.GIT_BRANCH = branch;
-      }
-      if (sparse && sparse.length > 0) {
-        // Comma-separated list of sparse checkout paths
-        gitEnvVars.GIT_SPARSE_PATHS = sparse.join(",");
-      }
-      logger.debug(
-        `Git config for ${deploymentName}: repo=${repoUrl}, branch=${branch || "default"}, sparse=${sparse?.length || 0}`
-      );
-    }
-
-    // Extract nix config for environment setup
-    // These are passed to worker entrypoint to activate Nix environment
-    const nixEnvVars: Record<string, string> = {};
-    if (messageData.nixConfig) {
-      const { flakeUrl, packages } = messageData.nixConfig;
-      if (flakeUrl) {
-        nixEnvVars.NIX_FLAKE_URL = flakeUrl;
-      }
-      if (packages && packages.length > 0) {
-        // Comma-separated list of Nix packages
-        nixEnvVars.NIX_PACKAGES = packages.join(",");
-      }
-      logger.debug(
-        `Nix config for ${deploymentName}: flakeUrl=${flakeUrl || "none"}, packages=${packages?.length || 0}`
-      );
-    }
-
+  /**
+   * Build proxy URL with deployment identification via Basic auth.
+   */
+  private buildProxyUrl(
+    deploymentName: string,
+    workerToken: string,
+    dispatcherHost: string
+  ): string {
     const parsedProxyPort = Number.parseInt(
       process.env.WORKER_PROXY_PORT || "8118",
       10
     );
     const proxyPort = Number.isFinite(parsedProxyPort) ? parsedProxyPort : 8118;
+    return `http://${deploymentName}:${workerToken}@${dispatcherHost}:${proxyPort}`;
+  }
 
-    // Build proxy URL with deployment identification via Basic auth
-    // Format: http://<deploymentName>:<workerToken>@<host>:<proxyPort>
-    // The proxy extracts deploymentName from username and looks up per-deployment config
-    // Note: Credentials in proxy URL is standard for transparent HTTP proxying.
-    // The workerToken is short-lived and scoped to this deployment only.
-    const proxyUrl = `http://${deploymentName}:${workerToken}@${dispatcherHost}:${proxyPort}`;
+  /**
+   * Assemble the base environment variables map for a worker deployment.
+   */
+  private assembleBaseEnv(
+    username: string,
+    userId: string,
+    deploymentName: string,
+    workerToken: string,
+    messageData: MessagePayload,
+    traceId: string | undefined,
+    proxyUrl: string,
+    dispatcherHost: string
+  ): Record<string, string> {
+    const { conversationId, channelId, platformMetadata } = messageData;
 
-    let envVars: { [key: string]: string } = {
+    const envVars: Record<string, string> = {
       USER_ID: userId,
       USERNAME: username,
       DEPLOYMENT_NAME: deploymentName,
@@ -399,29 +438,20 @@ export abstract class BaseDeploymentManager {
         platformMetadata?.originalMessageTs || messageData.messageId || "",
       LOG_LEVEL: "info",
       WORKSPACE_DIR: "/workspace",
-      CONVERSATION_ID: effectiveConversationId,
-      // Worker authentication and communication
+      CONVERSATION_ID: conversationId,
       WORKER_TOKEN: workerToken,
       DISPATCHER_URL: this.getDispatcherUrl(),
-      // Node environment - always production for workers (they have read-only filesystem)
       NODE_ENV: "production",
-      // Enable SDK debugging for crash investigation
       DEBUG: "1",
-      // HTTP proxy configuration for network isolation
-      // Workers must route all external traffic through the gateway proxy
-      // Proxy-Authorization Basic auth identifies the deployment for per-agent network rules
       HTTP_PROXY: proxyUrl,
       HTTPS_PROXY: proxyUrl,
-      // Don't proxy internal services (base list, extended below)
       NO_PROXY: `${dispatcherHost},redis,localhost,127.0.0.1`,
     };
 
-    // Add optional environment variables only if they exist
-    if (messageData?.platformMetadata?.botResponseTs) {
-      envVars.BOT_RESPONSE_TS = messageData.platformMetadata.botResponseTs;
+    if (platformMetadata?.botResponseTs) {
+      envVars.BOT_RESPONSE_TS = platformMetadata.botResponseTs;
     }
 
-    // Add trace ID for end-to-end observability
     if (traceId) {
       envVars.TRACE_ID = traceId;
     }
@@ -430,41 +460,146 @@ export abstract class BaseDeploymentManager {
     const tempoEndpoint = process.env.TEMPO_ENDPOINT;
     if (tempoEndpoint) {
       envVars.TEMPO_ENDPOINT = tempoEndpoint;
-      // Extract tempo hostname and add to NO_PROXY so workers can send traces directly
       try {
         const tempoUrl = new URL(tempoEndpoint);
         envVars.NO_PROXY = `${envVars.NO_PROXY},${tempoUrl.hostname}`;
       } catch {
-        // If URL parsing fails, just add lobu-tempo as fallback
         envVars.NO_PROXY = `${envVars.NO_PROXY},lobu-tempo`;
       }
     }
 
-    // Merge git environment variables before module processing
-    // This allows GitFilesystemModule.buildEnvVars() to access GIT_REPO_URL etc.
-    Object.assign(envVars, gitEnvVars);
+    // Git config
+    if (messageData.gitConfig) {
+      const { repoUrl, branch, sparse } = messageData.gitConfig;
+      if (repoUrl) envVars.GIT_REPO_URL = repoUrl;
+      if (branch) envVars.GIT_BRANCH = branch;
+      if (sparse && sparse.length > 0)
+        envVars.GIT_SPARSE_PATHS = sparse.join(",");
+      logger.debug(
+        `Git config for ${deploymentName}: repo=${repoUrl}, branch=${branch || "default"}, sparse=${sparse?.length || 0}`
+      );
+    }
 
-    // Merge nix environment variables
-    // Worker entrypoint reads NIX_FLAKE_URL and NIX_PACKAGES to activate Nix environment
-    Object.assign(envVars, nixEnvVars);
+    // Nix config
+    if (messageData.nixConfig) {
+      const { flakeUrl, packages } = messageData.nixConfig;
+      if (flakeUrl) envVars.NIX_FLAKE_URL = flakeUrl;
+      if (packages && packages.length > 0)
+        envVars.NIX_PACKAGES = packages.join(",");
+      logger.debug(
+        `Nix config for ${deploymentName}: flakeUrl=${flakeUrl || "none"}, packages=${packages?.length || 0}`
+      );
+    }
+
+    return envVars;
+  }
+
+  /**
+   * Replace secret env var values with short-lived placeholders and route
+   * provider SDKs through the secret proxy.
+   */
+  private async injectSecretPlaceholders(
+    envVars: Record<string, string>,
+    agentId: string,
+    deploymentName: string
+  ): Promise<Record<string, string>> {
+    if (!this.redisClient) return envVars;
+
+    let hasSecrets = false;
+    for (const [key, value] of Object.entries(envVars)) {
+      if (!value || !isSecretEnvVar(key, this.providerModules)) continue;
+      if (key === "WORKER_TOKEN") continue;
+      try {
+        const placeholder = await generatePlaceholder(
+          this.redisClient,
+          agentId,
+          key,
+          value,
+          deploymentName
+        );
+        envVars[key] = placeholder;
+        hasSecrets = true;
+      } catch (error) {
+        logger.warn(`Failed to generate placeholder for ${key}:`, error);
+      }
+    }
+
+    if (hasSecrets) {
+      const proxyUrl = `${this.getDispatcherUrl()}/api/proxy`;
+      for (const provider of this.providerModules) {
+        Object.assign(envVars, provider.getProxyBaseUrlMappings(proxyUrl));
+      }
+      logger.info(
+        `🔐 Generated secret placeholders for ${deploymentName}, routing through proxy`
+      );
+    }
+
+    return envVars;
+  }
+
+  /**
+   * Generate environment variables common to all deployment types.
+   * Orchestrates the focused helpers above.
+   */
+  protected async generateEnvironmentVariables(
+    username: string,
+    userId: string,
+    deploymentName: string,
+    messageData?: MessagePayload,
+    includeSecrets: boolean = true,
+    userEnvVars: Record<string, string> = {}
+  ): Promise<Record<string, string>> {
+    const validated = this.validateMessageData(deploymentName, messageData);
+    const { conversationId, channelId, platformMetadata, agentId, platform } =
+      validated;
+    const teamId = validated.teamId || platformMetadata?.teamId;
+    const traceId = extractTraceId(validated);
+
+    const workerToken = generateWorkerToken(
+      userId,
+      conversationId,
+      deploymentName,
+      { channelId, teamId, platform, agentId, traceId }
+    );
+
+    const dispatcherHost = this.getDispatcherHost();
+    await this.storeDeploymentConfigs(deploymentName, validated);
+
+    const proxyUrl = this.buildProxyUrl(
+      deploymentName,
+      workerToken,
+      dispatcherHost
+    );
+
+    let envVars = this.assembleBaseEnv(
+      username,
+      userId,
+      deploymentName,
+      workerToken,
+      validated,
+      traceId,
+      proxyUrl,
+      dispatcherHost
+    );
 
     // Include secrets from process.env for Docker deployments
     if (includeSecrets && this.moduleEnvVarsBuilder) {
-      // Add module-specific environment variables
       try {
         envVars = await this.moduleEnvVarsBuilder(userId, agentId, envVars);
       } catch (error) {
         logger.warn("Failed to build module environment variables:", error);
       }
     }
+
     // Add worker environment variables from configuration
     if (this.config.worker.env) {
-      Object.entries(this.config.worker.env).forEach(([key, value]) => {
+      for (const [key, value] of Object.entries(this.config.worker.env)) {
         envVars[key] = String(value);
-      });
+      }
     }
 
-    // System-critical env vars that must not be overridden by user config
+    // Merge user environment variables (they take precedence over defaults,
+    // except for system-critical vars that must not be overridden)
     const PROTECTED_ENV_VARS = new Set([
       "QUEUE_URL",
       "DEPLOYMENT_NAME",
@@ -476,16 +611,15 @@ export abstract class BaseDeploymentManager {
       "NODE_ENV",
     ]);
 
-    // Merge user environment variables (they take precedence over defaults)
-    Object.entries(userEnvVars).forEach(([key, value]) => {
+    for (const [key, value] of Object.entries(userEnvVars)) {
       if (!PROTECTED_ENV_VARS.has(key)) {
         envVars[key] = value;
       }
-    });
+    }
 
     if (Object.keys(userEnvVars).length > 0) {
       logger.info(
-        `📦 Loaded ${Object.keys(userEnvVars).length} user environment variables for ${userId}`
+        `Loaded ${Object.keys(userEnvVars).length} user environment variables for ${userId}`
       );
     }
 
@@ -494,39 +628,11 @@ export abstract class BaseDeploymentManager {
       envVars = provider.injectSystemKeyFallback(envVars);
     }
 
-    // Replace secret env vars with placeholders and point SDK at the proxy
-    if (this.redisClient) {
-      let hasSecrets = false;
-      for (const [key, value] of Object.entries(envVars)) {
-        if (!value || !isSecretEnvVar(key, this.providerModules)) continue;
-        // Skip system env vars that should not be swapped
-        if (key === "WORKER_TOKEN") continue;
-        try {
-          const placeholder = await generatePlaceholder(
-            this.redisClient,
-            agentId,
-            key,
-            value,
-            deploymentName
-          );
-          envVars[key] = placeholder;
-          hasSecrets = true;
-        } catch (error) {
-          logger.warn(`Failed to generate placeholder for ${key}:`, error);
-        }
-      }
-
-      if (hasSecrets) {
-        // Point provider SDKs at the secret proxy instead of directly at provider APIs
-        const proxyUrl = `${this.getDispatcherUrl()}/api/proxy`;
-        for (const provider of this.providerModules) {
-          Object.assign(envVars, provider.getProxyBaseUrlMappings(proxyUrl));
-        }
-        logger.info(
-          `🔐 Generated secret placeholders for ${deploymentName}, routing through proxy`
-        );
-      }
-    }
+    envVars = await this.injectSecretPlaceholders(
+      envVars,
+      agentId,
+      deploymentName
+    );
 
     return envVars;
   }

@@ -1,11 +1,22 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "lobu.fullname" . }}-worker
+  name: {{ default (printf "%s-worker" (include "lobu.fullname" .)) .Values.worker.serviceAccountName }}
   namespace: {{ .Values.kubernetes.namespace }}
   labels:
     {{- include "lobu.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
+{{- if .Values.worker.imagePullSecrets }}
+imagePullSecrets:
+  {{- range .Values.worker.imagePullSecrets }}
+  - name: {{ . | quote }}
+  {{- end }}
+{{- else if .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- range .Values.global.imagePullSecrets }}
+  - name: {{ if kindIs "map" . }}{{ .name | quote }}{{ else }}{{ . | quote }}{{ end }}
+  {{- end }}
+{{- end }}
 
 ---
 # SECURITY: Use namespace-scoped Role instead of ClusterRole
@@ -51,5 +62,5 @@ roleRef:
   name: {{ include "lobu.fullname" . }}-worker
 subjects:
 - kind: ServiceAccount
-  name: {{ include "lobu.fullname" . }}-worker
+  name: {{ default (printf "%s-worker" (include "lobu.fullname" .)) .Values.worker.serviceAccountName }}
   namespace: {{ .Values.kubernetes.namespace }}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { createLogger, moduleRegistry } from "@lobu/core";
+import { CommandRegistry, createLogger, moduleRegistry } from "@lobu/core";
 import { AdminStatusCache } from "../auth/admin-status-cache";
 import { AgentMetadataStore } from "../auth/agent-metadata-store";
 import { ApiKeyProviderModule } from "../auth/api-key-provider-module";
@@ -41,6 +41,7 @@ import {
 import { networkConfigStore } from "../proxy/network-config-store";
 import { SecretProxy } from "../proxy/secret-proxy";
 import { TokenRefreshJob } from "../proxy/token-refresh-job";
+import { registerBuiltInCommands } from "../commands/built-in-commands";
 import { InstructionService } from "./instruction-service";
 import { RedisSessionStore, SessionManager } from "./session-manager";
 import { TranscriptionService } from "./transcription-service";
@@ -111,6 +112,11 @@ export class CoreServices {
   private adminStatusCache?: AdminStatusCache;
 
   // ============================================================================
+  // Command Registry
+  // ============================================================================
+  private commandRegistry?: CommandRegistry;
+
+  // ============================================================================
   // Modules
   // ============================================================================
   private gitFilesystemModule?: GitFilesystemModule;
@@ -151,6 +157,10 @@ export class CoreServices {
     // 6. Scheduled wakeup service (depends on queue)
     await this.initializeScheduledWakeupService();
     logger.debug("Scheduled wakeup service initialized");
+
+    // 7. Command registry (depends on agent settings store)
+    this.initializeCommandRegistry();
+    logger.debug("Command registry initialized");
 
     logger.info("Core services initialized successfully");
   }
@@ -472,6 +482,24 @@ export class CoreServices {
   }
 
   // ============================================================================
+  // 7. Command Registry Initialization
+  // ============================================================================
+
+  private initializeCommandRegistry(): void {
+    if (!this.agentSettingsStore) {
+      throw new Error(
+        "Agent settings store must be initialized before command registry"
+      );
+    }
+
+    this.commandRegistry = new CommandRegistry();
+    registerBuiltInCommands(this.commandRegistry, {
+      agentSettingsStore: this.agentSettingsStore,
+    });
+    logger.info("✅ Command registry initialized with built-in commands");
+  }
+
+  // ============================================================================
   // Shutdown
   // ============================================================================
 
@@ -600,5 +628,11 @@ export class CoreServices {
     if (!this.adminStatusCache)
       throw new Error("Admin status cache not initialized");
     return this.adminStatusCache;
+  }
+
+  getCommandRegistry(): CommandRegistry {
+    if (!this.commandRegistry)
+      throw new Error("Command registry not initialized");
+    return this.commandRegistry;
   }
 }

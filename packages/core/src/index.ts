@@ -3,12 +3,14 @@
 // Shared exports for @lobu/core consumers (gateway, worker, external tools)
 
 export * from "./constants";
-// Constants
-export { DEFAULTS, REDIS_KEYS, TIME } from "./constants";
 
 // Errors & logging
 export * from "./errors";
 export * from "./logger";
+
+// Command registry
+export { CommandRegistry } from "./command-registry";
+export type { CommandContext, CommandDefinition } from "./command-registry";
 
 // Module system
 export type { ActionButton, ModuleSessionContext } from "./modules";
@@ -76,7 +78,6 @@ export type {
 // Utilities
 export * from "./utils/encryption";
 export * from "./utils/env";
-export * from "./utils/error-handler";
 export * from "./utils/json";
 export * from "./utils/lock";
 export type { McpToolDef } from "./utils/mcp-tool-instructions";

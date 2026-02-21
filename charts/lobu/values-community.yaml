@@ -76,7 +76,6 @@ ingress:
 slack:
   enabled: true  # Enable Slack platform
   port: 3000
-  socketMode: false  # HTTP mode required for web access/ingress
   allowDirectMessages: true
   allowPrivateChannels: true
   enableStatusReactions: true
@@ -97,10 +96,14 @@ claude:
 # Worker configuration
 worker:
   enabled: false  # Dynamic workers only
+  imagePullSecrets: []
+  serviceAccountName: ""
+  startupTimeoutSeconds: 90
   image:
     repository: buremba/lobu-worker-base
     pullPolicy: Always
     tag: latest
+    digest: ""
   resources:
     requests:
       memory: "1Gi"

@@ -39,8 +39,12 @@ const GATEWAY_DEFAULTS = {
   /** Default worker settings */
   WORKER_IMAGE_REPOSITORY: "lobu-worker",
   WORKER_IMAGE_TAG: "latest",
+  WORKER_IMAGE_DIGEST: "",
   WORKER_IMAGE_PULL_POLICY: "Always",
+  WORKER_IMAGE_PULL_SECRETS: "",
+  WORKER_SERVICE_ACCOUNT_NAME: "lobu-worker",
   WORKER_RUNTIME_CLASS_NAME: "kata",
+  WORKER_STARTUP_TIMEOUT_SECONDS: 90,
   WORKER_CPU_REQUEST: "100m",
   WORKER_MEMORY_REQUEST: "256Mi",
   WORKER_CPU_LIMIT: "1000m",
@@ -240,14 +244,33 @@ export function buildGatewayConfig(): GatewayConfig {
             DEFAULTS.WORKER_IMAGE_REPOSITORY
           ),
           tag: getOptionalEnv("WORKER_IMAGE_TAG", DEFAULTS.WORKER_IMAGE_TAG),
+          digest: getOptionalEnv(
+            "WORKER_IMAGE_DIGEST",
+            DEFAULTS.WORKER_IMAGE_DIGEST
+          ),
           pullPolicy: getOptionalEnv(
             "WORKER_IMAGE_PULL_POLICY",
             DEFAULTS.WORKER_IMAGE_PULL_POLICY
           ),
         },
+        imagePullSecrets: getOptionalEnv(
+          "WORKER_IMAGE_PULL_SECRETS",
+          DEFAULTS.WORKER_IMAGE_PULL_SECRETS
+        )
+          .split(",")
+          .map((secret) => secret.trim())
+          .filter(Boolean),
+        serviceAccountName: getOptionalEnv(
+          "WORKER_SERVICE_ACCOUNT_NAME",
+          DEFAULTS.WORKER_SERVICE_ACCOUNT_NAME
+        ),
         runtimeClassName: getOptionalEnv(
           "WORKER_RUNTIME_CLASS_NAME",
           DEFAULTS.WORKER_RUNTIME_CLASS_NAME
+        ),
+        startupTimeoutSeconds: getOptionalNumber(
+          "WORKER_STARTUP_TIMEOUT_SECONDS",
+          DEFAULTS.WORKER_STARTUP_TIMEOUT_SECONDS
         ),
         resources: {
           requests: {
@@ -351,6 +374,9 @@ export function displayGatewayConfig(config: GatewayConfig): void {
     `  Worker Image: ${config.orchestration.worker.image.repository}`
   );
   console.log(`  Worker Tag: ${config.orchestration.worker.image.tag}`);
+  if (config.orchestration.worker.image.digest) {
+    console.log(`  Worker Digest: ${config.orchestration.worker.image.digest}`);
+  }
   console.log(
     `  Max Deployments: ${config.orchestration.worker.maxDeployments}`
   );

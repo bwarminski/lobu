@@ -29,16 +29,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/auto-format.sh"
-          }
-        ]
-      }
-    ]
+    "PostToolUse": []
   }
 }

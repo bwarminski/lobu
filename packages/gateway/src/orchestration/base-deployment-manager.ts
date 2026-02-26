@@ -460,8 +460,7 @@ export abstract class BaseDeploymentManager {
       CONVERSATION_ID: conversationId,
       WORKER_TOKEN: workerToken,
       DISPATCHER_URL: this.getDispatcherUrl(),
-      NODE_ENV:
-        process.env.DEPLOYMENT_MODE === "docker" ? "development" : "production",
+      NODE_ENV: process.env.NODE_ENV || "production",
       DEBUG: "1",
       HTTP_PROXY: proxyUrl,
       HTTPS_PROXY: proxyUrl,
@@ -654,16 +653,6 @@ export abstract class BaseDeploymentManager {
       ? await this.providerCatalogService.getInstalledModules(agentId)
       : this.providerModules;
 
-    logger.info(
-      {
-        agentId,
-        providerCount: effectiveProviders.length,
-        providerOrder: effectiveProviders.map((p) => p.providerId),
-        hasCatalogService: !!this.providerCatalogService,
-      },
-      "Effective providers for deployment"
-    );
-
     for (const provider of effectiveProviders) {
       envVars = provider.injectSystemKeyFallback(envVars);
     }
@@ -695,18 +684,10 @@ export abstract class BaseDeploymentManager {
     // from installed providers order (first with credentials = primary).
     if (!primaryProvider && effectiveProviders.length > 0) {
       for (const candidate of effectiveProviders) {
-        const hasSystem = candidate.hasSystemKey();
-        const hasCreds = await candidate.hasCredentials(agentId);
-        logger.info(
-          {
-            agentId,
-            providerId: candidate.providerId,
-            hasSystemKey: hasSystem,
-            hasCredentials: hasCreds,
-          },
-          "Checking provider for primary selection"
-        );
-        if (hasSystem || hasCreds) {
+        if (
+          candidate.hasSystemKey() ||
+          (await candidate.hasCredentials(agentId))
+        ) {
           primaryProvider = candidate;
           break;
         }
@@ -719,7 +700,6 @@ export abstract class BaseDeploymentManager {
           agentId,
           primaryProviderId: primaryProvider.providerId,
           slug: primaryProvider.getUpstreamConfig?.()?.slug,
-          credentialEnvVar: primaryProvider.getCredentialEnvVarName(),
         },
         "Selected primary provider"
       );

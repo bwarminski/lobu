@@ -230,6 +230,10 @@ export class MessageHandler {
 
     if (settings.model) {
       mergedOptions.model = settings.model;
+    } else if ((settings.installedProviders?.length ?? 0) > 0) {
+      // Agent has providers installed but no explicit model - clear the
+      // global default so auto-mode picks the primary installed provider.
+      delete mergedOptions.model;
     }
     // Pass additional settings through agentOptions for worker to use
     if (settings.networkConfig) {

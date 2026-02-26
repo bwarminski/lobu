@@ -144,28 +144,10 @@ export async function initCommand(
       },
       when: !projectNameArg, // Skip prompt if project name provided as argument
     },
-    {
-      type: "list",
-      name: "workerMode",
-      message: "How do you want to run workers?",
-      choices: [
-        {
-          name: "Use our base image (quick start, recommended)",
-          value: "base-image",
-        },
-        {
-          name: "Install as package (advanced - bring your own base image)",
-          value: "package",
-        },
-      ],
-      default: "base-image",
-    },
   ]);
 
   // Use project name from argument or prompt
   const projectName = projectNameArg || baseAnswers.projectName;
-
-  // Create project directory - fail if it exists
   const projectDir = join(cwd, projectName);
   try {
     await access(projectDir, constants.F_OK);
@@ -667,8 +649,6 @@ export async function initCommand(
   const spinner = ora("Creating Lobu project...").start();
 
   try {
-    const workerMode = answers.workerMode;
-
     // Create .lobu directory in project directory
     const lobuDir = join(projectDir, ".lobu");
     await mkdir(lobuDir, { recursive: true });
@@ -769,20 +749,12 @@ export async function initCommand(
       join(projectDir, "TESTING.md")
     );
 
-    // Create Dockerfile.worker based on mode
-    if (workerMode === "base-image") {
-      await renderTemplate(
-        "Dockerfile.worker.tmpl",
-        variables,
-        join(projectDir, "Dockerfile.worker")
-      );
-    } else if (workerMode === "package") {
-      await renderTemplate(
-        "Dockerfile.worker-package.tmpl",
-        variables,
-        join(projectDir, "Dockerfile.worker")
-      );
-    }
+    // Create Dockerfile.worker
+    await renderTemplate(
+      "Dockerfile.worker.tmpl",
+      variables,
+      join(projectDir, "Dockerfile.worker")
+    );
 
     // Generate docker-compose.yml (always includes network isolation infrastructure)
     const composeContent = generateDockerCompose({
@@ -808,15 +780,7 @@ export async function initCommand(
     if (answers.selectedMcpServers.length > 0) {
       console.log(chalk.dim("     - .lobu/mcp.config.json"));
     }
-    if (workerMode === "package") {
-      console.log(
-        chalk.yellow(
-          "     ℹ Advanced mode: See docs/custom-base-image.md for requirements\n"
-        )
-      );
-    } else {
-      console.log();
-    }
+    console.log();
 
     // MCP Setup instructions
     if (answers.selectedMcpServers.length > 0) {
@@ -934,9 +898,8 @@ function generateDockerCompose(options: {
   hasMcpServers: boolean;
   platforms: string[];
 }): string {
-  const { projectName, gatewayPort, dockerfilePath, hasMcpServers, platforms } =
-    options;
-  const workerImage = `${projectName}-worker:latest`;
+  const { projectName, gatewayPort, hasMcpServers, platforms } = options;
+  const workerImage = `buremba/lobu-worker-base:latest`;
   const gatewayImage = `buremba/lobu-gateway:latest`;
 
   const mcpConfigMount = hasMcpServers
@@ -1011,14 +974,6 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-
-  worker:
-    build:
-      context: .
-      dockerfile: ${dockerfilePath}
-    image: ${workerImage}
-    command: echo "Worker image built successfully - this service only builds, does not run"
-    restart: "no"
 
 networks:
   # Public network with internet access (gateway only)

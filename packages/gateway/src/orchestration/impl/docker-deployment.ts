@@ -113,8 +113,8 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
   }
 
   /**
-   * Validate that the worker image exists locally
-   * Called on gateway startup to ensure workers can be created
+   * Validate that the worker image exists locally, or pull it if missing.
+   * Called on gateway startup to ensure workers can be created.
    */
   async validateWorkerImage(): Promise<void> {
     const imageName = this.getWorkerImageReference();
@@ -126,27 +126,42 @@ export class DockerDeploymentManager extends BaseDeploymentManager {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
-      // Check if it's a "not found" error
+      // If image not found, try to pull it
       if (
         errorMessage.includes("No such image") ||
         errorMessage.includes("404")
       ) {
-        logger.error(
-          `❌ Worker image not found: ${imageName}\n` +
-            `   Please build it with: docker compose build worker\n` +
-            `   Or ensure 'docker compose up' builds the worker service automatically`
+        logger.info(
+          `📥 Worker image ${imageName} not found locally, pulling...`
         );
+        try {
+          await new Promise<void>((resolve, reject) => {
+            this.docker.pull(imageName, (err: any, stream: any) => {
+              if (err) return reject(err);
+              this.docker.modem.followProgress(stream, (err: any) => {
+                if (err) reject(err);
+                else resolve();
+              });
+            });
+          });
+          logger.info(`✅ Worker image ${imageName} pulled successfully`);
+        } catch (pullError) {
+          logger.error(
+            `❌ Failed to pull worker image ${imageName}:`,
+            pullError
+          );
+          throw new OrchestratorError(
+            ErrorCode.DEPLOYMENT_CREATE_FAILED,
+            `Worker image ${imageName} does not exist locally and pull failed. Please check your internet connection or registry permissions.`
+          );
+        }
+      } else {
+        // Other error - re-throw
         throw new OrchestratorError(
           ErrorCode.DEPLOYMENT_CREATE_FAILED,
-          `Worker image ${imageName} does not exist. Build it first with 'docker compose build worker'`
+          `Failed to validate worker image ${imageName}: ${errorMessage}`
         );
       }
-
-      // Other error - re-throw
-      throw new OrchestratorError(
-        ErrorCode.DEPLOYMENT_CREATE_FAILED,
-        `Failed to validate worker image ${imageName}: ${errorMessage}`
-      );
     }
   }
 

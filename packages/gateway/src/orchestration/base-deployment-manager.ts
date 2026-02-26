@@ -653,6 +653,17 @@ export abstract class BaseDeploymentManager {
     const effectiveProviders = this.providerCatalogService
       ? await this.providerCatalogService.getInstalledModules(agentId)
       : this.providerModules;
+
+    logger.info(
+      {
+        agentId,
+        providerCount: effectiveProviders.length,
+        providerOrder: effectiveProviders.map((p) => p.providerId),
+        hasCatalogService: !!this.providerCatalogService,
+      },
+      "Effective providers for deployment"
+    );
+
     for (const provider of effectiveProviders) {
       envVars = provider.injectSystemKeyFallback(envVars);
     }
@@ -684,10 +695,18 @@ export abstract class BaseDeploymentManager {
     // from installed providers order (first with credentials = primary).
     if (!primaryProvider && effectiveProviders.length > 0) {
       for (const candidate of effectiveProviders) {
-        if (
-          candidate.hasSystemKey() ||
-          (await candidate.hasCredentials(agentId))
-        ) {
+        const hasSystem = candidate.hasSystemKey();
+        const hasCreds = await candidate.hasCredentials(agentId);
+        logger.info(
+          {
+            agentId,
+            providerId: candidate.providerId,
+            hasSystemKey: hasSystem,
+            hasCredentials: hasCreds,
+          },
+          "Checking provider for primary selection"
+        );
+        if (hasSystem || hasCreds) {
           primaryProvider = candidate;
           break;
         }
@@ -695,6 +714,15 @@ export abstract class BaseDeploymentManager {
     }
 
     if (primaryProvider) {
+      logger.info(
+        {
+          agentId,
+          primaryProviderId: primaryProvider.providerId,
+          slug: primaryProvider.getUpstreamConfig?.()?.slug,
+          credentialEnvVar: primaryProvider.getCredentialEnvVarName(),
+        },
+        "Selected primary provider"
+      );
       const proxyBaseUrl = `${this.getDispatcherUrl()}/api/proxy`;
       const mappings = primaryProvider.getProxyBaseUrlMappings(proxyBaseUrl);
       const providerBaseUrl = Object.values(mappings)[0];

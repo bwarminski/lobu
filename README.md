@@ -130,11 +130,10 @@ Lobu provides a hardened gateway and orchestration layer for the [OpenClaw](http
 
 ## Security and Privacy
 
-- **No direct worker egress** — all traffic through gateway proxy ([details](docs/SECURITY.md#network-egress))
-- **Secrets stay in gateway** — MCP OAuth, provider creds, `${env:}` substitution ([details](docs/SECURITY.md#mcp-oauth-and-credentials))
-- **Defense-in-depth on K8s** — NetworkPolicies, RBAC, optional gVisor/Kata runtimes ([details](docs/SECURITY.md#kubernetes))
-- **Nix system packages** — per-agent reproducible tooling via settings page ([details](docs/SECURITY.md#skills-and-policy))
-- **Skills policy enforcement** ([details](docs/SECURITY.md#skills-and-policy))
+- [**No direct worker egress**](docs/SECURITY.md#network-egress) — all traffic routes through the gateway proxy.
+- [**Secrets stay in gateway**](docs/SECURITY.md#mcp-oauth-and-credentials) — MCP OAuth, provider credentials, and `${env:}` substitution.
+- [**Defense-in-depth on K8s**](docs/SECURITY.md#kubernetes) — NetworkPolicies, RBAC, and optional gVisor/Kata runtimes.
+- [**Nix system packages**](docs/SECURITY.md#skills-and-policy) — per-agent reproducible tooling and skills policy enforcement.
 
 ---
 

@@ -24,20 +24,30 @@ Multi-tenant, sandboxed agent orchestration. Run OpenClaw behind a hardened gate
 
 ## Quick Start
 
-### New project (recommended)
+### Create a new bot
+
+The recommended way to start is using our CLI. It scaffolds a project with everything you need.
 
 ```bash
 npx create-lobu my-bot
 cd my-bot && docker compose up -d
 ```
 
-The wizard guides you through platform setup (Telegram, Slack, or API-only), credentials, MCP servers, and network configuration.
-
 ### Deployment modes
 
-- **Docker Compose** — `docker compose up` (production single-machine)
-- **Kubernetes** — `helm upgrade --install lobu charts/lobu/ -f charts/lobu/values.yaml` (production cluster)
-- **Local** — `cd packages/gateway && bun run dev` (development, workers as child processes)
+- **Docker Compose** — `docker compose up` (One-click, production single-machine)
+- **Kubernetes** — Install via OCI Helm chart (no clone needed):
+
+```bash
+helm install lobu oci://ghcr.io/lobu-ai/charts/lobu \
+  --namespace lobu \
+  --create-namespace
+```
+
+- **Local Development** — For contributing to Lobu itself:
+  1. Clone this repo
+  2. `make setup`
+  3. `make dev` (Uses Docker Compose Watch for hot-reloading)
 
 ## Architecture
 
@@ -88,7 +98,7 @@ This project started in **July 2025** and was first published under [peerbot.ai]
 | **User onboarding** | Configure page with OAuth login per provider | CLI setup required |
 | **MCP access** | Proxied through gateway, secrets isolated | Direct from agent |
 | **Network isolation** | Workers sandboxed, domain-filtered egress | No built-in isolation |
-| **Deployment** | K8s, Docker, Local (sandbox runtime) | Single node |
+| **Deployment** | K8s, Docker | Single node |
 
 ## Security and Privacy
 

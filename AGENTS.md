@@ -27,19 +27,8 @@ There is also a public endpoint in gateway to trigger running the agent.
 Settings page provider order is drag-sortable via handle, with per-provider model selection inline in each provider row.
 
 #### Orchestration
-- **Deployment modes**: Kubernetes (production), Docker (development), Local (development without Docker)
+- **Deployment modes**: Kubernetes (production), Docker (development)
 - All workers are sandboxed with your settings.
-
-**Local Deployment Mode** (`DEPLOYMENT_MODE=local`):
-- Workers run as child processes of the gateway (no Docker required)
-- Uses Anthropic Sandbox Runtime (`@anthropic-ai/sandbox-runtime`) for OS-level isolation
-- Sandboxing configuration via `SANDBOX_ENABLED`:
-  - `unset` (default): Auto-detect - enable if srt installed, warn if not
-  - `true`: Explicitly enable (fails if srt not installed)
-  - `false`: Disable sandboxing (escape hatch for troubleshooting)
-- Workers use HTTP proxy for network filtering (same as Docker/K8s modes)
-- Git operations require `GIT_TEMPLATE_DIR=""` (set automatically)
-- **Known limitation**: Complex git clone fails in sandbox; use git worktree pattern (gateway clones, creates worktree for worker)
 
 #### MCP
 - Users pass the LOBU_MCP_SERVERS_URL env (pointing to `.lobu/mcp.config.json`) to enable MCP proxy in the gateway.

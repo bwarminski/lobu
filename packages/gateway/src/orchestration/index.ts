@@ -18,7 +18,6 @@ import {
   DockerDeploymentManager,
   FlyDeploymentManager,
   K8sDeploymentManager,
-  LocalDeploymentManager,
 } from "./impl";
 import { MessageConsumer } from "./message-consumer";
 
@@ -77,15 +76,6 @@ export class Orchestrator {
     const providerModules: ModelProviderModule[] =
       moduleRegistry.getModelProviderModules();
 
-    if (deploymentMode === "local") {
-      logger.info("🏠 Using local deployment mode (subprocess workers)");
-      return new LocalDeploymentManager(
-        config,
-        buildModuleEnvVars,
-        providerModules
-      );
-    }
-
     if (deploymentMode === "docker") {
       if (!this.isDockerAvailable()) {
         logger.error("DEPLOYMENT_MODE=docker but Docker is not available");
@@ -142,11 +132,11 @@ export class Orchestrator {
       );
     }
 
-    // Fall back to local mode if nothing else is available
+    // Fall back to docker but it will likely fail in validateWorkerImage
     logger.info(
-      "🏠 No container runtime detected, falling back to local deployment mode"
+      "🐳 No container runtime detected, falling back to Docker deployment mode"
     );
-    return new LocalDeploymentManager(
+    return new DockerDeploymentManager(
       config,
       buildModuleEnvVars,
       providerModules
@@ -260,11 +250,6 @@ export class Orchestrator {
       // Stop K8s informer
       if (this.deploymentManager instanceof K8sDeploymentManager) {
         await this.deploymentManager.stopInformer();
-      }
-
-      // Clean up local worker processes if using local deployment mode
-      if (this.deploymentManager instanceof LocalDeploymentManager) {
-        await this.deploymentManager.cleanup();
       }
 
       logger.info("✅ Orchestrator stopped");

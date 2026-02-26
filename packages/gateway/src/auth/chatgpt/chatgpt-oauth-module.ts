@@ -34,7 +34,7 @@ export class ChatGPTOAuthModule
     "api-key",
   ];
   apiKeyInstructions =
-    'Enter your <a href="https://platform.openai.com/api-keys" target="_blank" class="text-slate-600 underline">OpenAI API key</a>:';
+    'Enter your <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 underline">OpenAI API key</a>:';
   apiKeyPlaceholder = "sk-...";
   catalogDescription = "OpenAI's ChatGPT with device code authentication";
   private deviceCodeClient: ChatGPTDeviceCodeClient;

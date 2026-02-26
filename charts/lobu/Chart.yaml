@@ -25,9 +25,9 @@ annotations:
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: lobu-dispatcher
-      image: buremba/lobu-dispatcher:latest
+      image: ghcr.io/lobu-ai/lobu-gateway:latest
     - name: lobu-worker
-      image: buremba/lobu-worker-base:latest
+      image: ghcr.io/lobu-ai/lobu-worker-base:latest
   artifacthub.io/links: |
     - name: GitHub Repository
       url: https://github.com/lobu-ai/lobu

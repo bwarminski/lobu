@@ -227,11 +227,11 @@ CMD ["lobu-worker"]
 
 ## Migration from Base Image
 
-If you're currently using `FROM buremba/lobu-worker-base`, here's how to migrate:
+If you're currently using `FROM ghcr.io/lobu-ai/lobu-worker-base`, here's how to migrate:
 
 **Before:**
 ```dockerfile
-FROM buremba/lobu-worker-base:0.1.0
+FROM ghcr.io/lobu-ai/lobu-worker-base:0.1.0
 RUN pip install pandas
 ```
 

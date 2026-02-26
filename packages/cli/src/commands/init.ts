@@ -899,8 +899,8 @@ function generateDockerCompose(options: {
   platforms: string[];
 }): string {
   const { projectName, gatewayPort, hasMcpServers, platforms } = options;
-  const workerImage = `buremba/lobu-worker-base:latest`;
-  const gatewayImage = `buremba/lobu-gateway:latest`;
+  const workerImage = `ghcr.io/lobu-ai/lobu-worker-base:latest`;
+  const gatewayImage = `ghcr.io/lobu-ai/lobu-gateway:latest`;
 
   const mcpConfigMount = hasMcpServers
     ? `

@@ -99,7 +99,7 @@ worker:
   serviceAccountName: ""
   startupTimeoutSeconds: 90
   image:
-    repository: buremba/lobu-worker-base
+    repository: lobu-ai/lobu-worker-base
     pullPolicy: Always
     tag: latest
     digest: ""
@@ -132,7 +132,7 @@ worker:
 gateway:
   enabled: true
   image:
-    repository: buremba/lobu-gateway
+    repository: lobu-ai/lobu-gateway
     pullPolicy: Always
     tag: latest
   resources:

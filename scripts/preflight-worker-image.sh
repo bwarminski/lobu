@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <worker-image-ref>"
-  echo "Example: $0 buremba/lobu-worker-base:latest"
+  echo "Example: $0 ghcr.io/lobu-ai/lobu-worker-base:latest"
   exit 1
 fi
 

@@ -541,7 +541,7 @@ export function renderSettingsPage(
                   </template>
                 </div>
               </div>
-              <p class="text-xs text-gray-400 mt-1">Browse <a href="https://clawhub.ai/souls" target="_blank" class="text-slate-600 hover:underline">ClawHub souls</a> to use as a starting point. Content will be loaded into the textarea above for editing.</p>
+              <p class="text-xs text-gray-400 mt-1">Browse <a href="https://clawhub.ai/souls" target="_blank" class="text-blue-600 hover:underline">ClawHub souls</a> to use as a starting point. Content will be loaded into the textarea above for editing.</p>
             </div>
           </div>
           <div>
@@ -635,7 +635,7 @@ export function renderSettingsPage(
                   </div>
                 </div>
 
-                <p class="text-xs text-gray-400 mt-1">Skills from <a href="https://clawhub.ai/skills" target="_blank" class="text-slate-600 hover:underline">ClawHub</a> extend your agent's capabilities.</p>
+                <p class="text-xs text-gray-400 mt-1">Skills from <a href="https://clawhub.ai/skills" target="_blank" class="text-blue-600 hover:underline">ClawHub</a> extend your agent's capabilities.</p>
               </div>
             </div>
           </div>

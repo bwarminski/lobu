@@ -43,7 +43,7 @@ export class ClaudeOAuthModule
     "api-key",
   ];
   apiKeyInstructions =
-    'Enter your <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-slate-600 underline">Anthropic API key</a>:';
+    'Enter your <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-blue-600 underline">Anthropic API key</a>:';
   apiKeyPlaceholder = "sk-ant-...";
   private oauthClient: ClaudeOAuthClient;
   private publicGatewayUrl: string;

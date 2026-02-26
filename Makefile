@@ -37,7 +37,7 @@ setup:
 # Build the worker image
 build-worker:
 	@echo "📦 Building worker image..."
-	@docker build -t lobu-worker:latest -t buremba/lobu-worker-base:latest -f docker/Dockerfile.worker --build-arg NODE_ENV=development .
+	@docker build -t lobu-worker:latest -t ghcr.io/lobu-ai/lobu-worker-base:latest -f docker/Dockerfile.worker --build-arg NODE_ENV=development .
 
 # Catch-all target to prevent errors when passing arguments
 %:
@@ -156,8 +156,8 @@ logs:
 		echo "View logs with:"; \
 		echo "  kubectl logs -f <pod-name> -n lobu"; \
 	else \
-		echo "For development, view logs in the terminal where gateway is running"; \
-		echo "Or use: docker compose logs -f gateway"; \
+		echo "View logs with:"; \
+		echo "  docker compose logs -f gateway"; \
 	fi
 
 # Stop worker containers

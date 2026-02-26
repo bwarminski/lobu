@@ -145,7 +145,7 @@ worker:
   startupTimeoutSeconds: 90
   runtimeClassName: ""  # Empty uses default runtime; set to "gvisor" after manual setup
   image:
-    repository: buremba/lobu-worker-base
+    repository: lobu-ai/lobu-worker-base
     pullPolicy: Always
     tag: latest
     digest: ""  # Prefer immutable digest in production: "sha256:..."
@@ -190,7 +190,7 @@ gateway:
   enabled: true
   replicaCount: 1
   image:
-    repository: buremba/lobu-gateway
+    repository: lobu-ai/lobu-gateway
     pullPolicy: Always
     tag: latest
   resources:

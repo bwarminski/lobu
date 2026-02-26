@@ -2,25 +2,25 @@
 
 ![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue)
 
-Multi-tenant, sandboxed agent orchestration. Run OpenClaw behind a hardened gateway with MCP proxy, multi-provider auth, and per-context isolation.
+**Lobu** is a platform for deploying **persistent, autonomous agents**. It provides a unified gateway for programmatic agent creation and multi-platform access (Slack, Telegram, WhatsApp), backed by a hardened, sandboxed execution environment.
 
 **Batteries included.** Lobu bundles sandboxed execution, MCP proxy with OAuth, and network isolation — no external sandbox providers, no third-party MCP gateways. One deployment, everything included.
 
-## Interfaces
+## Messaging & API
 
-**Slack** — Multi-channel/DM agents.
-
-[![Add to Slack](https://img.shields.io/badge/Add_to_Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://community.lobu.ai/slack/install) [![Join Community](https://img.shields.io/badge/Join_Community-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://join.slack.com/t/peerbot/shared_invite/zt-391o8tyw2-iyupjTG1xHIz9Og8C7JOnw)
-
-**Telegram** — Personal AI assistants.
-
-[![Try @lobuaibot](https://img.shields.io/badge/Try_@lobuaibot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/lobuaibot)
-
-**REST API** — Programmatic agent creation.
+**REST API** — Programmatic agent creation, control, and state management.
 
 [![API Docs](https://img.shields.io/badge/API_Docs-0096FF?style=for-the-badge&logo=readme&logoColor=white)](https://community.lobu.ai/api/docs)
 
-**WhatsApp** — Baileys-based integration with self-chat mode for testing.
+**Slack** — Multi-channel/DM agents with rich interactivity.
+
+[![Add to Slack](https://img.shields.io/badge/Add_to_Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://community.lobu.ai/slack/install) [![Join Community](https://img.shields.io/badge/Join_Community-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://join.slack.com/t/peerbot/shared_invite/zt-391o8tyw2-iyupjTG1xHIz9Og8C7JOnw)
+
+**Telegram** — Personal AI assistants with long-polling.
+
+[![Try @lobuaibot](https://img.shields.io/badge/Try_@lobuaibot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/lobuaibot)
+
+**WhatsApp** — Baileys-based integration with a unique self-chat mode.
 
 ## Quick Start
 
@@ -71,6 +71,17 @@ flowchart LR
   GW -->|scoped tokens| MCP[MCP Servers]
 ```
 
+## Built-in Agent Tools
+
+Every Lobu agent comes equipped with a suite of tools for autonomous execution and persistence:
+
+*   **Autonomous Scheduling** — Agents can schedule themselves for one-time or recurring execution via **cron expressions** (`ScheduleReminder`).
+*   **Human-in-the-Loop** — Pause execution to ask the user a question with button options (`AskUserQuestion`) and resume when they respond.
+*   **Full Linux Toolbox** — Sandboxed `bash` access, atomic file editing (`read`/`write`/`edit`), and advanced searching (`grep`/`find`).
+*   **File & Media Delivery** — Generate and share charts, reports, or documents (`UploadUserFile`) and voice messages (`GenerateAudio`).
+*   **Self-Expansion** — Search for and dynamically install new capabilities, skills, and MCP servers (`SearchExtensions`, `InstallExtension`).
+*   **Managed MCP Proxy** — Securely connect to any [Model Context Protocol](https://modelcontextprotocol.io) server with gateway-level OAuth and secret injection.
+
 ### Key Concepts
 
 **Gateway as single egress.** All worker traffic — internet and MCP — routes through the gateway. Workers have no direct network access. Domain filtering controls which external services workers can reach.
@@ -82,8 +93,6 @@ flowchart LR
 **OpenClaw runtime.** Workers run [OpenClaw Pi Agent](https://openclaw.ai/), with per-agent model selection via the settings page. Supports OpenClaw skills, `IDENTITY.md`, `SOUL.md`, and `USER.md` workspace files.
 
 **Multi-provider auth.** Claude (OAuth), ChatGPT (device-code flow), and API-key providers (Gemini, NVIDIA, etc.) via pluggable `ModelProviderModule`.
-
-**Built-in tools.** User interaction, file sharing, reminders, channel history, and TTS.
 
 ## How Lobu Differs
 

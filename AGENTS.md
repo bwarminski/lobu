@@ -316,12 +316,12 @@ curl -X POST http://localhost:8080/api/messaging/send \
 ### Telegram Test
 Use `test-bot.sh`:
 ```bash
-TEST_PLATFORM=telegram TEST_CHANNEL=@burembalobubot ./scripts/test-bot.sh "hello test"
+TEST_PLATFORM=telegram TEST_CHANNEL=@lobuaibot ./scripts/test-bot.sh "hello test"
 ```
 
 Or use `tguser` CLI (requires `TG_API_ID` and `TG_API_HASH` from `.env`):
 ```bash
-tguser send @burembalobubot "hello test"
+tguser send @lobuaibot "hello test"
 ```
 
 ### Check Logs

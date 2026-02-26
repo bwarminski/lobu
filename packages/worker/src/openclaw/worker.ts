@@ -55,7 +55,16 @@ const DEFAULT_PROVIDER_BASE_URL_ENV: Record<string, string> = {
   "openai-codex": "OPENAI_BASE_URL",
   google: "GEMINI_API_BASE_URL",
   nvidia: "NVIDIA_API_BASE_URL",
-  "z-ai": "Z_AI_BASE_URL",
+  "z-ai": "Z_AI_API_BASE_URL",
+};
+
+/** Default model IDs per provider, used when no explicit model is configured. */
+const DEFAULT_PROVIDER_MODELS: Record<string, string> = {
+  anthropic: "claude-sonnet-4-20250514",
+  openai: "gpt-4.1",
+  "openai-codex": "codex-mini-latest",
+  google: "gemini-2.5-pro",
+  "z-ai": "glm-4.7",
 };
 
 export class OpenClawWorker implements WorkerExecutor {
@@ -819,7 +828,19 @@ function resolveModelRef(rawModelRef: string): {
   const defaultProvider = process.env.AGENT_DEFAULT_PROVIDER || "";
 
   const normalizedRaw = rawModelRef?.trim();
-  const modelRef = normalizedRaw || defaultModelRef;
+  let modelRef = normalizedRaw || defaultModelRef;
+
+  // When no model is configured but a provider is known, use the provider's
+  // default model so auto-mode provider selection works end-to-end.
+  if (!modelRef && defaultProvider) {
+    const fallbackModel = DEFAULT_PROVIDER_MODELS[defaultProvider];
+    if (fallbackModel) {
+      logger.info(
+        `No model configured, using default for ${defaultProvider}: ${fallbackModel}`
+      );
+      modelRef = fallbackModel;
+    }
+  }
 
   if (!modelRef) {
     throw new Error(

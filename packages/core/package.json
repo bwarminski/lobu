@@ -1,35 +1,35 @@
 {
-  "name": "@lobu/core",
-  "version": "2.0.0",
-  "license": "BUSL-1.1",
-  "private": true,
-  "description": "Core utilities for Lobu",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "bun": "./src/index.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-trace-node": "^1.30.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
-    "@opentelemetry/resources": "^1.30.0",
-    "@opentelemetry/semantic-conventions": "^1.28.0",
-    "@sentry/node": "^10.23.0",
-    "ioredis": "^5.4.1",
-    "winston": "^3.17.0"
-  },
-  "devDependencies": {
-    "@types/bun": "1.2.11",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.8.3"
-  }
+	"name": "@lobu/core",
+	"version": "2.0.0",
+	"license": "Apache-2.0",
+	"private": true,
+	"description": "Core utilities for Lobu",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"bun": "./src/index.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@opentelemetry/api": "^1.9.0",
+		"@opentelemetry/sdk-trace-node": "^1.30.0",
+		"@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+		"@opentelemetry/resources": "^1.30.0",
+		"@opentelemetry/semantic-conventions": "^1.28.0",
+		"@sentry/node": "^10.23.0",
+		"ioredis": "^5.4.1",
+		"winston": "^3.17.0"
+	},
+	"devDependencies": {
+		"@types/bun": "1.2.11",
+		"@types/node": "^20.0.0",
+		"typescript": "^5.8.3"
+	}
 }

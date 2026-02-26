@@ -1,50 +1,50 @@
 {
-  "name": "@lobu/worker",
-  "version": "2.3.0",
-  "description": "Lobu worker runtime - run in your own Docker image or use our base image",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "lobu-worker": "./dist/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run build"
-  },
-  "keywords": [
-    "lobu",
-    "worker",
-    "ai",
-    "agent"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/lobu-ai/lobu.git",
-    "directory": "packages/worker"
-  },
-  "license": "BUSL-1.1",
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "peerDependencies": {
-    "bun": ">=1.0.0"
-  },
-  "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.51.6",
-    "@mariozechner/pi-ai": "^0.51.6",
-    "@mariozechner/pi-coding-agent": "^0.51.6",
-    "@modelcontextprotocol/sdk": "^1.17.4",
-    "@sentry/node": "^10.6.0",
-    "@lobu/core": "workspace:*",
-    "form-data": "^4.0.4",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.8.3"
-  }
+	"name": "@lobu/worker",
+	"version": "2.3.0",
+	"description": "Lobu worker runtime - run in your own Docker image or use our base image",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"bin": {
+		"lobu-worker": "./dist/index.js"
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"start": "node dist/index.js",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"prepublishOnly": "bun run build"
+	},
+	"keywords": [
+		"lobu",
+		"worker",
+		"ai",
+		"agent"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/lobu-ai/lobu.git",
+		"directory": "packages/worker"
+	},
+	"license": "Apache-2.0",
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"peerDependencies": {
+		"bun": ">=1.0.0"
+	},
+	"dependencies": {
+		"@mariozechner/pi-agent-core": "^0.51.6",
+		"@mariozechner/pi-ai": "^0.51.6",
+		"@mariozechner/pi-coding-agent": "^0.51.6",
+		"@modelcontextprotocol/sdk": "^1.17.4",
+		"@sentry/node": "^10.6.0",
+		"@lobu/core": "workspace:*",
+		"form-data": "^4.0.4",
+		"zod": "^3.24.1"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"typescript": "^5.8.3"
+	}
 }

@@ -410,20 +410,6 @@ ${agents
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <p class="text-sm font-medium text-gray-800">${escapeHtml(p.name)}</p>
-                <div class="flex flex-wrap gap-1 items-center">
-                  ${(p.supportedAuthTypes || [p.authType])
-                    .map(
-                      (at) => `
-                    <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border"
-                      :class="providerState['${p.id}']?.activeAuthType === '${at}'
-                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                        : 'bg-gray-100 text-gray-400 border-gray-100'">
-                      ${at}
-                    </span>
-                  `
-                    )
-                    .join("")}
-                </div>
               </div>
               <p class="text-xs"
                 :class="providerState['${p.id}']?.connected ? (providerState['${p.id}']?.userConnected ? 'text-emerald-600' : 'text-amber-600') : 'text-gray-500'"
@@ -458,24 +444,6 @@ ${agents
                 </template>
               </div>
             </div>
-            <template x-if="providerState['${p.id}']?.authMethods?.length > 0">
-              <div class="flex items-center gap-1 flex-wrap">
-                <template x-for="method in providerState['${p.id}'].authMethods" :key="method.profileId">
-                  <span class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <span x-text="method.authType"></span>
-                    <button type="button" @click="disconnectProvider('${p.id}', method.profileId)"
-                      class="ml-0.5 text-emerald-400 hover:text-red-500 transition-colors" title="Disconnect this method">
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
-                  </span>
-                </template>
-                <button type="button" @click="connectProvider('${p.id}')"
-                  x-show="${JSON.stringify((p.supportedAuthTypes || [p.authType]).length)} > (providerState['${p.id}']?.authMethods?.length || 0)"
-                  class="inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all" title="Add another auth method">
-                  +
-                </button>
-              </div>
-            </template>
             <template x-if="!providerState['${p.id}']?.authMethods?.length">
               <button type="button" @click="providerState['${p.id}']?.userConnected ? disconnectProvider('${p.id}') : connectProvider('${p.id}')"
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all"
@@ -751,178 +719,114 @@ ${agents
       </div>
 
       <!-- Integrations Section (Skills + MCP) -->
-      <div class="bg-gray-50 rounded-lg p-3" x-data="{ open: false, skillsOpen: false, mcpOpen: false }">
+      <div class="bg-gray-50 rounded-lg p-3" x-data="{ open: false }">
         <h3 class="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer select-none" @click="open = !open">
           <span>&#128268;</span>
           Integrations
           <span x-show="skillsLoading || mcpsLoading" class="animate-spin text-slate-600">&#8635;</span>
+          <span x-show="skills.length + mcpServerIds.length > 0" class="text-xs text-gray-400" x-text="'(' + (skills.length + mcpServerIds.length) + ')'"></span>
           <span class="ml-auto text-xs text-gray-400 transition-transform" :class="open ? '' : 'rotate-[-90deg]'">&#9660;</span>
         </h3>
         <div x-show="open" x-transition class="pt-3 space-y-3">
 
-          <!-- Skills Sub-Section -->
-          <div class="bg-white rounded-lg border border-gray-200 p-3">
-            <h4 class="flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer select-none" @click="skillsOpen = !skillsOpen">
-              <span>&#128736;</span>
-              Skills
-              <span x-show="skills.length > 0" class="text-xs text-gray-400" x-text="'(' + skills.length + ')'"></span>
-              <span class="ml-auto text-xs text-gray-400 transition-transform" :class="skillsOpen ? '' : 'rotate-[-90deg]'">&#9660;</span>
-            </h4>
-            <div x-show="skillsOpen" x-transition class="pt-2 space-y-2">
-              <!-- Skills Error -->
-              <div x-show="skillsError" x-transition class="bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs" x-text="skillsError"></div>
+          <!-- Errors -->
+          <div x-show="skillsError" x-transition class="bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs" x-text="skillsError"></div>
+          <div x-show="mcpsError" x-transition class="bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs" x-text="mcpsError"></div>
 
-              <!-- Enabled Skills List -->
-              <div class="space-y-2">
-                <template x-if="skills.length === 0">
-                  <p class="text-xs text-gray-500">No skills configured yet.</p>
-                </template>
-                <template x-for="skill in skills" :key="skill.repo">
-                  <div class="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-100">
-                    <div class="flex-1 min-w-0">
-                      <a :href="'https://clawhub.ai/skills/' + encodeURIComponent(skill.repo)" target="_blank" class="text-xs font-medium text-slate-700 hover:text-slate-900 hover:underline truncate block" x-text="skill.name"></a>
-                      <p x-show="skill.description" class="text-xs text-gray-500 truncate" x-text="skill.description"></p>
-                    </div>
-                    <div class="flex items-center gap-2 ml-2 flex-shrink-0">
-                      <button type="button" @click="toggleSkill(skill.repo)"
-                        class="px-2 py-1 text-xs rounded"
-                        :class="skill.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'"
-                        x-text="skill.enabled ? 'Enabled' : 'Disabled'"></button>
-                      <button type="button" @click="removeSkill(skill.repo)" class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200">Remove</button>
-                    </div>
-                  </div>
-                </template>
-              </div>
-
-              <!-- Add Skill Section -->
-              <div class="border-t border-gray-100 pt-2">
-                <!-- Search Input -->
-                <div class="relative mb-2">
-                  <input type="text" x-model="skillSearch" @input.debounce.300ms="searchSkills()" @focus="if (skillSearch.trim()) skillSearchVisible = true" placeholder="Search skills from ClawHub..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
-                  <div x-show="skillSearchVisible" @click.away="skillSearchVisible = false" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    <template x-for="result in skillSearchResults" :key="result.id">
-                      <div class="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0" @click="addSkillFromSearch(result.id)">
-                        <div class="flex items-center justify-between">
-                          <div class="flex-1 min-w-0">
-                            <p class="text-xs font-medium text-gray-800 truncate" x-text="result.name"></p>
-                            <p x-show="result.description" class="text-xs text-gray-500 truncate" x-text="result.description"></p>
-                          </div>
-                          <div class="flex items-center gap-2 ml-2">
-                            <span class="text-xs text-gray-400" x-text="formatInstalls(result.installs)"></span>
-                            <span class="text-xs" :class="skills.some(function(sk) { return sk.repo === result.id }) ? 'text-green-600' : 'text-slate-600'" x-text="skills.some(function(sk) { return sk.repo === result.id }) ? 'Added' : '+ Add'"></span>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                    <template x-if="skillSearchResults.length === 0 && skillSearchVisible">
-                      <div class="p-2 text-xs text-gray-500">No skills found</div>
-                    </template>
+          <!-- Installed Integrations List -->
+          <div class="space-y-2">
+            <template x-if="skills.length === 0 && mcpServerIds.length === 0">
+              <p class="text-xs text-gray-500">No integrations configured yet.</p>
+            </template>
+            <template x-for="skill in skills" :key="'skill-' + skill.repo">
+              <div class="flex items-center justify-between p-2 bg-white rounded border border-gray-100">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 shrink-0">skill</span>
+                  <div class="min-w-0">
+                    <a :href="'https://clawhub.ai/skills/' + encodeURIComponent(skill.repo)" target="_blank" class="text-xs font-medium text-slate-700 hover:text-slate-900 hover:underline truncate block" x-text="skill.name"></a>
+                    <p x-show="skill.description" class="text-xs text-gray-500 truncate" x-text="skill.description"></p>
                   </div>
                 </div>
-
-                <!-- Quick Add: Curated Skills (only when no skills configured) -->
-                <div class="mb-2" x-show="skills.length === 0">
-                  <div class="flex flex-wrap gap-1">
-                    <template x-for="cs in curatedSkills" :key="cs.repo">
-                      <button type="button" @click="addSkillFromChip(cs.repo)"
-                        class="px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-800"
-                        :class="skills.some(function(sk) { return sk.repo === cs.repo }) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-200'"
-                        :disabled="skills.some(function(sk) { return sk.repo === cs.repo })"
-                        :title="skills.some(function(sk) { return sk.repo === cs.repo }) ? 'Already added' : cs.description"
-                        x-text="cs.name"></button>
-                    </template>
+                <div class="flex items-center gap-2 ml-2 flex-shrink-0">
+                  <button type="button" @click="toggleSkill(skill.repo)"
+                    class="px-2 py-1 text-xs rounded"
+                    :class="skill.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'"
+                    x-text="skill.enabled ? 'Enabled' : 'Disabled'"></button>
+                  <button type="button" @click="removeSkill(skill.repo)" class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200">Remove</button>
+                </div>
+              </div>
+            </template>
+            <template x-for="mcpId in mcpServerIds" :key="'mcp-' + mcpId">
+              <div class="flex items-center justify-between p-2 bg-white rounded border border-gray-100">
+                <div class="flex items-center gap-2 flex-1 min-w-0">
+                  <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 shrink-0">mcp</span>
+                  <div class="min-w-0">
+                    <p class="text-xs font-medium text-gray-800 truncate" x-text="mcpId"></p>
+                    <p x-show="getMcpDescription(mcpId)" class="text-xs text-gray-500 truncate" x-text="getMcpDescription(mcpId)"></p>
                   </div>
                 </div>
-
-                <p class="text-xs text-gray-400 mt-1">Skills from <a href="https://clawhub.ai/skills" target="_blank" class="text-blue-600 hover:underline">ClawHub</a> extend your agent's capabilities.</p>
+                <div class="flex items-center gap-2 ml-2 flex-shrink-0">
+                  <button type="button" @click="toggleMcp(mcpId)"
+                    class="px-2 py-1 text-xs rounded"
+                    :class="mcpServers[mcpId]?.enabled !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'"
+                    x-text="mcpServers[mcpId]?.enabled !== false ? 'Enabled' : 'Disabled'"></button>
+                  <button type="button" @click="removeMcp(mcpId)" class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200">Remove</button>
+                </div>
               </div>
-            </div>
+            </template>
           </div>
 
-          <!-- MCP Servers Sub-Section -->
-          <div class="bg-white rounded-lg border border-gray-200 p-3">
-            <h4 class="flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer select-none" @click="mcpOpen = !mcpOpen">
-              <span>&#9889;</span>
-              MCP Servers
-              <span x-show="mcpServerIds.length > 0" class="text-xs text-gray-400" x-text="'(' + mcpServerIds.length + ')'"></span>
-              <span class="ml-auto text-xs text-gray-400 transition-transform" :class="mcpOpen ? '' : 'rotate-[-90deg]'">&#9660;</span>
-            </h4>
-            <div x-show="mcpOpen" x-transition class="pt-2 space-y-2">
-              <!-- MCPs Error -->
-              <div x-show="mcpsError" x-transition class="bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs" x-text="mcpsError"></div>
-
-              <!-- Enabled MCPs List -->
-              <div class="space-y-2">
-                <template x-if="mcpServerIds.length === 0">
-                  <p class="text-xs text-gray-500">No MCP servers configured yet.</p>
-                </template>
-                <template x-for="mcpId in mcpServerIds" :key="mcpId">
-                  <div class="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-100">
-                    <div class="flex-1 min-w-0">
-                      <p class="text-xs font-medium text-gray-800 truncate" x-text="mcpId"></p>
-                      <p x-show="getMcpDescription(mcpId)" class="text-xs text-gray-500 truncate" x-text="getMcpDescription(mcpId)"></p>
-                    </div>
-                    <div class="flex items-center gap-2 ml-2 flex-shrink-0">
-                      <button type="button" @click="toggleMcp(mcpId)"
-                        class="px-2 py-1 text-xs rounded"
-                        :class="mcpServers[mcpId]?.enabled !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'"
-                        x-text="mcpServers[mcpId]?.enabled !== false ? 'Enabled' : 'Disabled'"></button>
-                      <button type="button" @click="removeMcp(mcpId)" class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200">Remove</button>
-                    </div>
-                  </div>
-                </template>
-              </div>
-
-              <!-- Add MCP Section -->
-              <div class="border-t border-gray-100 pt-2">
-                <!-- Search Input -->
-                <div class="relative mb-2">
-                  <input type="text" x-model="mcpSearch" @input.debounce.300ms="searchMcps()" @focus="if (mcpSearch.trim()) mcpSearchVisible = true" placeholder="Search MCP servers..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
-                  <div x-show="mcpSearchVisible" @click.away="mcpSearchVisible = false" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    <template x-for="result in mcpSearchResults" :key="result.id">
-                      <div class="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0" @click="addMcpFromSearch(result.id)">
-                        <div class="flex items-center justify-between">
-                          <div class="flex-1 min-w-0">
-                            <p class="text-xs font-medium text-gray-800 truncate" x-text="result.name"></p>
-                            <p class="text-xs text-gray-500 truncate" x-text="result.description"></p>
-                          </div>
-                          <div class="flex items-center gap-2 ml-2">
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" x-text="result.type"></span>
-                            <span class="text-xs" :class="mcpServers.hasOwnProperty(result.id) ? 'text-green-600' : 'text-slate-600'" x-text="mcpServers.hasOwnProperty(result.id) ? 'Added' : '+ Add'"></span>
-                          </div>
+          <!-- Unified Search -->
+          <div class="border-t border-gray-100 pt-2">
+            <div class="relative mb-2">
+              <input type="text" x-model="integrationSearch" @input.debounce.300ms="searchIntegrations()" @focus="if (integrationSearch.trim() && !integrationSearch.trim().startsWith('http') && !integrationSearch.trim().includes('://')) integrationSearchVisible = true" placeholder="Search integrations or paste MCP URL..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
+              <div x-show="integrationSearchVisible" @click.away="integrationSearchVisible = false" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                <template x-for="result in integrationSearchResults" :key="result.type + '-' + result.id">
+                  <div class="p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0" @click="addIntegrationFromSearch(result)">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 flex-1 min-w-0">
+                        <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0" :class="result.type === 'skill' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'" x-text="result.type"></span>
+                        <div class="min-w-0">
+                          <p class="text-xs font-medium text-gray-800 truncate" x-text="result.name"></p>
+                          <p x-show="result.description" class="text-xs text-gray-500 truncate" x-text="result.description"></p>
                         </div>
                       </div>
-                    </template>
-                    <template x-if="mcpSearchResults.length === 0 && mcpSearchVisible">
-                      <div class="p-2 text-xs text-gray-500">No MCPs found</div>
-                    </template>
+                      <div class="flex items-center gap-2 ml-2">
+                        <span x-show="result.type === 'skill' && result.installs" class="text-xs text-gray-400" x-text="formatInstalls(result.installs)"></span>
+                        <span class="text-xs" :class="isIntegrationAdded(result) ? 'text-green-600' : 'text-slate-600'" x-text="isIntegrationAdded(result) ? 'Added' : '+ Add'"></span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <!-- Quick Add: Curated MCPs (only when no MCPs configured) -->
-                <div class="mb-2" x-show="mcpServerIds.length === 0">
-                  <div class="flex flex-wrap gap-1">
-                    <template x-for="cm in curatedMcps" :key="cm.id">
-                      <button type="button" @click="addMcpFromChip(cm.id)"
-                        class="px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-800"
-                        :class="mcpServers.hasOwnProperty(cm.id) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-200'"
-                        :disabled="mcpServers.hasOwnProperty(cm.id)"
-                        :title="mcpServers.hasOwnProperty(cm.id) ? 'Already added' : cm.description"
-                        x-text="cm.name"></button>
-                    </template>
-                  </div>
-                </div>
-
-                <!-- Manual Entry -->
-                <div class="flex gap-2 items-center">
-                  <input type="text" x-model="customMcpUrl" placeholder="https://mcp.example.com/sse" class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:border-slate-600 focus:ring-1 focus:ring-slate-200 outline-none">
-                  <button type="button" @click="if (customMcpUrl.trim()) { var id = mcpIdFromUrl(customMcpUrl.trim()); addMcp(id, customMcpUrl.trim()); customMcpUrl = ''; }" class="px-3 py-2 text-xs font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all flex-shrink-0">
-                    Add
-                  </button>
-                </div>
-                <p class="text-xs text-gray-400 mt-1">MCP servers extend your agent's capabilities with external tools and data sources.</p>
+                </template>
+                <template x-if="integrationSearchResults.length === 0 && integrationSearchVisible">
+                  <div class="p-2 text-xs text-gray-500">No integrations found</div>
+                </template>
               </div>
             </div>
+
+            <!-- Curated Chips (only when no integrations exist) -->
+            <div class="mb-2" x-show="skills.length === 0 && mcpServerIds.length === 0">
+              <div class="flex flex-wrap gap-1">
+                <template x-for="cs in curatedSkills" :key="'cs-' + cs.repo">
+                  <button type="button" @click="addSkillFromChip(cs.repo)"
+                    class="px-2 py-1 text-xs rounded-full bg-purple-50 text-slate-800 border border-purple-200"
+                    :class="skills.some(function(sk) { return sk.repo === cs.repo }) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-purple-100'"
+                    :disabled="skills.some(function(sk) { return sk.repo === cs.repo })"
+                    :title="skills.some(function(sk) { return sk.repo === cs.repo }) ? 'Already added' : cs.description"
+                    x-text="cs.name"></button>
+                </template>
+                <template x-for="cm in curatedMcps" :key="'cm-' + cm.id">
+                  <button type="button" @click="addMcpFromChip(cm.id)"
+                    class="px-2 py-1 text-xs rounded-full bg-blue-50 text-slate-800 border border-blue-200"
+                    :class="mcpServers.hasOwnProperty(cm.id) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-blue-100'"
+                    :disabled="mcpServers.hasOwnProperty(cm.id)"
+                    :title="mcpServers.hasOwnProperty(cm.id) ? 'Already added' : cm.description"
+                    x-text="cm.name"></button>
+                </template>
+              </div>
+            </div>
+
+            <p class="text-xs text-gray-400 mt-1">Extend your agent with <a href="https://clawhub.ai/skills" target="_blank" class="text-blue-600 hover:underline">skills from ClawHub</a> and MCP servers.</p>
           </div>
 
         </div>
@@ -1270,13 +1174,9 @@ ${agents
 
         // Skills
         skills: __STATE__.initialSkills,
-        skillSearch: '',
-        skillSearchResults: [],
-        skillSearchVisible: false,
         skillsLoading: false,
         skillsError: '',
         curatedSkills: [],
-        customSkillRepo: '',
 
         // Soul search
         soulSearch: '',
@@ -1286,13 +1186,14 @@ ${agents
 
         // MCPs
         mcpServers: __STATE__.initialMcpServers,
-        mcpSearch: '',
-        mcpSearchResults: [],
-        mcpSearchVisible: false,
         mcpsLoading: false,
         mcpsError: '',
         curatedMcps: [],
-        customMcpUrl: '',
+
+        // Unified integration search
+        integrationSearch: '',
+        integrationSearchResults: [],
+        integrationSearchVisible: false,
 
         // Schedules
         schedules: [],
@@ -1366,8 +1267,7 @@ ${agents
           }
 
           this.checkProviders();
-          this.initSkills();
-          this.initMcps();
+          this.initIntegrations();
           this.initSchedules();
           if (this.githubAppConfigured) {
             this.initGitHubUser();
@@ -1768,7 +1668,7 @@ ${agents
           ps.status = !ps.connected
             ? 'Not connected'
             : ps.userConnected
-              ? 'Connected'
+              ? 'Connected via ' + (ps.activeAuthType || 'unknown')
               : 'Using system key';
         },
 
@@ -2176,33 +2076,15 @@ ${agents
           await this.initGitHub();
         },
 
-        // === Skills ===
-        async initSkills() {
+        // === Integrations (Skills + MCPs) ===
+        async initIntegrations() {
           try {
-            var resp = await fetch('/api/v1/skills/registry?token=' + encodeURIComponent(this.token));
+            var resp = await fetch('/api/v1/integrations/registry?token=' + encodeURIComponent(this.token));
             var data = await resp.json();
             this.curatedSkills = data.skills || [];
+            this.curatedMcps = data.mcps || [];
           } catch (e) {
-            console.error('Failed to load curated skills:', e);
-          }
-        },
-
-        async searchSkills() {
-          if (!this.skillSearch.trim()) {
-            this.skillSearchVisible = false;
-            this.skillSearchResults = [];
-            return;
-          }
-
-          this.skillSearchVisible = true;
-          this.skillSearchResults = [];
-
-          try {
-            var resp = await fetch('/api/v1/skills/registry?token=' + encodeURIComponent(this.token) + '&q=' + encodeURIComponent(this.skillSearch));
-            var data = await resp.json();
-            this.skillSearchResults = data.skills || [];
-          } catch (e) {
-            this.skillSearchResults = [];
+            console.error('Failed to load curated integrations:', e);
           }
         },
 
@@ -2211,20 +2093,13 @@ ${agents
           await this.addSkill(repo);
         },
 
-        async addSkillFromSearch(repo) {
-          if (this.skills.some(function(s) { return s.repo === repo; })) return;
-          await this.addSkill(repo);
-          this.skillSearch = '';
-          this.skillSearchVisible = false;
-        },
-
         async addSkill(repo) {
           if (!repo) return;
           this.skillsLoading = true;
           this.skillsError = '';
 
           try {
-            var fetchResp = await fetch('/api/v1/skills/fetch?token=' + encodeURIComponent(this.token), {
+            var fetchResp = await fetch('/api/v1/integrations/skills/fetch?token=' + encodeURIComponent(this.token), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ repo: repo })
@@ -2254,7 +2129,6 @@ ${agents
 
             if (resp.ok) {
               this.skills = updatedSkills;
-              this.customSkillRepo = '';
             } else {
               var result = await resp.json();
               throw new Error(result.error || 'Failed to add skill');
@@ -2372,45 +2246,66 @@ ${agents
         },
 
         // === MCPs ===
-        async initMcps() {
-          try {
-            var resp = await fetch('/api/v1/mcps/registry?token=' + encodeURIComponent(this.token));
-            var data = await resp.json();
-            this.curatedMcps = data.mcps || [];
-          } catch (e) {
-            console.error('Failed to load curated MCPs:', e);
-          }
-        },
 
-        async searchMcps() {
-          if (!this.mcpSearch.trim()) {
-            this.mcpSearchVisible = false;
-            this.mcpSearchResults = [];
+        // === Unified Integration Search ===
+        async searchIntegrations() {
+          var q = this.integrationSearch.trim();
+          if (!q) {
+            this.integrationSearchVisible = false;
+            this.integrationSearchResults = [];
             return;
           }
 
-          this.mcpSearchVisible = true;
-          this.mcpSearchResults = [];
+          // Auto-detect URL — add as MCP directly
+          if (q.startsWith('http://') || q.startsWith('https://') || q.includes('://')) {
+            var id = this.mcpIdFromUrl(q);
+            await this.addMcp(id, q);
+            this.integrationSearch = '';
+            this.integrationSearchVisible = false;
+            this.integrationSearchResults = [];
+            return;
+          }
+
+          this.integrationSearchVisible = true;
+          this.integrationSearchResults = [];
 
           try {
-            var resp = await fetch('/api/v1/mcps/registry?token=' + encodeURIComponent(this.token) + '&q=' + encodeURIComponent(this.mcpSearch));
+            var resp = await fetch('/api/v1/integrations/registry?token=' + encodeURIComponent(this.token) + '&q=' + encodeURIComponent(q));
             var data = await resp.json();
-            this.mcpSearchResults = data.mcps || [];
+            var skillResults = (data.skills || []).map(function(s) {
+              return { id: s.id, name: s.name, description: s.description, installs: s.installs, type: 'skill' };
+            });
+            var mcpResults = (data.mcps || []).map(function(m) {
+              return { id: m.id, name: m.name, description: m.description, type: 'mcp' };
+            });
+            this.integrationSearchResults = skillResults.concat(mcpResults);
           } catch (e) {
-            this.mcpSearchResults = [];
+            this.integrationSearchResults = [];
           }
+        },
+
+        isIntegrationAdded(result) {
+          if (result.type === 'skill') {
+            return this.skills.some(function(sk) { return sk.repo === result.id; });
+          }
+          return this.mcpServers.hasOwnProperty(result.id);
+        },
+
+        async addIntegrationFromSearch(result) {
+          if (this.isIntegrationAdded(result)) return;
+          if (result.type === 'skill') {
+            await this.addSkill(result.id);
+          } else {
+            await this.addMcp(result.id, null);
+          }
+          this.integrationSearch = '';
+          this.integrationSearchVisible = false;
+          this.integrationSearchResults = [];
         },
 
         async addMcpFromChip(mcpId) {
           if (this.mcpServers.hasOwnProperty(mcpId)) return;
           await this.addMcp(mcpId, null);
-        },
-
-        async addMcpFromSearch(mcpId) {
-          if (this.mcpServers.hasOwnProperty(mcpId)) return;
-          await this.addMcp(mcpId, null);
-          this.mcpSearch = '';
-          this.mcpSearchVisible = false;
         },
 
         async addMcp(mcpId, customUrl) {
@@ -2433,7 +2328,6 @@ ${agents
 
             if (resp.ok) {
               this.mcpServers = updatedMcpServers;
-              this.customMcpUrl = '';
             } else {
               var result = await resp.json();
               throw new Error(result.error || 'Failed to add MCP');
@@ -2565,7 +2459,7 @@ ${agents
           if (!skill) return;
 
           try {
-            var fetchResp = await fetch('/api/v1/skills/fetch?token=' + encodeURIComponent(this.token), {
+            var fetchResp = await fetch('/api/v1/integrations/skills/fetch?token=' + encodeURIComponent(this.token), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ repo: skill.repo })

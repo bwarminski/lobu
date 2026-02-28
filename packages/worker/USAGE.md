@@ -105,13 +105,6 @@ These variables are automatically set by the Gateway when deploying worker conta
 
 ## MCP Configuration
 
-### `MCP_PROCESS_MANAGER_PORT`
-**Description**: Port for internal MCP process manager server
-**Format**: Integer
-**Default**: `3001`
-**Set by**: Worker (optional override)
-**Used by**: Inter-process MCP communication
-
 ### `MCP_SERVER_CONFIG`
 **Description**: JSON configuration for MCP servers (auto-generated)
 **Format**: JSON string

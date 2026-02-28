@@ -35,7 +35,7 @@ export function createMcpDiscoveryClient(
 
   async function search(query: string, limit = 5): Promise<McpSearchResult[]> {
     const response = await fetch(
-      `${gatewayUrl}/internal/mcp/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      `${gatewayUrl}/internal/integrations/search?q=${encodeURIComponent(query)}&limit=${limit}`,
       { headers }
     );
 
@@ -48,13 +48,13 @@ export function createMcpDiscoveryClient(
       throw new Error(errorData.error || "Failed to search MCP registry");
     }
 
-    const data = (await response.json()) as { results: McpSearchResult[] };
-    return data.results;
+    const data = (await response.json()) as { mcps: McpSearchResult[] };
+    return data.mcps;
   }
 
   async function getById(mcpId: string): Promise<McpDetails> {
     const response = await fetch(
-      `${gatewayUrl}/internal/mcp/registry/${encodeURIComponent(mcpId)}`,
+      `${gatewayUrl}/internal/integrations/mcps/${encodeURIComponent(mcpId)}`,
       { headers }
     );
 

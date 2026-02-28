@@ -1,23 +1,25 @@
 /**
- * Skills Utility Routes
+ * Unified Integrations Routes (Skills + MCP)
  *
- * Endpoints for skill discovery and metadata fetching.
+ * Single registry endpoint that searches both skills and MCPs in parallel.
+ * Also includes skill fetching and MCP by-ID lookup.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { verifySettingsToken } from "../../auth/settings/token-service";
+import { McpRegistryService } from "../../services/mcp-registry";
 import { SkillsFetcherService } from "../../services/skills-fetcher";
 
-const TAG = "Skills";
+const TAG = "Integrations";
 const ErrorResponse = z.object({ error: z.string() });
 
 const registryRoute = createRoute({
   method: "get",
   path: "/registry",
   tags: [TAG],
-  summary: "Browse/search skills registry",
+  summary: "Browse/search integrations registry (skills + MCPs)",
   description:
-    "Returns curated skills if no query, or searches registry if q provided",
+    "Returns curated skills and MCPs if no query, or searches both registries in parallel if q provided",
   request: {
     query: z.object({
       token: z.string(),
@@ -30,16 +32,23 @@ const registryRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Skills",
+      description: "Integrations",
       content: {
         "application/json": {
           schema: z.object({
             skills: z.array(
               z.object({
-                repo: z.string(),
+                id: z.string(),
+                name: z.string(),
+                description: z.string().optional(),
+              })
+            ),
+            mcps: z.array(
+              z.object({
+                id: z.string(),
                 name: z.string(),
                 description: z.string(),
-                category: z.string().optional(),
+                type: z.string().optional(),
               })
             ),
             source: z.enum(["curated", "search"]),
@@ -54,9 +63,9 @@ const registryRoute = createRoute({
   },
 });
 
-const fetchRoute = createRoute({
+const skillFetchRoute = createRoute({
   method: "post",
-  path: "/fetch",
+  path: "/skills/fetch",
   tags: [TAG],
   summary: "Fetch skill metadata from ClawHub",
   description: "Fetches skill name, description, and content by slug",
@@ -104,9 +113,48 @@ const fetchRoute = createRoute({
   },
 });
 
-export function createSkillsRoutes(): OpenAPIHono {
+const mcpByIdRoute = createRoute({
+  method: "get",
+  path: "/mcps/:id",
+  tags: [TAG],
+  summary: "Get MCP server by ID",
+  description:
+    "Returns full MCP server configuration including setup instructions",
+  request: {
+    query: z.object({ token: z.string() }),
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "MCP server details",
+      content: {
+        "application/json": {
+          schema: z.object({
+            id: z.string(),
+            name: z.string(),
+            description: z.string(),
+            type: z.enum(["oauth", "command", "api-key", "none"]),
+            config: z.record(z.string(), z.unknown()),
+            setupInstructions: z.string().optional(),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+export function createIntegrationsRoutes(): OpenAPIHono {
   const app = new OpenAPIHono();
   const skillsFetcher = new SkillsFetcherService();
+  const mcpRegistry = new McpRegistryService();
 
   const verifyToken = (token: string | undefined) =>
     token ? verifySettingsToken(token) : null;
@@ -115,20 +163,39 @@ export function createSkillsRoutes(): OpenAPIHono {
     const { token, q, limit } = c.req.valid("query");
     if (!verifyToken(token)) return c.json({ error: "Unauthorized" }, 401);
 
+    const maxLimit = Math.min(parseInt(limit || "20", 10), 50);
+
     if (q) {
-      const skills = await skillsFetcher.searchSkills(
-        q,
-        Math.min(parseInt(limit || "20", 10), 50)
-      );
-      return c.json({ skills, source: "search" });
+      const [skills, mcpResults] = await Promise.all([
+        skillsFetcher.searchSkills(q, maxLimit),
+        Promise.resolve(mcpRegistry.search(q, maxLimit)),
+      ]);
+      return c.json({
+        skills,
+        mcps: mcpResults.map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          type: m.type,
+        })),
+        source: "search",
+      });
     }
+
+    const mcps = mcpRegistry.getCurated();
     return c.json({
       skills: skillsFetcher.getCuratedSkills(),
+      mcps: mcps.map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        type: m.type,
+      })),
       source: "curated",
     });
   });
 
-  app.openapi(fetchRoute, async (c): Promise<any> => {
+  app.openapi(skillFetchRoute, async (c): Promise<any> => {
     const { token } = c.req.valid("query");
     if (!verifyToken(token)) return c.json({ error: "Unauthorized" }, 401);
 
@@ -148,6 +215,24 @@ export function createSkillsRoutes(): OpenAPIHono {
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : "Failed" }, 400);
     }
+  });
+
+  app.openapi(mcpByIdRoute, async (c): Promise<any> => {
+    const { token } = c.req.valid("query");
+    if (!verifyToken(token)) return c.json({ error: "Unauthorized" }, 401);
+
+    const { id } = c.req.valid("param");
+    const mcp = mcpRegistry.getById(id);
+    if (!mcp) return c.json({ error: "MCP not found" }, 404);
+
+    return c.json({
+      id: mcp.id,
+      name: mcp.name,
+      description: mcp.description,
+      type: mcp.type,
+      config: mcp.config,
+      setupInstructions: mcp.setupInstructions,
+    });
   });
 
   return app;

@@ -413,14 +413,14 @@ async function searchSkillsFromGateway(
 ): Promise<ExtensionResult[]> {
   try {
     const response = await fetch(
-      `${gw.gatewayUrl}/internal/skills/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      `${gw.gatewayUrl}/internal/integrations/search?q=${encodeURIComponent(query)}&limit=${limit}`,
       { headers: { Authorization: `Bearer ${gw.workerToken}` } }
     );
     if (!response.ok) return [];
     const data = (await response.json()) as {
-      results: Array<{ id: string; name: string; source: string }>;
+      skills: Array<{ id: string; name: string; source: string }>;
     };
-    return data.results.map((s) => ({
+    return (data.skills || []).map((s) => ({
       id: s.id,
       name: s.name,
       description: "",

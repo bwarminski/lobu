@@ -192,24 +192,16 @@ function setupServer(
     logger.info("Settings link routes enabled at :8080/internal/settings-link");
   }
 
-  // MCP discovery routes (worker MCP search/install helper endpoints)
+  // Integrations discovery routes (unified skills + MCP search for workers)
   {
     const {
-      createMcpDiscoveryRoutes,
-    } = require("../routes/internal/mcp-discovery");
-    const mcpDiscoveryRouter = createMcpDiscoveryRoutes();
-    app.route("", mcpDiscoveryRouter);
-    logger.info("MCP discovery routes enabled at :8080/internal/mcp/*");
-  }
-
-  // Skills discovery routes (worker skills search helper endpoints)
-  {
-    const {
-      createSkillsDiscoveryRoutes,
-    } = require("../routes/internal/skills-discovery");
-    const skillsDiscoveryRouter = createSkillsDiscoveryRoutes();
-    app.route("", skillsDiscoveryRouter);
-    logger.info("Skills discovery routes enabled at :8080/internal/skills/*");
+      createIntegrationsDiscoveryRoutes,
+    } = require("../routes/internal/integrations-discovery");
+    const integrationsDiscoveryRouter = createIntegrationsDiscoveryRoutes();
+    app.route("", integrationsDiscoveryRouter);
+    logger.info(
+      "Integrations discovery routes enabled at :8080/internal/integrations/*"
+    );
   }
 
   // Audio routes (TTS synthesis for workers)
@@ -386,20 +378,14 @@ function setupServer(
       logger.info("GitHub routes enabled at :8080/api/v1/github/*");
     }
 
-    // Skills utility routes (/api/v1/skills)
+    // Integrations routes (unified skills + MCP registry)
     {
-      const { createSkillsRoutes } = require("../routes/public/skills");
-      const skillsRouter = createSkillsRoutes();
-      app.route("/api/v1/skills", skillsRouter);
-      logger.info("Skills routes enabled at :8080/api/v1/skills/*");
-    }
-
-    // MCP registry routes (/api/v1/mcps)
-    {
-      const { createMcpRoutes } = require("../routes/public/mcps");
-      const mcpRouter = createMcpRoutes();
-      app.route("/api/v1/mcps", mcpRouter);
-      logger.info("MCP routes enabled at :8080/api/v1/mcps/*");
+      const {
+        createIntegrationsRoutes,
+      } = require("../routes/public/integrations");
+      const integrationsRouter = createIntegrationsRoutes();
+      app.route("/api/v1/integrations", integrationsRouter);
+      logger.info("Integrations routes enabled at :8080/api/v1/integrations/*");
     }
 
     // OAuth routes (/api/v1/oauth)

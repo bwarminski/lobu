@@ -30,7 +30,7 @@ function escapeHtml(text: string): string {
  * Convert markdown to Telegram HTML format.
  */
 export function convertMarkdownToTelegramHtml(content: string): string {
-  content = ensureString(content, "convertMarkdownToTelegramHtml");
+  content = ensureString(content);
 
   if (!content.trim()) {
     return content;

@@ -7,22 +7,16 @@ import { createLogger } from "@lobu/core";
 
 const logger = createLogger("renderer-utils");
 
-/**
- * Ensure content is a string, converting objects/other types as needed.
- */
-export function ensureString(content: unknown, callerName: string): string {
+export function ensureString(content: unknown): string {
   if (typeof content === "string") return content;
   logger.warn(
-    `${callerName} received non-string content (type: ${typeof content}), converting to string`
+    `Received non-string content (type: ${typeof content}), converting to string`
   );
   return typeof content === "object"
     ? JSON.stringify(content)
     : String(content);
 }
 
-/**
- * Decode HTML entities back to their character equivalents.
- */
 export function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&lt;/g, "<")
@@ -32,9 +26,6 @@ export function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/g, "'");
 }
 
-/**
- * Collapse 3+ consecutive newlines down to 2, then trim.
- */
 export function collapseNewlines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -75,9 +66,6 @@ export function chunkMessage(text: string, maxLength: number): string[] {
   return chunks.filter((c) => c.length > 0);
 }
 
-/**
- * Simple delay helper.
- */
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -102,9 +102,6 @@ export abstract class BaseFileHandler implements IFileHandler {
     this.uploadedFiles.delete(sessionKey);
   }
 
-  /**
-   * Track a file upload for a session.
-   */
   protected trackUpload(sessionKey: string, fileId: string): void {
     if (!this.uploadedFiles.has(sessionKey)) {
       this.uploadedFiles.set(sessionKey, new Set());

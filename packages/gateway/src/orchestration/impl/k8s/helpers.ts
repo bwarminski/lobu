@@ -16,20 +16,11 @@ import {
 const logger = createLogger("k8s-deployment");
 
 /**
- * Shared context passed to standalone K8s helper functions.
- * Avoids coupling helpers to the class while keeping them testable.
- */
-export interface K8sHelperContext {
-  appsV1Api: k8s.AppsV1Api;
-  coreV1Api: k8s.CoreV1Api;
-  namespace: string;
-}
-
-/**
  * Run a short-lived preflight pod to verify the worker image can be pulled.
  */
 export async function runImagePullPreflight(
-  ctx: K8sHelperContext,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   imageName: string,
   pullPolicy: string,
   serviceAccountName: string,
@@ -44,7 +35,7 @@ export async function runImagePullPreflight(
     kind: "Pod",
     metadata: {
       name: podName,
-      namespace: ctx.namespace,
+      namespace,
       labels: {
         "app.kubernetes.io/name": "lobu",
         "app.kubernetes.io/component": "worker-image-preflight",
@@ -75,13 +66,10 @@ export async function runImagePullPreflight(
   };
 
   try {
-    await ctx.coreV1Api.createNamespacedPod(ctx.namespace, pod);
+    await coreV1Api.createNamespacedPod(namespace, pod);
 
     while (Date.now() - startMs < timeoutMs) {
-      const podResp = await ctx.coreV1Api.readNamespacedPod(
-        podName,
-        ctx.namespace
-      );
+      const podResp = await coreV1Api.readNamespacedPod(podName, namespace);
       const podBody = (podResp as { body?: k8s.V1Pod }).body;
       const status = podBody?.status;
       const containerStatus = status?.containerStatuses?.find(
@@ -131,9 +119,9 @@ export async function runImagePullPreflight(
     throw error;
   } finally {
     try {
-      await ctx.coreV1Api.deleteNamespacedPod(
+      await coreV1Api.deleteNamespacedPod(
         podName,
-        ctx.namespace,
+        namespace,
         undefined,
         undefined,
         0
@@ -154,7 +142,8 @@ export async function runImagePullPreflight(
  * pull policy, service account, and image pull secrets.
  */
 export async function reconcileWorkerDeploymentImages(
-  ctx: K8sHelperContext,
+  appsV1Api: k8s.AppsV1Api,
+  namespace: string,
   desiredImage: string,
   desiredPullPolicy: string,
   desiredServiceAccount: string,
@@ -232,9 +221,9 @@ export async function reconcileWorkerDeploymentImages(
         ];
       }
 
-      await ctx.appsV1Api.patchNamespacedDeployment(
+      await appsV1Api.patchNamespacedDeployment(
         deploymentName,
-        ctx.namespace,
+        namespace,
         patch,
         undefined,
         undefined,
@@ -271,7 +260,8 @@ export async function reconcileWorkerDeploymentImages(
  * Multiple threads in the same space share the same PVC.
  */
 export async function createPVC(
-  ctx: K8sHelperContext,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   pvcName: string,
   agentId: string,
   storageClass: string | undefined,
@@ -285,7 +275,7 @@ export async function createPVC(
     kind: "PersistentVolumeClaim",
     metadata: {
       name: pvcName,
-      namespace: ctx.namespace,
+      namespace,
       labels: {
         ...BASE_WORKER_LABELS,
         "app.kubernetes.io/component": "worker-storage",
@@ -314,10 +304,7 @@ export async function createPVC(
   logger.info({ traceparent, pvcName, agentId, size: pvcSize }, "Creating PVC");
 
   try {
-    await ctx.coreV1Api.createNamespacedPersistentVolumeClaim(
-      ctx.namespace,
-      pvc
-    );
+    await coreV1Api.createNamespacedPersistentVolumeClaim(namespace, pvc);
     span?.setStatus({ code: SpanStatusCode.OK });
     span?.end();
     logger.info({ pvcName }, "Created PVC");
@@ -352,11 +339,12 @@ export async function createPVC(
  * List pods belonging to a given deployment by matching owner references.
  */
 export async function listDeploymentPods(
-  ctx: K8sHelperContext,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   deploymentName: string
 ): Promise<k8s.V1Pod[]> {
-  const pods = await ctx.coreV1Api.listNamespacedPod(
-    ctx.namespace,
+  const pods = await coreV1Api.listNamespacedPod(
+    namespace,
     undefined,
     undefined,
     undefined,
@@ -381,12 +369,13 @@ export async function listDeploymentPods(
  * Get a failure message for a pod by inspecting its events.
  */
 export async function getPodFailureMessage(
-  ctx: K8sHelperContext,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   podName: string
 ): Promise<string> {
   try {
-    const events = await ctx.coreV1Api.listNamespacedEvent(
-      ctx.namespace,
+    const events = await coreV1Api.listNamespacedEvent(
+      namespace,
       undefined,
       undefined,
       undefined,
@@ -425,16 +414,18 @@ export async function getPodFailureMessage(
  * Detects image pull failures early and throws.
  */
 export async function waitForWorkerReady(
-  ctx: K8sHelperContext,
+  appsV1Api: k8s.AppsV1Api,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   deploymentName: string,
   timeoutMs: number
 ): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const deployment = await ctx.appsV1Api.readNamespacedDeployment(
+    const deployment = await appsV1Api.readNamespacedDeployment(
       deploymentName,
-      ctx.namespace
+      namespace
     );
     const deploymentBody = (deployment as { body?: k8s.V1Deployment }).body;
     const availableReplicas = deploymentBody?.status?.availableReplicas || 0;
@@ -443,7 +434,7 @@ export async function waitForWorkerReady(
       return;
     }
 
-    const pods = await listDeploymentPods(ctx, deploymentName);
+    const pods = await listDeploymentPods(coreV1Api, namespace, deploymentName);
     for (const pod of pods) {
       const podName = pod.metadata?.name || "unknown";
       const workerStatus = pod.status?.containerStatuses?.find(
@@ -452,7 +443,11 @@ export async function waitForWorkerReady(
       const waiting = workerStatus?.state?.waiting;
 
       if (waiting?.reason && IMAGE_PULL_FAILURE_REASONS.has(waiting.reason)) {
-        const eventMessage = await getPodFailureMessage(ctx, podName);
+        const eventMessage = await getPodFailureMessage(
+          coreV1Api,
+          namespace,
+          podName
+        );
         throw new OrchestratorError(
           ErrorCode.DEPLOYMENT_CREATE_FAILED,
           `Worker startup failed (${waiting.reason}) for ${deploymentName}: ${eventMessage || waiting.message || "image pull failed"}`,
@@ -483,7 +478,9 @@ export async function waitForWorkerReady(
  * No-ops if the finalizer is already absent.
  */
 export async function removeFinalizerFromResource(
-  ctx: K8sHelperContext,
+  appsV1Api: k8s.AppsV1Api,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string,
   kind: "deployment" | "pvc",
   name: string
 ): Promise<void> {
@@ -491,15 +488,15 @@ export async function removeFinalizerFromResource(
     // Read current finalizers
     let currentFinalizers: string[] | undefined;
     if (kind === "deployment") {
-      const resource = await ctx.appsV1Api.readNamespacedDeployment(
+      const resource = await appsV1Api.readNamespacedDeployment(
         name,
-        ctx.namespace
+        namespace
       );
       currentFinalizers = (resource as any).body?.metadata?.finalizers;
     } else {
-      const resource = await ctx.coreV1Api.readNamespacedPersistentVolumeClaim(
+      const resource = await coreV1Api.readNamespacedPersistentVolumeClaim(
         name,
-        ctx.namespace
+        namespace
       );
       currentFinalizers = (resource as any).body?.metadata?.finalizers;
     }
@@ -518,9 +515,9 @@ export async function removeFinalizerFromResource(
     };
 
     if (kind === "deployment") {
-      await ctx.appsV1Api.patchNamespacedDeployment(
+      await appsV1Api.patchNamespacedDeployment(
         name,
-        ctx.namespace,
+        namespace,
         patch,
         undefined,
         undefined,
@@ -534,9 +531,9 @@ export async function removeFinalizerFromResource(
         }
       );
     } else {
-      await ctx.coreV1Api.patchNamespacedPersistentVolumeClaim(
+      await coreV1Api.patchNamespacedPersistentVolumeClaim(
         name,
-        ctx.namespace,
+        namespace,
         patch,
         undefined,
         undefined,
@@ -570,11 +567,13 @@ export async function removeFinalizerFromResource(
  * Clean up PVCs stuck in Terminating state with our finalizer.
  */
 export async function cleanupOrphanedPvcFinalizers(
-  ctx: K8sHelperContext
+  appsV1Api: k8s.AppsV1Api,
+  coreV1Api: k8s.CoreV1Api,
+  namespace: string
 ): Promise<void> {
   try {
-    const pvcs = await ctx.coreV1Api.listNamespacedPersistentVolumeClaim(
-      ctx.namespace,
+    const pvcs = await coreV1Api.listNamespacedPersistentVolumeClaim(
+      namespace,
       undefined,
       undefined,
       undefined,
@@ -593,7 +592,13 @@ export async function cleanupOrphanedPvcFinalizers(
 
       if (name && deletionTimestamp && finalizers?.includes(LOBU_FINALIZER)) {
         logger.info(`Removing orphaned finalizer from Terminating PVC ${name}`);
-        await removeFinalizerFromResource(ctx, "pvc", name);
+        await removeFinalizerFromResource(
+          appsV1Api,
+          coreV1Api,
+          namespace,
+          "pvc",
+          name
+        );
       }
     }
   } catch (error) {

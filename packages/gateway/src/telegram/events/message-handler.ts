@@ -23,7 +23,6 @@ import { createTelegramReply } from "../../commands/command-reply-adapters";
 import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
 import {
   buildMessagePayload,
-  MessageDeduplicator,
   resolveAgentId,
   resolveAgentOptions,
 } from "../../services/platform-helpers";
@@ -46,6 +45,40 @@ interface StoredMessage {
 interface ConversationHistory {
   messages: StoredMessage[];
   lastUpdated: number;
+}
+
+class MessageDeduplicator<T extends string | number = string> {
+  private seen = new Set<T>();
+  private readonly maxSize: number;
+
+  constructor(maxSize = 10_000) {
+    this.maxSize = maxSize;
+  }
+
+  isDuplicate(id: T): boolean {
+    if (this.seen.has(id)) {
+      return true;
+    }
+    this.seen.add(id);
+    this.trim();
+    return false;
+  }
+
+  markSeen(id: T): void {
+    this.seen.add(id);
+    this.trim();
+  }
+
+  private trim(): void {
+    if (this.seen.size > this.maxSize) {
+      const iterator = this.seen.values();
+      const toDelete = Math.floor(this.maxSize / 2);
+      for (let i = 0; i < toDelete; i++) {
+        const val = iterator.next().value;
+        if (val !== undefined) this.seen.delete(val);
+      }
+    }
+  }
 }
 
 /**

@@ -18,26 +18,16 @@ export function formatToolExecution(
   toolName: string,
   params: Record<string, unknown>,
   verboseLogging: boolean
-): string {
+): string | null {
+  if (!verboseLogging) return null;
+
   const config = getToolDisplayConfig(toolName);
   const displayName = config ? toolName : formatMcpToolName(toolName);
   const emoji = config?.emoji ?? "🔧";
 
-  if (verboseLogging) {
-    const inputStr =
-      Object.keys(params).length > 0
-        ? `\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``
-        : "";
-    return `└ ${emoji} **${displayName}**${inputStr}`;
-  }
-
-  if (!config) {
-    const suffix =
-      typeof params.description === "string" ? `: ${params.description}` : "";
-    return `└ 🔧 **Using** ${displayName}${suffix}`;
-  }
-
-  const param = config.getParam(params);
-  const description = param ? `**${config.action}** ${param}` : config.action;
-  return `└ ${emoji} ${description}`;
+  const inputStr =
+    Object.keys(params).length > 0
+      ? `\n\`\`\`json\n${JSON.stringify(params, null, 2)}\n\`\`\``
+      : "";
+  return `└ ${emoji} **${displayName}**${inputStr}`;
 }

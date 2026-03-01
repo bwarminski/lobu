@@ -103,7 +103,7 @@ class SlackRenderer extends marked.Renderer {
  * Convert markdown to Slack's mrkdwn format using marked with custom renderer
  */
 export function convertMarkdownToSlack(content: string): string {
-  content = ensureString(content, "convertMarkdownToSlack");
+  content = ensureString(content);
 
   // Pre-process tool/task lines (starting with └) to use double newlines for line breaks
   // This ensures each tool execution appears on its own line in Slack streaming

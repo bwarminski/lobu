@@ -120,7 +120,7 @@ class WhatsAppRenderer extends marked.Renderer {
  * Convert markdown to WhatsApp's formatting syntax.
  */
 export function convertMarkdownToWhatsApp(content: string): string {
-  content = ensureString(content, "convertMarkdownToWhatsApp");
+  content = ensureString(content);
 
   // Handle empty content
   if (!content.trim()) {

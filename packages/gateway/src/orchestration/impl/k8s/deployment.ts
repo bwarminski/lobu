@@ -23,7 +23,6 @@ import {
 import {
   cleanupOrphanedPvcFinalizers,
   createPVC,
-  type K8sHelperContext,
   reconcileWorkerDeploymentImages,
   removeFinalizerFromResource,
   runImagePullPreflight,
@@ -273,15 +272,6 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     this.checkRuntimeClassAvailability();
   }
 
-  /** Build a helper context for standalone K8s helper functions. */
-  private helperCtx(): K8sHelperContext {
-    return {
-      appsV1Api: this.appsV1Api,
-      coreV1Api: this.coreV1Api,
-      namespace: this.config.kubernetes.namespace,
-    };
-  }
-
   /**
    * Validate that the target namespace exists and we have access to it
    */
@@ -402,7 +392,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     }
 
     await runImagePullPreflight(
-      this.helperCtx(),
+      this.coreV1Api,
+      this.config.kubernetes.namespace,
       imageName,
       this.config.worker.image.pullPolicy || "Always",
       this.getWorkerServiceAccountName(),
@@ -412,7 +403,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
 
   async reconcileWorkerDeploymentImages(): Promise<void> {
     await reconcileWorkerDeploymentImages(
-      this.helperCtx(),
+      this.appsV1Api,
+      this.config.kubernetes.namespace,
       this.getWorkerImageReference(),
       this.config.worker.image.pullPolicy || "Always",
       this.getWorkerServiceAccountName(),
@@ -427,7 +419,6 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
       const idleThresholdMinutes = this.config.worker.idleCleanupMinutes;
       const veryOldDays = getVeryOldThresholdDays(this.config);
       const results: DeploymentInfo[] = [];
-      const ctx = this.helperCtx();
 
       for (const deployment of await this.listRawWorkerDeployments()) {
         const deploymentName = deployment.metadata?.name || "";
@@ -440,12 +431,17 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
           logger.info(
             `Removing orphaned finalizer from Terminating deployment ${deploymentName}`
           );
-          removeFinalizerFromResource(ctx, "deployment", deploymentName).catch(
-            (err) =>
-              logger.warn(
-                `Failed to remove orphaned finalizer from ${deploymentName}:`,
-                err instanceof Error ? err.message : String(err)
-              )
+          removeFinalizerFromResource(
+            this.appsV1Api,
+            this.coreV1Api,
+            this.config.kubernetes.namespace,
+            "deployment",
+            deploymentName
+          ).catch((err) =>
+            logger.warn(
+              `Failed to remove orphaned finalizer from ${deploymentName}:`,
+              err instanceof Error ? err.message : String(err)
+            )
           );
           continue; // Skip Terminating deployments from the active list
         }
@@ -512,7 +508,8 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
     // Use larger PVC when Nix packages are configured (Chromium etc. need space)
     const pvcSize = hasNixConfig ? "5Gi" : undefined;
     await createPVC(
-      this.helperCtx(),
+      this.coreV1Api,
+      this.config.kubernetes.namespace,
       pvcName,
       agentId,
       this.config.worker.persistence?.storageClass,
@@ -733,7 +730,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
         deployment
       );
       await waitForWorkerReady(
-        this.helperCtx(),
+        this.appsV1Api,
+        this.coreV1Api,
+        this.config.kubernetes.namespace,
         deploymentName,
         this.getWorkerStartupTimeoutMs()
       );
@@ -856,7 +855,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
 
       if (replicas > 0) {
         await waitForWorkerReady(
-          this.helperCtx(),
+          this.appsV1Api,
+          this.coreV1Api,
+          this.config.kubernetes.namespace,
           deploymentName,
           this.getWorkerStartupTimeoutMs()
         );
@@ -874,7 +875,9 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
   async deleteDeployment(deploymentName: string): Promise<void> {
     // Remove our finalizer before deleting so the resource can be garbage-collected
     await removeFinalizerFromResource(
-      this.helperCtx(),
+      this.appsV1Api,
+      this.coreV1Api,
+      this.config.kubernetes.namespace,
       "deployment",
       deploymentName
     );
@@ -914,7 +917,11 @@ export class K8sDeploymentManager extends BaseDeploymentManager {
    */
   async reconcileDeployments(): Promise<void> {
     await this.reconcileWorkerDeploymentImages();
-    await cleanupOrphanedPvcFinalizers(this.helperCtx());
+    await cleanupOrphanedPvcFinalizers(
+      this.appsV1Api,
+      this.coreV1Api,
+      this.config.kubernetes.namespace
+    );
     await super.reconcileDeployments();
   }
 

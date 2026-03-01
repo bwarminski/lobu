@@ -26,13 +26,14 @@ import {
 } from "../../auth/settings";
 import type { UserAgentsStore } from "../../auth/user-agents-store";
 import type { ChannelBindingService } from "../../channels";
-import type {
-  MessagePayload,
-  QueueProducer,
-} from "../../infrastructure/queue/queue-producer";
+import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
+import {
+  buildMessagePayload,
+  resolveAgentId,
+  resolveAgentOptions,
+} from "../../services/platform-helpers";
 import type { TranscriptionService } from "../../services/transcription-service";
 import type { ISessionManager } from "../../session";
-import { resolveSpace } from "../../spaces";
 import type { WhatsAppAuthAdapter } from "../auth-adapter";
 import type { WhatsAppConfig } from "../config";
 import type { BaileysClient } from "../connection/baileys-client";
@@ -158,67 +159,16 @@ export class WhatsAppMessageHandler {
   }
 
   /**
-   * Get agent options with settings applied
-   * Priority: agent settings > config defaults
+   * Get agent options with settings applied.
    */
-  private async getAgentOptionsWithSettings(
+  private getAgentOptionsWithSettings(
     agentId: string
   ): Promise<Record<string, any>> {
-    const baseOptions = { ...this.agentOptions };
-
-    if (!this.agentSettingsStore) {
-      return baseOptions;
-    }
-
-    const settings = await this.agentSettingsStore.getSettings(agentId);
-    if (!settings) {
-      return baseOptions;
-    }
-
-    logger.info({ agentId, model: settings.model }, "Applying agent settings");
-
-    // Merge settings into options
-    const mergedOptions: Record<string, any> = { ...baseOptions };
-
-    if (settings.model) {
-      mergedOptions.model = settings.model;
-    } else if ((settings.installedProviders?.length ?? 0) > 0) {
-      // Agent has providers installed but no explicit model - clear the
-      // global default so auto-mode picks the primary installed provider.
-      delete mergedOptions.model;
-    }
-    // Pass additional settings through agentOptions for worker to use
-    if (settings.networkConfig) {
-      mergedOptions.networkConfig = settings.networkConfig;
-    }
-    if (settings.nixConfig) {
-      mergedOptions.nixConfig = settings.nixConfig;
-    }
-
-    if (settings.envVars) {
-      mergedOptions.envVars = settings.envVars;
-    }
-
-    if (settings.toolsConfig) {
-      mergedOptions.toolsConfig = settings.toolsConfig;
-    }
-
-    // MCP servers from agent settings
-    if (settings.mcpServers) {
-      mergedOptions.mcpServers = settings.mcpServers;
-    }
-
-    // Plugin configuration
-    if (settings.pluginsConfig) {
-      mergedOptions.pluginsConfig = settings.pluginsConfig;
-    }
-
-    // Verbose logging
-    if (settings.verboseLogging !== undefined) {
-      mergedOptions.verboseLogging = settings.verboseLogging;
-    }
-
-    return mergedOptions;
+    return resolveAgentOptions(
+      agentId,
+      { ...this.agentOptions },
+      this.agentSettingsStore
+    );
   }
 
   /**
@@ -755,42 +705,17 @@ export class WhatsAppMessageHandler {
       "Message received"
     );
 
-    // Check for channel binding first (explicit agent assignment)
-    let agentId: string;
-    if (this.channelBindingService) {
-      const binding = await this.channelBindingService.getBinding(
-        "whatsapp",
-        context.chatJid
-      );
-      if (binding) {
-        agentId = binding.agentId;
-        logger.info(
-          `Using bound agentId: ${agentId} for chat ${context.chatJid}`
-        );
-      } else {
-        // No binding - send configuration prompt
-        const sent = await this.sendWhatsAppConfigPrompt(context);
-        if (sent) return;
-
-        // Fallback if config prompt fails
-        const space = resolveSpace({
-          platform: "whatsapp",
-          userId: context.senderE164 || context.senderJid,
-          channelId: context.chatJid,
-          isGroup: context.isGroup,
-        });
-        agentId = space.agentId;
-      }
-    } else {
-      // Fall back to space-based resolution
-      const space = resolveSpace({
-        platform: "whatsapp",
-        userId: context.senderE164 || context.senderJid,
-        channelId: context.chatJid,
-        isGroup: context.isGroup,
-      });
-      agentId = space.agentId;
-    }
+    // Resolve agent ID from channel binding or space fallback
+    const resolved = await resolveAgentId({
+      platform: "whatsapp",
+      userId: context.senderE164 || context.senderJid,
+      channelId: context.chatJid,
+      isGroup: context.isGroup,
+      channelBindingService: this.channelBindingService,
+      sendConfigPrompt: () => this.sendWhatsAppConfigPrompt(context),
+    });
+    if (resolved.promptSent) return;
+    const agentId = resolved.agentId;
 
     // Handle /configure command - send settings magic link
     if (body.trim().toLowerCase() === "/configure") {
@@ -915,23 +840,19 @@ The user sent a voice message but transcription failed. Let them know and sugges
     // Fetch agent settings and merge with config defaults
     const agentOptions = await this.getAgentOptionsWithSettings(agentId);
 
-    // Extract top-level configs from agentOptions for orchestration
-    const { networkConfig, nixConfig, mcpServers, ...remainingOptions } =
-      agentOptions;
-
-    const payload: MessagePayload = {
+    const payload = buildMessagePayload({
       platform: "whatsapp",
       userId: context.senderE164 || context.senderJid,
       botId: "whatsapp",
       conversationId,
-      teamId: context.isGroup ? context.chatJid : "whatsapp", // Group JID for groups, "whatsapp" for DMs
+      teamId: context.isGroup ? context.chatJid : "whatsapp",
       agentId,
       messageId,
       messageText: transcribedBody,
       channelId: context.chatJid,
       platformMetadata: {
-        traceId, // Add trace ID for end-to-end tracing
-        agentId, // Required for credential storage/lookup
+        traceId,
+        agentId,
         jid: context.chatJid,
         senderJid: context.senderJid,
         senderE164: context.senderE164,
@@ -946,12 +867,8 @@ The user sent a voice message but transcription failed. Let them know and sugges
         conversationHistory:
           conversationHistory.length > 0 ? conversationHistory : undefined,
       },
-      agentOptions: remainingOptions,
-      // Set top-level configs for orchestration
-      networkConfig,
-      nixConfig,
-      mcpConfig: mcpServers ? { mcpServers } : undefined,
-    };
+      agentOptions,
+    });
 
     await this.queueProducer.enqueueMessage(payload);
     logger.info(

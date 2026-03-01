@@ -11,14 +11,15 @@ import type { UserAgentsStore } from "../../auth/user-agents-store";
 import type { ChannelBindingService } from "../../channels";
 import type { CommandDispatcher } from "../../commands/command-dispatcher";
 import { createSlackThreadReply } from "../../commands/command-reply-adapters";
-import type {
-  MessagePayload,
-  QueueProducer,
-} from "../../infrastructure/queue/queue-producer";
+import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
+import {
+  buildMessagePayload,
+  resolveAgentId,
+  resolveAgentOptions,
+} from "../../services/platform-helpers";
 import type { TranscriptionService } from "../../services/transcription-service";
 import type { ISessionManager, ThreadSession } from "../../session";
 import { generateSessionKey } from "../../session";
-import { resolveSpace } from "../../spaces";
 import type { MessageHandlerConfig } from "../config";
 import type { SlackContext, SlackMessageEvent } from "../types";
 
@@ -202,69 +203,15 @@ export class MessageHandler {
 
   /**
    * Get agent options with settings applied
-   * Priority: agent settings > config defaults
    */
-  private async getAgentOptionsWithSettings(
+  private getAgentOptionsWithSettings(
     agentId: string
   ): Promise<Record<string, any>> {
     const baseOptions = {
       ...this.config.agentOptions,
       timeoutMinutes: this.config.sessionTimeoutMinutes.toString(),
     };
-
-    if (!this.agentSettingsStore) {
-      return baseOptions;
-    }
-
-    const settings = await this.agentSettingsStore.getSettings(agentId);
-    if (!settings) {
-      return baseOptions;
-    }
-
-    logger.info(`Applying agent settings for ${agentId}`, {
-      model: settings.model,
-      hasNetworkConfig: !!settings.networkConfig,
-      hasNixConfig: !!settings.nixConfig,
-    });
-
-    // Merge settings into options
-    const mergedOptions: Record<string, any> = { ...baseOptions };
-
-    if (settings.model) {
-      mergedOptions.model = settings.model;
-    } else if ((settings.installedProviders?.length ?? 0) > 0) {
-      // Agent has providers installed but no explicit model - clear the
-      // global default so auto-mode picks the primary installed provider.
-      delete mergedOptions.model;
-    }
-    // Pass additional settings through agentOptions for worker to use
-    if (settings.networkConfig) {
-      mergedOptions.networkConfig = settings.networkConfig;
-    }
-    if (settings.nixConfig) {
-      mergedOptions.nixConfig = settings.nixConfig;
-    }
-
-    if (settings.envVars) {
-      mergedOptions.envVars = settings.envVars;
-    }
-
-    // MCP servers from agent settings
-    if (settings.mcpServers) {
-      mergedOptions.mcpServers = settings.mcpServers;
-    }
-
-    // Plugin configuration
-    if (settings.pluginsConfig) {
-      mergedOptions.pluginsConfig = settings.pluginsConfig;
-    }
-
-    // Verbose logging
-    if (settings.verboseLogging !== undefined) {
-      mergedOptions.verboseLogging = settings.verboseLogging;
-    }
-
-    return mergedOptions;
+    return resolveAgentOptions(agentId, baseOptions, this.agentSettingsStore);
   }
 
   /**
@@ -377,53 +324,19 @@ export class MessageHandler {
       if (handled) return;
     }
 
-    // Check for channel binding first (explicit agent assignment)
-    let agentId: string;
-    if (this.channelBindingService) {
-      const binding = await this.channelBindingService.getBinding(
-        "slack",
-        context.channelId,
-        context.teamId
-      );
-      if (binding) {
-        agentId = binding.agentId;
-        logger.info(
-          `Using bound agentId: ${agentId} for channel ${context.channelId}`
-        );
-      } else {
-        // No binding - send configuration prompt
-        const sent = await this.sendConfigurationPrompt(
-          context,
-          client,
-          isDirectMessage
-        );
-        if (sent) return;
-
-        // Fallback if config prompt fails (e.g., stores not wired)
-        const space = resolveSpace({
-          platform: "slack",
-          userId: context.userId,
-          channelId: context.channelId,
-          isGroup: !isDirectMessage,
-        });
-        agentId = space.agentId;
-        logger.info(
-          `Fallback resolved agentId: ${agentId} (isGroup: ${!isDirectMessage})`
-        );
-      }
-    } else {
-      // Fall back to space-based resolution
-      const space = resolveSpace({
-        platform: "slack",
-        userId: context.userId,
-        channelId: context.channelId,
-        isGroup: !isDirectMessage,
-      });
-      agentId = space.agentId;
-      logger.info(
-        `Resolved agentId: ${agentId} (isGroup: ${!isDirectMessage})`
-      );
-    }
+    // Resolve agent ID from channel binding or space fallback
+    const resolved = await resolveAgentId({
+      platform: "slack",
+      userId: context.userId,
+      channelId: context.channelId,
+      isGroup: !isDirectMessage,
+      teamId: context.teamId,
+      channelBindingService: this.channelBindingService,
+      sendConfigPrompt: () =>
+        this.sendConfigurationPrompt(context, client, isDirectMessage),
+    });
+    if (resolved.promptSent) return;
+    const agentId = resolved.agentId;
 
     // Only check thread ownership for non-DM channels
     if (!isDirectMessage) {
@@ -513,97 +426,44 @@ export class MessageHandler {
 
       if (isNewConversation) {
         await this.sessionManager.setSession(threadSession);
-
-        // Extract top-level configs from agentOptions for orchestration
-        const { networkConfig, nixConfig, mcpServers, ...remainingOptions } =
-          agentOptions;
-
-        const deploymentPayload: MessagePayload = {
-          userId: context.userId,
-          botId: this.getBotId(),
-          conversationId,
-          teamId: context.teamId,
-          agentId,
-          platform: "slack",
-          messageId: context.messageTs,
-          messageText: processedRequest,
-          channelId: context.channelId,
-          platformMetadata: {
-            teamId: context.teamId,
-            userDisplayName: context.userDisplayName,
-            responseChannel: context.channelId,
-            responseId: context.messageTs,
-            originalMessageId: context.messageTs,
-            botResponseId: threadSession.botResponseId,
-            files: files || [],
-          },
-          agentOptions: remainingOptions,
-          // Set top-level configs for orchestration
-          networkConfig,
-          nixConfig,
-          mcpConfig: mcpServers ? { mcpServers } : undefined,
-        };
-
-        const jobId =
-          await this.queueProducer.enqueueMessage(deploymentPayload);
-
-        // Set status indicator
-        await this.setThreadStatus(
-          context.channelId,
-          conversationId,
-          "is scheduling.."
-        );
-
-        logger.info(
-          `Enqueued direct message job ${jobId} for session ${sessionKey}`
-        );
       } else {
         await this.sessionManager.setSession(threadSession);
-
-        // Extract top-level configs from agentOptions for orchestration
-        const { networkConfig, nixConfig, mcpServers, ...remainingOptions } =
-          agentOptions;
-
-        // Enqueue to user-specific queue
-        const threadPayload: MessagePayload = {
-          botId: this.getBotId(),
-          userId: context.userId,
-          conversationId,
-          teamId: context.teamId,
-          agentId,
-          platform: "slack",
-          channelId: context.channelId,
-          messageId: context.messageTs,
-          messageText: processedRequest,
-          platformMetadata: {
-            teamId: context.teamId,
-            userDisplayName: context.userDisplayName,
-            responseChannel: context.channelId,
-            responseId: context.messageTs,
-            originalMessageId: context.messageTs,
-            botResponseId: threadSession.botResponseId,
-            files: files || [],
-          },
-          agentOptions: remainingOptions,
-          // Set top-level configs for orchestration
-          networkConfig,
-          nixConfig,
-          mcpConfig: mcpServers ? { mcpServers } : undefined,
-        };
-
-        const jobId = await this.queueProducer.enqueueMessage(threadPayload);
-
-        // Set status indicator
-        await this.setThreadStatus(
-          context.channelId,
-          conversationId,
-          "is scheduling.."
-        );
-
-        logger.info(
-          `Enqueued thread message job ${jobId} for conversation ${conversationId}`
-        );
       }
+
+      const payload = buildMessagePayload({
+        platform: "slack",
+        userId: context.userId,
+        botId: this.getBotId(),
+        conversationId,
+        teamId: context.teamId,
+        agentId,
+        messageId: context.messageTs,
+        messageText: processedRequest,
+        channelId: context.channelId,
+        platformMetadata: {
+          teamId: context.teamId,
+          userDisplayName: context.userDisplayName,
+          responseChannel: context.channelId,
+          responseId: context.messageTs,
+          originalMessageId: context.messageTs,
+          botResponseId: threadSession.botResponseId,
+          files: files || [],
+        },
+        agentOptions,
+      });
+
+      const jobId = await this.queueProducer.enqueueMessage(payload);
+
+      // Set status indicator
+      await this.setThreadStatus(
+        context.channelId,
+        conversationId,
+        "is scheduling.."
+      );
+
+      logger.info(
+        `Enqueued ${isNewConversation ? "direct message" : "thread message"} job ${jobId} for ${isNewConversation ? `session ${sessionKey}` : `conversation ${conversationId}`}`
+      );
     } catch (error) {
       logger.error(
         `Failed to handle request for session ${sessionKey}:`,

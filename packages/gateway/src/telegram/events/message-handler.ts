@@ -20,12 +20,14 @@ import type { UserAgentsStore } from "../../auth/user-agents-store";
 import type { ChannelBindingService } from "../../channels";
 import type { CommandDispatcher } from "../../commands/command-dispatcher";
 import { createTelegramReply } from "../../commands/command-reply-adapters";
-import type {
-  MessagePayload,
-  QueueProducer,
-} from "../../infrastructure/queue/queue-producer";
+import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
+import {
+  buildMessagePayload,
+  MessageDeduplicator,
+  resolveAgentId,
+  resolveAgentOptions,
+} from "../../services/platform-helpers";
 import type { ISessionManager } from "../../session";
-import { resolveSpace } from "../../spaces";
 import type { TelegramConfig } from "../config";
 import { isGroupChat, type TelegramContext } from "../types";
 
@@ -50,7 +52,7 @@ interface ConversationHistory {
  * Telegram message handler.
  */
 export class TelegramMessageHandler {
-  private seen = new Set<number>();
+  private dedup = new MessageDeduplicator<number>();
   private conversationHistory = new Map<string, ConversationHistory>();
   private isRunning = false;
   private historyCleanupTimer?: NodeJS.Timeout;
@@ -97,54 +99,14 @@ export class TelegramMessageHandler {
   /**
    * Get agent options with settings applied.
    */
-  private async getAgentOptionsWithSettings(
+  private getAgentOptionsWithSettings(
     agentId: string
   ): Promise<Record<string, any>> {
-    const baseOptions = { ...this.agentOptions };
-
-    if (!this.agentSettingsStore) {
-      return baseOptions;
-    }
-
-    const settings = await this.agentSettingsStore.getSettings(agentId);
-    if (!settings) {
-      return baseOptions;
-    }
-
-    logger.info({ agentId, model: settings.model }, "Applying agent settings");
-
-    const mergedOptions: Record<string, any> = { ...baseOptions };
-
-    if (settings.model) {
-      mergedOptions.model = settings.model;
-    } else if ((settings.installedProviders?.length ?? 0) > 0) {
-      // Agent has providers installed but no explicit model - clear the
-      // global default so auto-mode picks the primary installed provider.
-      delete mergedOptions.model;
-    }
-    if (settings.networkConfig) {
-      mergedOptions.networkConfig = settings.networkConfig;
-    }
-    if (settings.nixConfig) {
-      mergedOptions.nixConfig = settings.nixConfig;
-    }
-    if (settings.envVars) {
-      mergedOptions.envVars = settings.envVars;
-    }
-    if (settings.toolsConfig) {
-      mergedOptions.toolsConfig = settings.toolsConfig;
-    }
-    if (settings.mcpServers) {
-      mergedOptions.mcpServers = settings.mcpServers;
-    }
-    if (settings.pluginsConfig) {
-      mergedOptions.pluginsConfig = settings.pluginsConfig;
-    }
-    if (settings.verboseLogging !== undefined) {
-      mergedOptions.verboseLogging = settings.verboseLogging;
-    }
-
-    return mergedOptions;
+    return resolveAgentOptions(
+      agentId,
+      { ...this.agentOptions },
+      this.agentSettingsStore
+    );
   }
 
   /**
@@ -202,19 +164,9 @@ export class TelegramMessageHandler {
     const messageId = msg.message_id;
 
     // Dedupe
-    if (this.seen.has(messageId)) {
+    if (this.dedup.isDuplicate(messageId)) {
       logger.debug({ messageId }, "Skipping duplicate message");
       return;
-    }
-    this.seen.add(messageId);
-
-    // Trim seen set to prevent memory growth
-    if (this.seen.size > 10000) {
-      const iterator = this.seen.values();
-      for (let i = 0; i < 5000; i++) {
-        const val = iterator.next().value;
-        if (val !== undefined) this.seen.delete(val);
-      }
     }
 
     const chatId = msg.chat.id;
@@ -395,39 +347,16 @@ export class TelegramMessageHandler {
     );
 
     // Resolve agent ID
-    let agentId: string;
-    if (this.channelBindingService) {
-      const binding = await this.channelBindingService.getBinding(
-        "telegram",
-        chatId
-      );
-      if (binding) {
-        agentId = binding.agentId;
-        logger.info({ agentId, chatId }, "Using bound agentId");
-      } else {
-        // No binding - send configuration prompt
-        const sent = await this.sendConfigurationPrompt(context);
-        if (sent) return;
-
-        // Fallback if config prompt fails
-        const space = resolveSpace({
-          platform: "telegram",
-          userId,
-          channelId: chatId,
-          isGroup: context.isGroup,
-        });
-        agentId = space.agentId;
-        logger.info({ agentId }, "Fallback resolved agentId");
-      }
-    } else {
-      const space = resolveSpace({
-        platform: "telegram",
-        userId,
-        channelId: chatId,
-        isGroup: context.isGroup,
-      });
-      agentId = space.agentId;
-    }
+    const resolved = await resolveAgentId({
+      platform: "telegram",
+      userId,
+      channelId: chatId,
+      isGroup: context.isGroup,
+      channelBindingService: this.channelBindingService,
+      sendConfigPrompt: () => this.sendConfigurationPrompt(context),
+    });
+    if (resolved.promptSent) return;
+    const agentId = resolved.agentId;
 
     // Clean up body - remove bot mention
     let cleanBody = body;
@@ -437,10 +366,8 @@ export class TelegramMessageHandler {
 
     // Fetch agent settings and merge
     const agentOptions = await this.getAgentOptionsWithSettings(agentId);
-    const { networkConfig, nixConfig, mcpServers, ...remainingOptions } =
-      agentOptions;
 
-    const payload: MessagePayload = {
+    const payload = buildMessagePayload({
       platform: "telegram",
       userId,
       botId: "telegram",
@@ -466,11 +393,8 @@ export class TelegramMessageHandler {
         conversationHistory:
           conversationHistory.length > 0 ? conversationHistory : undefined,
       },
-      agentOptions: remainingOptions,
-      networkConfig,
-      nixConfig,
-      mcpConfig: mcpServers ? { mcpServers } : undefined,
-    };
+      agentOptions,
+    });
 
     await this.queueProducer.enqueueMessage(payload);
     logger.info(

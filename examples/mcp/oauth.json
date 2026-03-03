@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "owletto": {
+      "url": "https://owletto.com/mcp",
+      "type": "sse"
+    }
+  }
+}

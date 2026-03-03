@@ -1,0 +1,56 @@
+{
+  "skills": [
+    {
+      "id": "google-workspace",
+      "name": "Google Workspace",
+      "description": "Gmail, Calendar, Drive integration",
+      "integrations": [
+        {
+          "id": "google",
+          "label": "Google",
+          "authType": "oauth",
+          "oauth": {
+            "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+            "tokenUrl": "https://oauth2.googleapis.com/token",
+            "clientId": "${env:GOOGLE_CLIENT_ID}",
+            "clientSecret": "${env:GOOGLE_CLIENT_SECRET}",
+            "incrementalAuth": true
+          },
+          "scopesConfig": {
+            "default": ["openid", "profile", "email"],
+            "available": [
+              "https://www.googleapis.com/auth/gmail.readonly",
+              "https://www.googleapis.com/auth/gmail.send",
+              "https://www.googleapis.com/auth/calendar.readonly",
+              "https://www.googleapis.com/auth/calendar.events",
+              "https://www.googleapis.com/auth/drive.readonly"
+            ]
+          },
+          "apiDomains": [
+            "gmail.googleapis.com",
+            "www.googleapis.com",
+            "calendar.googleapis.com"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "description": "Fast LLM inference via Groq",
+      "providers": [
+        {
+          "displayName": "Groq",
+          "iconUrl": "https://www.google.com/s2/favicons?domain=groq.com&sz=128",
+          "envVarName": "GROQ_API_KEY",
+          "upstreamBaseUrl": "https://api.groq.com/openai",
+          "apiKeyInstructions": "Get your API key from <a href=\"https://console.groq.com/keys\" target=\"_blank\" class=\"text-blue-600 hover:underline\">Groq Console</a>",
+          "apiKeyPlaceholder": "gsk_...",
+          "sdkCompat": "openai",
+          "defaultModel": "llama-3.3-70b-versatile",
+          "modelsEndpoint": "/v1/models"
+        }
+      ]
+    }
+  ]
+}

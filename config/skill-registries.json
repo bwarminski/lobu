@@ -1,0 +1,9 @@
+{
+  "registries": [
+    {
+      "id": "clawhub",
+      "type": "clawhub",
+      "apiUrl": "https://wry-manatee-359.convex.site/api/v1"
+    }
+  ]
+}

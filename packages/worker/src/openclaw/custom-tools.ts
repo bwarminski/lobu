@@ -5,14 +5,17 @@ import { type TSchema, Type } from "@sinclair/typebox";
 import type { GatewayParams, TextResult } from "../shared/tool-implementations";
 import {
   askUserQuestion,
+  callService,
   cancelReminder,
+  connectService,
+  disconnectService,
   generateAudio,
   getChannelHistory,
   getSettingsLink,
-  installExtension,
+  installSkill,
   listReminders,
   scheduleReminder,
-  searchExtensions,
+  searchSkills,
   uploadUserFile,
 } from "../shared/tool-implementations";
 
@@ -130,66 +133,45 @@ export function createOpenClawCustomTools(params: {
     }),
 
     defineTool({
-      name: "SearchExtensions",
+      name: "SearchSkills",
       description:
-        "Search for installable extensions (skills, MCP servers, or both). Returns candidates from ClawHub (skills) and MCP registry. Use this to help users find and discover new capabilities.",
+        "Search for installable skills and MCP servers, or list installed capabilities. Pass a query to search registries. Pass an empty query to list all installed skills, integrations, and MCP servers.",
       parameters: Type.Object({
         query: Type.String({
           description:
-            "What to search for (e.g., 'gmail', 'pdf', 'github', 'browser')",
+            "What to search for (e.g., 'pdf', 'gmail', 'code review'). Empty string lists installed capabilities.",
         }),
-        type: Type.Optional(
-          Type.Union([Type.Literal("skill"), Type.Literal("mcp")], {
-            description:
-              'Filter by type: "skill" for ClawHub skills only, "mcp" for MCP servers only. Omit to search both.',
-          })
-        ),
         limit: Type.Optional(
           Type.Number({
             description: "Maximum results to return (default 5, max 10)",
           })
         ),
       }),
-      run: (args) => searchExtensions(gw, args),
+      run: (args) => searchSkills(gw, args),
     }),
 
     defineTool({
-      name: "InstallExtension",
+      name: "InstallSkill",
       description:
-        "Generate a settings link that pre-fills one selected extension (skill or MCP server) for explicit user confirmation. Supports bundling extra env vars or nix packages into the same link.",
+        "Install or upgrade a skill/MCP server. Resolves the full manifest and sends a settings link for the user to confirm. Dependencies (nix packages, network permissions, MCP servers) are pre-filled. Use upgrade=true for already-installed skills to re-fetch the latest version.",
       parameters: Type.Object({
         id: Type.String({
-          description:
-            "Extension ID from SearchExtensions results (skill slug or MCP ID)",
+          description: "Skill or MCP server ID from SearchSkills results",
         }),
-        type: Type.Union([Type.Literal("skill"), Type.Literal("mcp")], {
-          description: 'Extension type: "skill" or "mcp"',
-        }),
-        reason: Type.Optional(
-          Type.String({
-            description: "Optional user-facing reason for this installation",
-          })
-        ),
-        envVars: Type.Optional(
-          Type.Array(Type.String(), {
+        upgrade: Type.Optional(
+          Type.Boolean({
             description:
-              "Optional environment variable names to bundle into the install link",
-          })
-        ),
-        nixPackages: Type.Optional(
-          Type.Array(Type.String(), {
-            description:
-              "Optional nix packages to bundle into the install link",
+              "Set to true to upgrade an already-installed skill to the latest version from its registry",
           })
         ),
       }),
-      run: (args) => installExtension(gw, args),
+      run: (args) => installSkill(gw, args),
     }),
 
     defineTool({
       name: "GetSettingsLink",
       description:
-        "Generate a settings link for the user to configure their agent. Use when the user needs to add API keys, enable skills, configure MCP servers, or change other settings.",
+        "Generate a settings link for the user to configure their agent. Use when the user needs to add API keys, enable skills, configure MCP servers, approve network domains, or change other settings. Also use when a network request fails with 'Domain not allowed' — pass the blocked domain in prefillGrants.",
       parameters: Type.Object({
         reason: Type.String({
           description:
@@ -199,12 +181,6 @@ export function createOpenClawCustomTools(params: {
           Type.String({
             description:
               "Optional message to display on the settings page with instructions",
-          })
-        ),
-        prefillEnvVars: Type.Optional(
-          Type.Array(Type.String(), {
-            description:
-              "Optional list of environment variable names to pre-fill in the settings form",
           })
         ),
         prefillSkills: Type.Optional(
@@ -254,11 +230,6 @@ export function createOpenClawCustomTools(params: {
                   description: "Arguments for stdio-type MCPs",
                 })
               ),
-              envVars: Type.Optional(
-                Type.Array(Type.String(), {
-                  description: "Required environment variable names",
-                })
-              ),
             }),
             { description: "Optional list of MCP servers to pre-fill" }
           )
@@ -266,25 +237,15 @@ export function createOpenClawCustomTools(params: {
         prefillGrants: Type.Optional(
           Type.Array(Type.String(), {
             description:
-              "Optional list of domain patterns to pre-fill as grants",
+              "Optional list of domain patterns to pre-fill as grants (e.g., 'api.example.com')",
           })
         ),
-      }),
-      run: (args) => getSettingsLink(gw, args),
-    }),
-
-    defineTool({
-      name: "GetSettingsLinkForDomain",
-      description:
-        "Shortcut to generate a settings link with domains pre-filled as grants. Use when a network request fails with 'Domain not allowed' to help the user approve the blocked domain.",
-      parameters: Type.Object({
-        reason: Type.String({
-          description:
-            "Brief explanation of why this domain is needed (e.g., 'access api.example.com to fetch data')",
-        }),
-        prefillGrants: Type.Array(Type.String(), {
-          description: "Domain patterns to pre-fill as grants",
-        }),
+        prefillNixPackages: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Optional list of nix packages to pre-fill (e.g., 'ffmpeg', 'imagemagick')",
+          })
+        ),
       }),
       run: (args) => getSettingsLink(gw, args),
     }),
@@ -345,6 +306,89 @@ export function createOpenClawCustomTools(params: {
         }),
       }),
       run: (args) => askUserQuestion(gw, args),
+    }),
+
+    defineTool({
+      name: "ConnectService",
+      description:
+        "Authenticate with a third-party service (OAuth integration or MCP server). Sends a login button to the user. Session ends after posting — user authenticates and your next message arrives after they return.",
+      parameters: Type.Object({
+        id: Type.String({
+          description:
+            "Service ID — integration ID (e.g., 'google') or MCP server ID (e.g., 'owletto')",
+        }),
+        scopes: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Specific OAuth scopes to request. If omitted, uses defaults from the integration config and installed skills.",
+          })
+        ),
+        reason: Type.Optional(
+          Type.String({
+            description:
+              "Brief reason for the connection request, shown to the user.",
+          })
+        ),
+        account: Type.Optional(
+          Type.String({
+            description:
+              "Label for the account, e.g. 'work' or 'personal'. Omit for default account.",
+          })
+        ),
+      }),
+      run: (args) => connectService(gw, args),
+    }),
+
+    defineTool({
+      name: "CallService",
+      description:
+        "Make an authenticated API call through a connected service. The gateway injects the OAuth token — you never see credentials. Supports any REST API within the service's allowed domains.",
+      parameters: Type.Object({
+        integration: Type.String({
+          description: "Service/integration ID (e.g., 'google')",
+        }),
+        method: Type.String({
+          description: "HTTP method (GET, POST, PUT, DELETE, PATCH)",
+        }),
+        url: Type.String({
+          description:
+            "Full URL to call (must be within the service's allowed domains)",
+        }),
+        headers: Type.Optional(
+          Type.Record(Type.String(), Type.String(), {
+            description:
+              "Additional HTTP headers (Authorization is injected automatically)",
+          })
+        ),
+        body: Type.Optional(
+          Type.String({
+            description: "Request body (for POST/PUT/PATCH)",
+          })
+        ),
+        account: Type.Optional(
+          Type.String({
+            description: "Which account to use. Omit for default.",
+          })
+        ),
+      }),
+      run: (args) => callService(gw, args),
+    }),
+
+    defineTool({
+      name: "DisconnectService",
+      description:
+        "Disconnect from a third-party service. Removes stored credentials.",
+      parameters: Type.Object({
+        integration: Type.String({
+          description: "Service/integration ID to disconnect (e.g., 'google')",
+        }),
+        account: Type.Optional(
+          Type.String({
+            description: "Which account to disconnect. Omit for default.",
+          })
+        ),
+      }),
+      run: (args) => disconnectService(gw, args),
     }),
   ];
 

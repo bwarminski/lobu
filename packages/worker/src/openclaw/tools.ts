@@ -181,7 +181,7 @@ function wrapBashWithProxyHint(tool: AgentTool<any>): AgentTool<any> {
         const msg = err?.message ?? String(err);
         if (PROXY_403_PATTERN.test(msg)) {
           throw new Error(
-            `DOMAIN BLOCKED BY PROXY. You MUST call the GetSettingsLinkForDomain tool now to request access for this domain. Do NOT retry curl — the domain is blocked at the network level.\n\n${msg}`
+            `DOMAIN BLOCKED BY PROXY. You MUST call the GetSettingsLink tool with prefillGrants to request access for this domain. Do NOT retry curl — the domain is blocked at the network level.\n\n${msg}`
           );
         }
         throw err;

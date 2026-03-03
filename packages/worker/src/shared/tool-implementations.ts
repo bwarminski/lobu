@@ -3,7 +3,6 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "@lobu/core";
 import FormData from "form-data";
-import { createMcpDiscoveryClient } from "../common/mcp-discovery-client";
 
 const logger = createLogger("shared-tools");
 
@@ -395,203 +394,351 @@ export async function listReminders(gw: GatewayParams): Promise<TextResult> {
 }
 
 // ============================================================================
-// SearchExtensions (unified search for skills + MCP servers)
+// SearchSkills (unified search for skills + MCP servers)
 // ============================================================================
 
-interface ExtensionResult {
+interface SkillIntegrationRef {
+  id: string;
+  label?: string;
+  authType?: string;
+  scopes?: string[];
+  apiDomains?: string[];
+}
+
+interface SkillMcpServerRef {
+  id: string;
+  name?: string;
+  url?: string;
+  type?: string;
+  command?: string;
+  args?: string[];
+}
+
+interface SkillSearchResult {
   id: string;
   name: string;
   description: string;
-  type: "skill" | "mcp";
+  source: string;
+  integrations?: SkillIntegrationRef[];
+  mcpServers?: SkillMcpServerRef[];
+  nixPackages?: string[];
+  permissions?: string[];
+  providers?: string[];
+}
+
+interface McpSearchResult {
+  id: string;
+  name: string;
+  description: string;
   source: string;
 }
 
-async function searchSkillsFromGateway(
-  gw: GatewayParams,
-  query: string,
-  limit: number
-): Promise<ExtensionResult[]> {
-  try {
-    const response = await fetch(
-      `${gw.gatewayUrl}/internal/integrations/search?q=${encodeURIComponent(query)}&limit=${limit}`,
-      { headers: { Authorization: `Bearer ${gw.workerToken}` } }
-    );
-    if (!response.ok) return [];
-    const data = (await response.json()) as {
-      skills: Array<{ id: string; name: string; source: string }>;
-    };
-    return (data.skills || []).map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: "",
-      type: "skill" as const,
-      source: s.source || "clawhub",
-    }));
-  } catch (error) {
-    logger.error("Failed to search skills from gateway:", error);
-    return [];
-  }
+function formatSkillSearchResults(results: SkillSearchResult[]): string {
+  return results
+    .map((item, index) => {
+      const lines = [
+        `${index + 1}. ${item.name} (${item.id})`,
+        `   ${item.description || "No description"}`,
+      ];
+      const deps: string[] = [];
+      if (item.nixPackages?.length)
+        deps.push(`packages: ${item.nixPackages.join(", ")}`);
+      if (item.permissions?.length)
+        deps.push(`domains: ${item.permissions.join(", ")}`);
+      if (item.integrations?.length)
+        deps.push(
+          `integrations: ${item.integrations.map((i) => i.label || i.id).join(", ")}`
+        );
+      if (item.mcpServers?.length)
+        deps.push(
+          `mcpServers: ${item.mcpServers.map((m) => m.name || m.id).join(", ")}`
+        );
+      if (item.providers?.length)
+        deps.push(`providers: ${item.providers.join(", ")}`);
+      if (deps.length) lines.push(`   requires: ${deps.join(" | ")}`);
+      return lines.join("\n");
+    })
+    .join("\n\n");
 }
 
-async function searchMcpsFromGateway(
-  gw: GatewayParams,
-  query: string,
-  limit: number
-): Promise<ExtensionResult[]> {
-  try {
-    const mcpClient = createMcpDiscoveryClient(gw.gatewayUrl, gw.workerToken);
-    const results = await mcpClient.search(query, limit);
-    return results.map((r) => ({
-      id: r.id,
-      name: r.name,
-      description: r.description || "",
-      type: "mcp" as const,
-      source: r.source || "mcp-registry",
-    }));
-  } catch (error) {
-    logger.error("Failed to search MCPs:", error);
-    return [];
-  }
-}
-
-function formatExtensionResults(results: ExtensionResult[]): string {
+function formatMcpSearchResults(
+  results: McpSearchResult[],
+  startIndex: number
+): string {
   return results
     .map(
       (item, index) =>
-        `${index + 1}. [${item.type.toUpperCase()}] ${item.name} (${item.id})\n   ${item.description || "No description"}\n   source: ${item.source}`
+        `${startIndex + index + 1}. ${item.name} (${item.id})\n   ${item.description || "No description"}`
     )
     .join("\n\n");
 }
 
-export async function searchExtensions(
+export async function searchSkills(
   gw: GatewayParams,
-  args: { query: string; type?: "skill" | "mcp"; limit?: number }
+  args: { query: string; limit?: number }
 ): Promise<TextResult> {
-  return withErrorHandling("SearchExtensions", async () => {
+  return withErrorHandling("SearchSkills", async () => {
+    const query = (args.query || "").trim();
     const limit = Math.min(args.limit || 5, 10);
-    const searchType = args.type;
 
-    let results: ExtensionResult[];
-
-    if (searchType === "skill") {
-      results = await searchSkillsFromGateway(gw, args.query, limit);
-    } else if (searchType === "mcp") {
-      results = await searchMcpsFromGateway(gw, args.query, limit);
-    } else {
-      const [skills, mcps] = await Promise.all([
-        searchSkillsFromGateway(gw, args.query, limit),
-        searchMcpsFromGateway(gw, args.query, limit),
-      ]);
-      results = [...skills, ...mcps].slice(0, limit);
+    // Empty query → list installed capabilities
+    if (!query) {
+      return listInstalledCapabilities(gw);
     }
 
-    if (!results.length) {
+    let skills: SkillSearchResult[] = [];
+    let mcps: McpSearchResult[] = [];
+
+    try {
+      const response = await fetch(
+        `${gw.gatewayUrl}/internal/integrations/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+        { headers: { Authorization: `Bearer ${gw.workerToken}` } }
+      );
+      if (response.ok) {
+        const data = (await response.json()) as {
+          skills: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            source: string;
+            integrations?: SkillIntegrationRef[];
+            mcpServers?: SkillMcpServerRef[];
+            nixPackages?: string[];
+            permissions?: string[];
+            providers?: string[];
+          }>;
+          mcps: Array<{
+            id: string;
+            name: string;
+            description: string;
+            source: string;
+          }>;
+        };
+        skills = (data.skills || []).map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description || "",
+          source: s.source || "clawhub",
+          integrations: s.integrations,
+          mcpServers: s.mcpServers,
+          nixPackages: s.nixPackages,
+          permissions: s.permissions,
+          providers: s.providers,
+        }));
+        mcps = (data.mcps || []).map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description || "",
+          source: m.source || "mcp-registry",
+        }));
+      }
+    } catch (error) {
+      logger.error("Failed to search integrations from gateway:", error);
+    }
+
+    if (!skills.length && !mcps.length) {
       return textResult(
-        `No extensions found for "${args.query}". Try a broader query.`
+        `No results found for "${query}". Try a broader query.`
+      );
+    }
+
+    const sections: string[] = [];
+    if (skills.length) {
+      sections.push(
+        `Skills (${skills.length}):\n\n${formatSkillSearchResults(skills)}`
+      );
+    }
+    if (mcps.length) {
+      sections.push(
+        `MCP Servers (${mcps.length}):\n\n${formatMcpSearchResults(mcps, skills.length)}`
       );
     }
 
     return textResult(
-      `Found ${results.length} extension(s):\n\n${formatExtensionResults(results)}\n\n` +
-        `Ask the user which one they want, then call InstallExtension with the selected id and type.`
+      `${sections.join("\n\n")}\n\n` +
+        `Use InstallSkill with the selected id to generate an install link for the user.`
     );
   });
 }
 
-// ============================================================================
-// InstallExtension (unified install for skills + MCP servers)
-// ============================================================================
-
-export async function installExtension(
-  gw: GatewayParams,
-  args: {
-    id: string;
-    type: "skill" | "mcp";
-    reason?: string;
-    envVars?: string[];
-    nixPackages?: string[];
-  }
+/**
+ * List installed capabilities (skills, integrations, MCP servers) for the current agent.
+ */
+async function listInstalledCapabilities(
+  gw: GatewayParams
 ): Promise<TextResult> {
-  return withErrorHandling("InstallExtension", async () => {
-    if (args.type === "mcp") {
-      const mcpClient = createMcpDiscoveryClient(gw.gatewayUrl, gw.workerToken);
-      const mcp = await mcpClient.getById(args.id);
-      const reason =
-        args.reason ||
-        `Install MCP server "${mcp.name}" so it can be used in this agent`;
+  interface InstalledSkill {
+    id: string;
+    name: string;
+    enabled: boolean;
+    integrations?: SkillIntegrationRef[];
+  }
+  interface InstalledIntegration {
+    id: string;
+    label: string;
+    authType: string;
+    connected: boolean;
+    accounts: Array<{ accountId: string; grantedScopes: string[] }>;
+  }
+  interface InstalledMcp {
+    id: string;
+    enabled: boolean;
+    type?: string;
+  }
 
-      const body: Record<string, unknown> = {
-        reason,
-        label: `Install ${mcp.name}`,
-        prefillMcpServers: [mcp.prefillMcpServer],
-      };
-      if (args.envVars?.length) body.prefillEnvVars = args.envVars;
-      if (args.nixPackages?.length) body.prefillNixPackages = args.nixPackages;
+  const { data, error } = await gatewayFetch<{
+    skills: InstalledSkill[];
+    integrations: InstalledIntegration[];
+    mcpServers: InstalledMcp[];
+  }>(
+    gw,
+    "/internal/integrations/installed",
+    {},
+    "Failed to list installed capabilities"
+  );
+  if (error) return error;
 
-      interface SettingsLinkResult {
-        url?: string;
-        expiresAt?: string;
+  const { skills, integrations, mcpServers } = data!;
+
+  if (!skills.length && !integrations.length && !mcpServers.length) {
+    return textResult(
+      "No capabilities installed yet. Use SearchSkills with a query to find skills and MCP servers to install."
+    );
+  }
+
+  const sections: string[] = [];
+
+  if (skills.length) {
+    const formatted = skills
+      .map((s, i) => {
+        const status = s.enabled ? "enabled" : "disabled";
+        const integrationsInfo = s.integrations?.length
+          ? ` [integrations: ${s.integrations.map((ig) => ig.label || ig.id).join(", ")}]`
+          : "";
+        return `${i + 1}. ${s.name} (${s.id}) — ${status}${integrationsInfo}`;
+      })
+      .join("\n");
+    sections.push(`Skills (${skills.length}):\n${formatted}`);
+  }
+
+  if (integrations.length) {
+    const formatted = integrations
+      .map((ig, i) => {
+        const status = ig.connected
+          ? `${ig.accounts.length} account(s) connected`
+          : "not connected";
+        return `${i + 1}. [${ig.authType}] ${ig.label} (${ig.id}) — ${status}`;
+      })
+      .join("\n");
+    sections.push(`Integrations (${integrations.length}):\n${formatted}`);
+  }
+
+  if (mcpServers.length) {
+    const formatted = mcpServers
+      .map((m, i) => {
+        const status = m.enabled ? "enabled" : "disabled";
+        return `${i + 1}. ${m.id} [${m.type || "unknown"}] — ${status}`;
+      })
+      .join("\n");
+    sections.push(`MCP Servers (${mcpServers.length}):\n${formatted}`);
+  }
+
+  return textResult(sections.join("\n\n"));
+}
+
+// ============================================================================
+// InstallSkill (resolve manifest, generate settings link for user confirmation)
+// ============================================================================
+
+export async function installSkill(
+  gw: GatewayParams,
+  args: { id: string; upgrade?: boolean }
+): Promise<TextResult> {
+  return withErrorHandling("InstallSkill", async () => {
+    const action = args.upgrade ? "Upgrade" : "Install";
+
+    // Resolve the ID — could be a skill or an MCP server
+    interface ResolveResult {
+      type: "skill" | "mcp";
+      id: string;
+      name: string;
+      description: string;
+      // Skill-specific
+      integrations?: SkillIntegrationRef[];
+      mcpServers?: SkillMcpServerRef[];
+      nixPackages?: string[];
+      permissions?: string[];
+      providers?: string[];
+      // MCP-specific
+      prefillMcpServer?: {
+        id: string;
+        name: string;
+        url: string;
         type?: string;
-        message?: string;
-      }
-
-      const { data, error } = await gatewayFetch<SettingsLinkResult>(
-        gw,
-        "/internal/settings-link",
-        { method: "POST", body: JSON.stringify(body) },
-        "Failed to generate install link"
-      );
-      if (error) return error;
-
-      if (data?.type === "settings_link") {
-        return textResult(
-          `An install button for "${mcp.name}" has been sent to the user. Do not include any URL. Ask them to tap the button to complete installation.`
-        );
-      }
-
-      return textResult(
-        `Install link generated for MCP server "${mcp.name}" (${mcp.id}).\n\n` +
-          `URL: ${data?.url}\n\n` +
-          `Ask the user to open the link and confirm installation.`
-      );
+      };
     }
 
-    // type === "skill"
-    const reason = args.reason || `Install skill "${args.id}" for this agent`;
-
-    const body: Record<string, unknown> = {
-      reason,
-      label: "Install Skill",
-      prefillSkills: [{ repo: args.id }],
-    };
-    if (args.envVars?.length) body.prefillEnvVars = args.envVars;
-    if (args.nixPackages?.length) body.prefillNixPackages = args.nixPackages;
-
-    interface SettingsLinkResult {
-      url?: string;
-      expiresAt?: string;
-      type?: string;
-      message?: string;
-    }
-
-    const { data, error } = await gatewayFetch<SettingsLinkResult>(
+    const { data, error } = await gatewayFetch<ResolveResult>(
       gw,
-      "/internal/settings-link",
-      { method: "POST", body: JSON.stringify(body) },
-      "Failed to generate install link"
+      `/internal/integrations/resolve/${encodeURIComponent(args.id)}`,
+      {},
+      "Failed to resolve integration"
     );
     if (error) return error;
+    const manifest = data!;
 
-    if (data?.type === "settings_link") {
-      return textResult(
-        `An install button for skill "${args.id}" has been sent to the user. Do not include any URL. Ask them to tap the button to complete installation.`
-      );
+    const typeLabel = manifest.type === "skill" ? "skill" : "MCP server";
+
+    // Build settings link prefill from manifest
+    const prefill: Record<string, unknown> = {
+      reason: `${action} ${typeLabel} "${manifest.name}"`,
+    };
+
+    if (manifest.type === "skill") {
+      prefill.prefillSkills = [
+        {
+          repo: manifest.id,
+          name: manifest.name,
+          description: manifest.description,
+        },
+      ];
+
+      // Collect grants from permissions + integration apiDomains
+      const grants: string[] = [...(manifest.permissions || [])];
+      if (manifest.integrations) {
+        for (const ig of manifest.integrations) {
+          if (ig.apiDomains) {
+            grants.push(...ig.apiDomains);
+          }
+        }
+      }
+      if (grants.length) {
+        prefill.prefillGrants = [...new Set(grants)];
+      }
+
+      if (manifest.nixPackages?.length) {
+        prefill.prefillNixPackages = manifest.nixPackages;
+      }
+
+      // Pre-fill MCP servers from skill manifest
+      if (manifest.mcpServers?.length) {
+        prefill.prefillMcpServers = manifest.mcpServers.map((m) => ({
+          id: m.id,
+          name: m.name,
+          url: m.url,
+          type: m.type,
+          command: m.command,
+          args: m.args,
+        }));
+      }
+    } else if (manifest.type === "mcp" && manifest.prefillMcpServer) {
+      prefill.prefillMcpServers = [manifest.prefillMcpServer];
     }
 
-    return textResult(
-      `Install link generated for skill "${args.id}".\n\n` +
-        `URL: ${data?.url}\n\n` +
-        `Ask the user to open the link and confirm installation.`
+    // Generate settings link for user confirmation
+    return getSettingsLink(
+      gw,
+      prefill as Parameters<typeof getSettingsLink>[1]
     );
   });
 }
@@ -605,7 +752,6 @@ export async function getSettingsLink(
   args: {
     reason: string;
     message?: string;
-    prefillEnvVars?: string[];
     prefillSkills?: Array<{
       repo: string;
       name?: string;
@@ -620,7 +766,6 @@ export async function getSettingsLink(
       type?: "sse" | "stdio";
       command?: string;
       args?: string[];
-      envVars?: string[];
     }>;
   }
 ): Promise<TextResult> {
@@ -642,7 +787,6 @@ export async function getSettingsLink(
         body: JSON.stringify({
           reason: args.reason,
           message: args.message,
-          prefillEnvVars: args.prefillEnvVars,
           prefillNixPackages: args.prefillNixPackages,
           prefillGrants: args.prefillGrants,
           prefillSkills: args.prefillSkills,
@@ -809,6 +953,172 @@ export async function generateAudio(
     return textResult(
       `Voice message sent successfully (generated with ${provider}).`
     );
+  });
+}
+
+// ============================================================================
+// ConnectService (unified: tries OAuth integration first, falls back to MCP login)
+// ============================================================================
+
+export async function connectService(
+  gw: GatewayParams,
+  args: { id: string; scopes?: string[]; reason?: string; account?: string }
+): Promise<TextResult> {
+  return withErrorHandling("ConnectService", async () => {
+    logger.info(
+      `ConnectService: ${args.id}, scopes: ${args.scopes?.join(", ") || "default"}, account: ${args.account || "default"}`
+    );
+
+    // Try OAuth integration endpoint first
+    const integrationResponse = await fetch(
+      `${gw.gatewayUrl}/internal/integrations/connect`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${gw.workerToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          integration: args.id,
+          scopes: args.scopes,
+          reason: args.reason,
+          account: args.account,
+        }),
+      }
+    );
+
+    if (integrationResponse.ok) {
+      const result = (await integrationResponse.json()) as {
+        status: string;
+        message: string;
+        grantedScopes?: string[];
+      };
+      if (result.status === "already_connected") {
+        return textResult(result.message);
+      }
+      return textResult(
+        `${result.message} Your session will end now. The user will authenticate and your next message will arrive after they return.`
+      );
+    }
+
+    // If 404, fall back to MCP login
+    if (integrationResponse.status === 404) {
+      const { data, error } = await gatewayFetch<{
+        type?: string;
+        message?: string;
+        url?: string;
+      }>(
+        gw,
+        "/internal/mcp-login",
+        {
+          method: "POST",
+          body: JSON.stringify({ mcpId: args.id }),
+        },
+        "Failed to connect service"
+      );
+      if (error) return error;
+      return textResult(data?.message || "Login link sent to the user.");
+    }
+
+    // Other error
+    const errorData = (await integrationResponse
+      .json()
+      .catch(() => ({ error: integrationResponse.statusText }))) as {
+      error?: string;
+    };
+    return textResult(
+      `Error: ${errorData.error || "Failed to connect service"}`
+    );
+  });
+}
+
+// ============================================================================
+// CallService (authenticated API calls through connected integrations)
+// ============================================================================
+
+export async function callService(
+  gw: GatewayParams,
+  args: {
+    integration: string;
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    body?: string;
+    account?: string;
+  }
+): Promise<TextResult> {
+  return withErrorHandling("CallService", async () => {
+    logger.info(
+      `CallService: ${args.method} ${args.url}, account: ${args.account || "default"}`
+    );
+
+    interface ApiResult {
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    }
+
+    const { data, error } = await gatewayFetch<ApiResult>(
+      gw,
+      `/internal/integrations/${encodeURIComponent(args.integration)}/api`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          method: args.method,
+          url: args.url,
+          headers: args.headers,
+          body: args.body,
+          account: args.account,
+        }),
+      },
+      "Failed to call service API"
+    );
+    if (error) return error;
+    const result = data!;
+
+    if (result.status >= 400) {
+      return textResult(
+        `API returned ${result.status}:\n${result.body}\n\nIf you need additional scopes, use ConnectService to request them.`
+      );
+    }
+
+    return textResult(result.body);
+  });
+}
+
+// ============================================================================
+// DisconnectService (revoke credentials for integration or MCP)
+// ============================================================================
+
+export async function disconnectService(
+  gw: GatewayParams,
+  args: { integration: string; account?: string }
+): Promise<TextResult> {
+  return withErrorHandling("DisconnectService", async () => {
+    logger.info(
+      `DisconnectService: ${args.integration}, account: ${args.account || "default"}`
+    );
+
+    interface DisconnectResult {
+      success: boolean;
+      message: string;
+    }
+
+    const { data, error } = await gatewayFetch<DisconnectResult>(
+      gw,
+      "/internal/integrations/disconnect",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          integration: args.integration,
+          account: args.account,
+        }),
+      },
+      "Failed to disconnect service"
+    );
+    if (error) return error;
+
+    return textResult(data!.message);
   });
 }
 

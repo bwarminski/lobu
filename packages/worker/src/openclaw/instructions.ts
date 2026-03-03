@@ -29,6 +29,6 @@ IMPORTANT: When you need to gather user preferences, choices, or decisions, you 
 
 ## Network Access
 
-Your network access is restricted by a proxy. If a request fails due to a blocked domain (403, connection refused, or "Domain not allowed"), use GetSettingsLinkForDomain to request access. This sends inline approval buttons directly to the user — do NOT use AskUserQuestion for this. After calling it, stop and wait for the user's approval response before continuing.`;
+Your network access is restricted by a proxy. If a request fails due to a blocked domain (403, connection refused, or "Domain not allowed"), use GetSettingsLink with prefillGrants to request access. This sends inline approval buttons directly to the user — do NOT use AskUserQuestion for this. After calling it, stop and wait for the user's approval response before continuing.`;
   }
 }

@@ -39,6 +39,7 @@ import {
   DEFAULT_PROVIDER_BASE_URL_ENV,
   openOrCreateSessionManager,
   PROVIDER_REGISTRY_ALIASES,
+  registerDynamicProvider,
   resolveModelRef,
 } from "./model-resolver";
 import { loadPlugins } from "./plugin-loader";
@@ -342,6 +343,13 @@ export class OpenClawWorker implements WorkerExecutor {
       }
     }
 
+    // Register config-driven providers so resolveModelRef() can handle them
+    if (pc.configProviders) {
+      for (const [id, meta] of Object.entries(pc.configProviders)) {
+        registerDynamicProvider(id, meta);
+      }
+    }
+
     const modelRef =
       typeof rawOptions.model === "string" ? rawOptions.model : "";
 
@@ -390,6 +398,7 @@ export class OpenClawWorker implements WorkerExecutor {
 
     const workspaceDir = this.getWorkingDirectory();
     await fs.mkdir(path.join(workspaceDir, ".openclaw"), { recursive: true });
+
     const sessionFile = path.join(workspaceDir, ".openclaw", "session.jsonl");
     const providerStateFile = path.join(
       workspaceDir,

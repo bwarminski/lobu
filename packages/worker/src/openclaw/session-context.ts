@@ -1,5 +1,6 @@
 import {
   buildMcpToolInstructions,
+  type ConfigProviderMeta,
   createLogger,
   type McpToolDef,
 } from "@lobu/core";
@@ -30,6 +31,22 @@ export interface ProviderConfig {
     sessionArg?: string;
   }>;
   providerBaseUrlMappings?: Record<string, string>;
+  /** Dynamic provider metadata from config-driven providers */
+  configProviders?: Record<string, ConfigProviderMeta>;
+}
+
+interface IntegrationAccountStatus {
+  accountId: string;
+  grantedScopes: string[];
+}
+
+interface IntegrationStatus {
+  id: string;
+  label: string;
+  authType: string;
+  connected: boolean;
+  accounts: IntegrationAccountStatus[];
+  availableScopes: string[];
 }
 
 interface SessionContextResponse {
@@ -39,7 +56,9 @@ interface SessionContextResponse {
   skillsInstructions: string;
   mcpStatus: McpStatus[];
   mcpTools?: Record<string, McpToolDef[]>;
+  mcpInstructions?: Record<string, string>;
   providerConfig?: ProviderConfig;
+  integrationStatus?: IntegrationStatus[];
 }
 
 // Module-level cache for session context
@@ -57,15 +76,20 @@ export function invalidateSessionContextCache(): void {
   logger.info("Session context cache invalidated");
 }
 
-function buildMcpInstructions(mcpStatus: McpStatus[]): string {
+function buildMcpInstructions(
+  mcpStatus: McpStatus[],
+  mcpToolIds: Set<string>
+): string {
   if (!mcpStatus || mcpStatus.length === 0) {
     return "";
   }
 
+  // Only show auth prompt for MCPs that need setup AND don't already have tools fetched
   const unavailableMcps = mcpStatus.filter(
     (mcp) =>
-      (mcp.requiresAuth && !mcp.authenticated) ||
-      (mcp.requiresInput && !mcp.configured)
+      !mcpToolIds.has(mcp.id) &&
+      ((mcp.requiresAuth && !mcp.authenticated) ||
+        (mcp.requiresInput && !mcp.configured))
   );
 
   if (unavailableMcps.length === 0) {
@@ -84,8 +108,67 @@ function buildMcpInstructions(mcpStatus: McpStatus[]): string {
     }
 
     lines.push(
-      `- ⚠️ **${mcp.name}**: Requires ${reasons.join(" and ")} - visit homepage to set up`
+      `- ⚠️ **${mcp.name}** (id: ${mcp.id}): Requires ${reasons.join(" and ")}. Call ConnectService(id="${mcp.id}") to authenticate and see available tools.`
     );
+  }
+
+  return lines.join("\n");
+}
+
+function buildMcpServerInstructions(
+  mcpInstructions: Record<string, string>
+): string {
+  const entries = Object.entries(mcpInstructions).filter(([, v]) => v);
+  if (entries.length === 0) return "";
+
+  const lines: string[] = ["## MCP Server Instructions", ""];
+  for (const [mcpId, instructions] of entries) {
+    lines.push(`### ${mcpId}`, "", instructions, "");
+  }
+  return lines.join("\n");
+}
+
+function buildIntegrationInstructions(
+  integrations: IntegrationStatus[]
+): string {
+  if (!integrations || integrations.length === 0) {
+    return "";
+  }
+
+  const lines: string[] = [
+    "## Integrations\n\nConfigured third-party integrations. Use CallService to make authenticated API calls.",
+  ];
+
+  for (const integration of integrations) {
+    const authTag = `[${integration.authType || "oauth"}]`;
+    if (integration.connected && integration.accounts.length > 0) {
+      if (integration.authType === "api-key") {
+        lines.push(
+          `- ${authTag} **${integration.label}** (\`${integration.id}\`) — connected`
+        );
+      } else {
+        const accountDetails = integration.accounts
+          .map((a) => {
+            const scopes =
+              a.grantedScopes.length > 0
+                ? a.grantedScopes.join(", ")
+                : "default";
+            return `  - **${a.accountId}**: ${scopes}`;
+          })
+          .join("\n");
+        lines.push(
+          `- ${authTag} **${integration.label}** (\`${integration.id}\`) — ${integration.accounts.length} account(s) connected\n${accountDetails}`
+        );
+      }
+    } else {
+      const scopeInfo =
+        integration.availableScopes.length > 0
+          ? ` (available scopes: ${integration.availableScopes.join(", ")})`
+          : "";
+      lines.push(
+        `- ${authTag} **${integration.label}** (\`${integration.id}\`) — not connected${scopeInfo}`
+      );
+    }
   }
 
   return lines.join("\n");
@@ -138,25 +221,48 @@ export async function getOpenClawSessionContext(): Promise<{
       `Received session context: ${data.platformInstructions.length} chars platform instructions, ${data.mcpStatus.length} MCP status entries, provider: ${data.providerConfig?.defaultProvider || "none"}, cliBackends: ${data.providerConfig?.cliBackends?.map((b) => b.name).join(", ") || "none"}`
     );
 
-    const mcpInstructions = buildMcpInstructions(data.mcpStatus);
+    const toolMcpIds = new Set(Object.keys(data.mcpTools || {}));
+    const mcpSetupInstructions = buildMcpInstructions(
+      data.mcpStatus,
+      toolMcpIds
+    );
+    // Server instructions for MCPs that have tools are co-located in mcpToolInstructions.
+    // Build a separate section only for servers with instructions but no tools.
+    const instructionsOnlyMcps: Record<string, string> = {};
+    for (const [id, instr] of Object.entries(data.mcpInstructions || {})) {
+      if (instr && !toolMcpIds.has(id)) {
+        instructionsOnlyMcps[id] = instr;
+      }
+    }
+    const mcpServerInstructions =
+      buildMcpServerInstructions(instructionsOnlyMcps);
     const mcpToolInstructions =
       data.mcpTools && Object.keys(data.mcpTools).length > 0
-        ? buildMcpToolInstructions(data.mcpTools, dispatcherUrl)
+        ? buildMcpToolInstructions(
+            data.mcpTools,
+            dispatcherUrl,
+            data.mcpInstructions
+          )
         : "";
+    const integrationInstructions = buildIntegrationInstructions(
+      data.integrationStatus || []
+    );
 
     const gatewayInstructions = [
       data.agentInstructions,
       data.platformInstructions,
       data.networkInstructions,
       data.skillsInstructions,
-      mcpInstructions,
+      mcpSetupInstructions,
+      mcpServerInstructions,
       mcpToolInstructions,
+      integrationInstructions,
     ]
       .filter(Boolean)
       .join("\n\n");
 
     logger.info(
-      `Built gateway instructions: agent (${(data.agentInstructions || "").length} chars) + platform (${data.platformInstructions.length} chars) + network (${data.networkInstructions.length} chars) + skills (${(data.skillsInstructions || "").length} chars) + MCP (${mcpInstructions.length} chars)`
+      `Built gateway instructions: agent (${(data.agentInstructions || "").length} chars) + platform (${data.platformInstructions.length} chars) + network (${data.networkInstructions.length} chars) + skills (${(data.skillsInstructions || "").length} chars) + MCP setup (${mcpSetupInstructions.length} chars) + MCP server instructions (${mcpServerInstructions.length} chars) + integrations (${integrationInstructions.length} chars)`
     );
 
     const result = {

@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { createLogger } from "@lobu/core";
+import { type ConfigProviderMeta, createLogger } from "@lobu/core";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 
 const logger = createLogger("model-resolver");
@@ -36,6 +36,36 @@ export const DEFAULT_PROVIDER_MODELS: Record<string, string> = {
 export const PROVIDER_REGISTRY_ALIASES: Record<string, string> = {
   "z-ai": "zai",
 };
+
+/**
+ * Register a config-driven provider at runtime.
+ * Extends the base URL env, default model, and registry alias maps
+ * so resolveModelRef() and the worker can handle the provider.
+ */
+export function registerDynamicProvider(
+  id: string,
+  config: ConfigProviderMeta
+): void {
+  if (DEFAULT_PROVIDER_BASE_URL_ENV[id]) return; // already registered
+
+  DEFAULT_PROVIDER_BASE_URL_ENV[id] = config.baseUrlEnvVar;
+
+  if (config.defaultModel) {
+    DEFAULT_PROVIDER_MODELS[id] = config.defaultModel;
+  }
+
+  // Map to model registry name: explicit alias, or "openai" for sdkCompat providers
+  const alias =
+    config.registryAlias ||
+    (config.sdkCompat === "openai" ? "openai" : undefined);
+  if (alias) {
+    PROVIDER_REGISTRY_ALIASES[id] = alias;
+  }
+
+  logger.info(
+    `Registered dynamic provider: ${id} (baseUrlEnv=${config.baseUrlEnvVar}, sdkCompat=${config.sdkCompat || "none"})`
+  );
+}
 
 export function resolveModelRef(rawModelRef: string): {
   provider: string;

@@ -2,12 +2,21 @@
  * Unified Internal Integrations Discovery Routes
  *
  * Single search endpoint for workers to discover both skills and MCP servers.
+ * Resolve endpoint for fetching full manifest of either type by ID.
+ * Installed endpoint for listing agent's active capabilities.
  */
 
-import { createLogger, verifyWorkerToken } from "@lobu/core";
+import {
+  createLogger,
+  type SkillIntegration,
+  verifyWorkerToken,
+} from "@lobu/core";
 import { Hono } from "hono";
+import type { IntegrationConfigService } from "../../auth/integration/config-service";
+import type { IntegrationCredentialStore } from "../../auth/integration/credential-store";
+import type { AgentSettingsStore } from "../../auth/settings/agent-settings-store";
 import { McpDiscoveryService } from "../../services/mcp-discovery";
-import { SkillsFetcherService } from "../../services/skills-fetcher";
+import type { SkillRegistryCoordinator } from "../../services/skill-registry";
 
 const logger = createLogger("internal-integrations-discovery");
 
@@ -21,10 +30,28 @@ type WorkerContext = {
   };
 };
 
+export interface IntegrationsDiscoveryConfig {
+  coordinator: SkillRegistryCoordinator;
+  mcpDiscovery?: McpDiscoveryService;
+  agentSettingsStore?: AgentSettingsStore;
+  integrationConfigService?: IntegrationConfigService;
+  integrationCredentialStore?: IntegrationCredentialStore;
+}
+
 export function createIntegrationsDiscoveryRoutes(
-  skillsFetcher = new SkillsFetcherService(),
-  mcpDiscovery = new McpDiscoveryService()
+  coordinatorOrConfig: SkillRegistryCoordinator | IntegrationsDiscoveryConfig,
+  mcpDiscoveryArg?: McpDiscoveryService
 ): Hono<WorkerContext> {
+  // Support both old signature (coordinator, mcpDiscovery) and new config object
+  const config: IntegrationsDiscoveryConfig =
+    "coordinator" in coordinatorOrConfig
+      ? coordinatorOrConfig
+      : { coordinator: coordinatorOrConfig, mcpDiscovery: mcpDiscoveryArg };
+
+  const coordinator = config.coordinator;
+  const mcpDiscovery =
+    config.mcpDiscovery ?? mcpDiscoveryArg ?? new McpDiscoveryService();
+
   const router = new Hono<WorkerContext>();
 
   const authenticateWorker = async (
@@ -44,6 +71,7 @@ export function createIntegrationsDiscoveryRoutes(
     await next();
   };
 
+  // Unified search: returns both skills and MCPs
   router.get("/internal/integrations/search", authenticateWorker, async (c) => {
     const query = (c.req.query("q") || "").trim();
     if (!query) {
@@ -55,10 +83,39 @@ export function createIntegrationsDiscoveryRoutes(
       ? Math.max(1, Math.min(requestedLimit, 10))
       : 5;
 
-    const [skills, mcps] = await Promise.all([
-      skillsFetcher.searchSkills(query, limit),
+    const [searchResults, mcps] = await Promise.all([
+      coordinator.search(query, limit),
       mcpDiscovery.search(query, limit),
     ]);
+
+    // Fetch full content for each skill in parallel (cached by registry)
+    const skills = await Promise.all(
+      searchResults.map(async (result) => {
+        try {
+          const content = await coordinator.fetch(result.id);
+          return {
+            id: result.id,
+            name: content.name,
+            description: content.description,
+            source: result.source,
+            installs: result.installs,
+            integrations: content.integrations,
+            mcpServers: content.mcpServers,
+            nixPackages: content.nixPackages,
+            permissions: content.permissions,
+            providers: content.providers,
+          };
+        } catch {
+          return {
+            id: result.id,
+            name: result.name,
+            description: result.description,
+            source: result.source,
+            installs: result.installs,
+          };
+        }
+      })
+    );
 
     logger.info("Integrations discovery search", {
       query,
@@ -70,6 +127,48 @@ export function createIntegrationsDiscoveryRoutes(
     return c.json({ skills, mcps, limit });
   });
 
+  // Resolve a skill or MCP by ID — tries skill registries first, then MCP discovery
+  router.get(
+    "/internal/integrations/resolve/:id",
+    authenticateWorker,
+    async (c) => {
+      const id = c.req.param("id");
+
+      // Try skill registries first
+      try {
+        const content = await coordinator.fetch(id);
+        return c.json({
+          type: "skill",
+          id,
+          name: content.name,
+          description: content.description,
+          integrations: content.integrations,
+          mcpServers: content.mcpServers,
+          nixPackages: content.nixPackages,
+          permissions: content.permissions,
+          providers: content.providers,
+        });
+      } catch {
+        // Not a skill, try MCP
+      }
+
+      // Try MCP discovery
+      const mcp = await mcpDiscovery.getById(id);
+      if (mcp) {
+        return c.json({
+          type: "mcp",
+          id: mcp.id,
+          name: mcp.name,
+          description: mcp.description,
+          prefillMcpServer: mcp.prefillMcpServer,
+        });
+      }
+
+      return c.json({ error: `"${id}" not found in any registry` }, 404);
+    }
+  );
+
+  // Get MCP server details by ID
   router.get(
     "/internal/integrations/mcps/:id",
     authenticateWorker,
@@ -80,6 +179,94 @@ export function createIntegrationsDiscoveryRoutes(
         return c.json({ error: "MCP not found" }, 404);
       }
       return c.json({ mcp: result });
+    }
+  );
+
+  // Installed capabilities for an agent (skills, integrations, MCP servers)
+  router.get(
+    "/internal/integrations/installed",
+    authenticateWorker,
+    async (c) => {
+      const worker = c.get("worker");
+      const agentId = worker.agentId || worker.userId;
+
+      const skills: Array<{
+        id: string;
+        name: string;
+        enabled: boolean;
+        integrations?: SkillIntegration[];
+      }> = [];
+      const integrations: Array<{
+        id: string;
+        label: string;
+        authType: string;
+        connected: boolean;
+        accounts: Array<{ accountId: string; grantedScopes: string[] }>;
+      }> = [];
+      const mcpServers: Array<{
+        id: string;
+        enabled: boolean;
+        type?: string;
+      }> = [];
+
+      if (config.agentSettingsStore) {
+        const settings = await config.agentSettingsStore.getSettings(agentId);
+
+        // Installed skills
+        for (const skill of settings?.skillsConfig?.skills || []) {
+          skills.push({
+            id: skill.repo,
+            name: skill.name,
+            enabled: skill.enabled,
+            integrations: skill.integrations,
+          });
+        }
+
+        // Configured MCP servers
+        for (const [id, mcpConfig] of Object.entries(
+          settings?.mcpServers || {}
+        )) {
+          const cfg = mcpConfig as Record<string, unknown>;
+          mcpServers.push({
+            id,
+            enabled: cfg.enabled !== false,
+            type: typeof cfg.url === "string" ? "sse" : "stdio",
+          });
+        }
+      }
+
+      // Connected OAuth integrations
+      if (
+        config.integrationConfigService &&
+        config.integrationCredentialStore
+      ) {
+        const allConfigs = await config.integrationConfigService.getAll();
+        for (const [id, integrationConfig] of Object.entries(allConfigs)) {
+          const accounts = await config.integrationCredentialStore.listAccounts(
+            agentId,
+            id
+          );
+          integrations.push({
+            id,
+            label: integrationConfig.label,
+            authType: integrationConfig.authType || "oauth",
+            connected: accounts.length > 0,
+            accounts: accounts.map((a) => ({
+              accountId: a.accountId,
+              grantedScopes: a.credentials.grantedScopes || [],
+            })),
+          });
+        }
+      }
+
+      logger.info("Installed capabilities query", {
+        agentId,
+        skillCount: skills.length,
+        integrationCount: integrations.length,
+        mcpCount: mcpServers.length,
+      });
+
+      return c.json({ skills, integrations, mcpServers });
     }
   );
 

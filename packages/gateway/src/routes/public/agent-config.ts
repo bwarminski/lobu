@@ -5,7 +5,13 @@
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AuthProfile, createLogger } from "@lobu/core";
+import {
+  type AgentIntegrationConfig,
+  type AuthProfile,
+  createLogger,
+  normalizeSkillIntegration,
+  type SkillConfig,
+} from "@lobu/core";
 import type { AgentMetadataStore } from "../../auth/agent-metadata-store";
 import type { ProviderCatalogService } from "../../auth/provider-catalog";
 import { collectModelValues } from "../../auth/provider-model-options";
@@ -43,11 +49,6 @@ export interface ConfigChangeEntry {
 const SENSITIVE_KEY_PATTERN =
   /(?:credential|secret|token|password|api(?:_|-)?key|authorization)/i;
 
-interface RedactedFieldState {
-  redacted: true;
-  hasValue: boolean;
-}
-
 type SanitizedAuthProfile = Omit<AuthProfile, "credential" | "metadata"> & {
   credential: string;
   credentialRedacted: true;
@@ -57,9 +58,7 @@ type SanitizedAuthProfile = Omit<AuthProfile, "credential" | "metadata"> & {
   };
 };
 
-type PublicAgentSettings = Omit<AgentSettings, "envVars" | "authProfiles"> & {
-  envVars?: Record<string, string>;
-  envVarsMeta?: Record<string, RedactedFieldState>;
+type PublicAgentSettings = Omit<AgentSettings, "authProfiles"> & {
   authProfiles?: SanitizedAuthProfile[];
 };
 
@@ -121,7 +120,6 @@ const updateConfigRoute = createRoute({
               .nullable()
               .optional(),
             mcpServers: z.record(z.string(), z.any()).optional(),
-            envVars: z.record(z.string(), z.string()).optional(),
             skillsConfig: z
               .object({
                 skills: z.array(
@@ -321,25 +319,6 @@ function buildConfigChanges(
     });
   }
 
-  // Env vars
-  if (updates.envVars !== undefined) {
-    const oldKeys = new Set(Object.keys(existing?.envVars || {}));
-    const newKeys = new Set(Object.keys(updates.envVars || {}));
-    const added = [...newKeys].filter((k) => !oldKeys.has(k));
-    const removed = [...oldKeys].filter((k) => !newKeys.has(k));
-    if (added.length > 0 || removed.length > 0) {
-      const details: string[] = [];
-      if (added.length > 0) details.push(`Added: ${added.join(", ")}`);
-      if (removed.length > 0) details.push(`Removed: ${removed.join(", ")}`);
-      changes.push({
-        category: "env",
-        action: "updated",
-        summary: "Environment variables updated",
-        details,
-      });
-    }
-  }
-
   // Plugins
   if (updates.pluginsConfig !== undefined) {
     changes.push({
@@ -372,7 +351,7 @@ export function createAgentConfigRoutes(
   /**
    * Verify settings token against agentId.
    * If token has agentId, it must match. If token has no agentId (channel-based),
-   * verify user owns the agent via userAgentsStore or it's a workspace agent.
+   * verify user owns the agent via userAgentsStore index or canonical metadata owner.
    */
   const verifyToken = async (
     payload: SettingsTokenPayload | null,
@@ -381,25 +360,32 @@ export function createAgentConfigRoutes(
     if (!payload) return null;
 
     if (payload.agentId) {
-      // Agent-based token: must match exactly
       if (payload.agentId !== agentId) return null;
     } else {
-      // Channel-based token: verify user owns the agent
-      if (config.userAgentsStore) {
-        const owns = await config.userAgentsStore.ownsAgent(
-          payload.platform,
-          payload.userId,
-          agentId
-        );
-        if (!owns) {
-          // Check workspace agent fallback
-          if (config.agentMetadataStore) {
-            const metadata =
-              await config.agentMetadataStore.getMetadata(agentId);
-            if (!metadata?.isWorkspaceAgent) return null;
-          } else {
-            return null;
-          }
+      // Channel-based token: check ownership
+      const owns = config.userAgentsStore
+        ? await config.userAgentsStore.ownsAgent(
+            payload.platform,
+            payload.userId,
+            agentId
+          )
+        : false;
+
+      if (!owns) {
+        if (!config.agentMetadataStore) return null;
+        const metadata = await config.agentMetadataStore.getMetadata(agentId);
+        const isOwner =
+          metadata?.owner?.platform === payload.platform &&
+          metadata?.owner?.userId === payload.userId;
+        if (!isOwner && !metadata?.isWorkspaceAgent) return null;
+
+        // Reconcile: metadata says owner but index is missing — repair it
+        if (isOwner && config.userAgentsStore) {
+          config.userAgentsStore
+            .addAgent(payload.platform, payload.userId, agentId)
+            .catch(() => {
+              /* best-effort reconciliation */
+            });
         }
       }
     }
@@ -500,6 +486,23 @@ export function createAgentConfigRoutes(
         config.connectionManager?.notifyAgent(agentId, "config_changed", {
           changes,
         });
+      }
+
+      // Auto-register/cleanup integrations when skills change
+      if (updates.skillsConfig) {
+        await autoRegisterSkillIntegrations(
+          config.agentSettingsStore,
+          agentId,
+          updates.skillsConfig.skills || []
+        );
+
+        // Cleanup orphaned dependencies from removed/disabled skills
+        await cleanupOrphanedSkillDependencies(
+          config.agentSettingsStore,
+          agentId,
+          existingSettings?.skillsConfig?.skills || [],
+          updates.skillsConfig.skills || []
+        );
       }
 
       if (body.mcpServers && config.queue && payload.sourceContext) {
@@ -902,20 +905,6 @@ function sanitizeSettingsForResponse(
   if (!settings) return {};
 
   const sanitized = redactSensitiveFields(settings) as PublicAgentSettings;
-  const envVars = settings.envVars || {};
-
-  if (Object.keys(envVars).length > 0) {
-    const redactedEnvVars: Record<string, string> = {};
-    const envVarsMeta: Record<string, RedactedFieldState> = {};
-
-    for (const [key, value] of Object.entries(envVars)) {
-      redactedEnvVars[key] = REDACTED_VALUE;
-      envVarsMeta[key] = { redacted: true, hasValue: value.length > 0 };
-    }
-
-    sanitized.envVars = redactedEnvVars;
-    sanitized.envVarsMeta = envVarsMeta;
-  }
 
   if (Array.isArray(settings.authProfiles)) {
     sanitized.authProfiles = settings.authProfiles.map(sanitizeAuthProfile);
@@ -1111,16 +1100,6 @@ async function validateSettings(
     }
   }
 
-  if (input.envVars && typeof input.envVars === "object") {
-    settings.envVars = {};
-    for (const [key, value] of Object.entries(input.envVars)) {
-      const cleanKey = key.trim();
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleanKey)) {
-        settings.envVars[cleanKey] = String(value);
-      }
-    }
-  }
-
   if (input.skillsConfig) {
     settings.skillsConfig = input.skillsConfig;
   }
@@ -1142,6 +1121,201 @@ async function validateSettings(
   }
 
   return settings;
+}
+
+/**
+ * Auto-register API-key integrations declared by enabled skills.
+ * OAuth integrations don't need registration (resolved at auth time from platform config + skill scopes).
+ */
+async function autoRegisterSkillIntegrations(
+  agentSettingsStore: AgentSettingsStore,
+  agentId: string,
+  skills: SkillConfig[]
+): Promise<void> {
+  const apiKeyIntegrations: Record<string, AgentIntegrationConfig> = {};
+
+  for (const skill of skills) {
+    if (!skill.enabled || !skill.integrations) continue;
+    for (const raw of skill.integrations) {
+      const ig = normalizeSkillIntegration(raw);
+      if (ig.authType !== "api-key") continue;
+
+      apiKeyIntegrations[ig.id] = {
+        label: ig.label || ig.id,
+        authType: "api-key",
+        apiKey: {
+          headerName: "Authorization",
+          headerTemplate: "Bearer {{key}}",
+        },
+        apiDomains: ig.apiDomains || [],
+      };
+    }
+  }
+
+  if (Object.keys(apiKeyIntegrations).length === 0) return;
+
+  const existing = await agentSettingsStore.getSettings(agentId);
+  const merged = {
+    ...(existing?.agentIntegrations || {}),
+    ...apiKeyIntegrations,
+  };
+  await agentSettingsStore.updateSettings(agentId, {
+    agentIntegrations: merged,
+  });
+
+  logger.info("Auto-registered API-key integrations from skills", {
+    agentId,
+    integrations: Object.keys(apiKeyIntegrations),
+  });
+}
+
+/**
+ * Compute what dependencies are no longer needed after skills change.
+ * Returns sets of IDs to remove.
+ */
+function computeSkillDependencyDiff(
+  oldSkills: SkillConfig[],
+  newSkills: SkillConfig[]
+): {
+  removedIntegrations: string[];
+  removedMcpServers: string[];
+  removedNixPackages: string[];
+  removedPermissions: string[];
+} {
+  // Collect all dependencies from enabled new skills
+  const activeIntegrations = new Set<string>();
+  const activeMcpServers = new Set<string>();
+  const activeNixPackages = new Set<string>();
+  const activePermissions = new Set<string>();
+
+  for (const skill of newSkills) {
+    if (!skill.enabled) continue;
+    if (skill.integrations) {
+      for (const ig of skill.integrations) {
+        const normalized = normalizeSkillIntegration(ig);
+        if (normalized.authType === "api-key") {
+          activeIntegrations.add(normalized.id);
+        }
+      }
+    }
+    if (skill.mcpServers) {
+      for (const mcp of skill.mcpServers) activeMcpServers.add(mcp.id);
+    }
+    if (skill.nixPackages) {
+      for (const pkg of skill.nixPackages) activeNixPackages.add(pkg);
+    }
+    if (skill.permissions) {
+      for (const perm of skill.permissions) activePermissions.add(perm);
+    }
+  }
+
+  // Collect all dependencies from enabled old skills
+  const previousIntegrations = new Set<string>();
+  const previousMcpServers = new Set<string>();
+  const previousNixPackages = new Set<string>();
+  const previousPermissions = new Set<string>();
+
+  for (const skill of oldSkills) {
+    if (!skill.enabled) continue;
+    if (skill.integrations) {
+      for (const ig of skill.integrations) {
+        const normalized = normalizeSkillIntegration(ig);
+        if (normalized.authType === "api-key") {
+          previousIntegrations.add(normalized.id);
+        }
+      }
+    }
+    if (skill.mcpServers) {
+      for (const mcp of skill.mcpServers) previousMcpServers.add(mcp.id);
+    }
+    if (skill.nixPackages) {
+      for (const pkg of skill.nixPackages) previousNixPackages.add(pkg);
+    }
+    if (skill.permissions) {
+      for (const perm of skill.permissions) previousPermissions.add(perm);
+    }
+  }
+
+  // Things that were needed before but aren't anymore
+  return {
+    removedIntegrations: [...previousIntegrations].filter(
+      (id) => !activeIntegrations.has(id)
+    ),
+    removedMcpServers: [...previousMcpServers].filter(
+      (id) => !activeMcpServers.has(id)
+    ),
+    removedNixPackages: [...previousNixPackages].filter(
+      (pkg) => !activeNixPackages.has(pkg)
+    ),
+    removedPermissions: [...previousPermissions].filter(
+      (perm) => !activePermissions.has(perm)
+    ),
+  };
+}
+
+/**
+ * Cleanup orphaned dependencies when skills are removed or disabled.
+ * Only removes dependencies that were exclusively owned by removed skills.
+ */
+async function cleanupOrphanedSkillDependencies(
+  agentSettingsStore: AgentSettingsStore,
+  agentId: string,
+  oldSkills: SkillConfig[],
+  newSkills: SkillConfig[]
+): Promise<void> {
+  const diff = computeSkillDependencyDiff(oldSkills, newSkills);
+
+  const hasRemovals =
+    diff.removedIntegrations.length > 0 ||
+    diff.removedMcpServers.length > 0 ||
+    diff.removedNixPackages.length > 0;
+
+  if (!hasRemovals) return;
+
+  const settings = await agentSettingsStore.getSettings(agentId);
+  if (!settings) return;
+
+  const updates: Record<string, unknown> = {};
+
+  // Remove orphaned API-key integrations
+  if (diff.removedIntegrations.length > 0 && settings.agentIntegrations) {
+    const cleaned = { ...settings.agentIntegrations };
+    for (const id of diff.removedIntegrations) {
+      delete cleaned[id];
+    }
+    updates.agentIntegrations = cleaned;
+  }
+
+  // Remove orphaned MCP servers
+  if (diff.removedMcpServers.length > 0 && settings.mcpServers) {
+    const cleaned = { ...settings.mcpServers };
+    for (const id of diff.removedMcpServers) {
+      delete cleaned[id];
+    }
+    updates.mcpServers = cleaned;
+  }
+
+  // Remove orphaned nix packages
+  if (diff.removedNixPackages.length > 0 && settings.nixConfig?.packages) {
+    const removedSet = new Set(diff.removedNixPackages);
+    const remaining = settings.nixConfig.packages.filter(
+      (p) => !removedSet.has(p)
+    );
+    updates.nixConfig = {
+      ...settings.nixConfig,
+      packages: remaining.length > 0 ? remaining : undefined,
+    };
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await agentSettingsStore.updateSettings(agentId, updates);
+    logger.info("Cleaned up orphaned skill dependencies", {
+      agentId,
+      removedIntegrations: diff.removedIntegrations,
+      removedMcpServers: diff.removedMcpServers,
+      removedNixPackages: diff.removedNixPackages,
+    });
+  }
 }
 
 function getEnabledHttpMcpIds(

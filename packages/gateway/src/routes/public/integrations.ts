@@ -1,13 +1,13 @@
 /**
- * Unified Integrations Routes (Skills + MCP)
+ * Unified Integrations Routes (MCP registry + skill fetch)
  *
- * Single registry endpoint that searches both skills and MCPs in parallel.
- * Also includes skill fetching and MCP by-ID lookup.
+ * Registry endpoint returns MCPs only (skills are discovered via agent tools).
+ * Skill fetch endpoint is kept for the settings page prefill flow.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { McpRegistryService } from "../../services/mcp-registry";
-import { SkillsFetcherService } from "../../services/skills-fetcher";
+import { SkillRegistryCoordinator } from "../../services/skill-registry";
 import { verifySettingsSession } from "./settings-auth";
 
 const TAG = "Integrations";
@@ -17,9 +17,9 @@ const registryRoute = createRoute({
   method: "get",
   path: "/registry",
   tags: [TAG],
-  summary: "Browse/search integrations registry (skills + MCPs)",
+  summary: "Browse/search integrations registry (MCPs only)",
   description:
-    "Returns curated skills and MCPs if no query, or searches both registries in parallel if q provided",
+    "Returns curated MCPs if no query, or searches MCP registry if q provided",
   request: {
     query: z.object({
       token: z.string().optional(),
@@ -36,13 +36,6 @@ const registryRoute = createRoute({
       content: {
         "application/json": {
           schema: z.object({
-            skills: z.array(
-              z.object({
-                id: z.string(),
-                name: z.string(),
-                description: z.string().optional(),
-              })
-            ),
             mcps: z.array(
               z.object({
                 id: z.string(),
@@ -67,7 +60,7 @@ const skillFetchRoute = createRoute({
   method: "post",
   path: "/skills/fetch",
   tags: [TAG],
-  summary: "Fetch skill metadata from ClawHub",
+  summary: "Fetch skill metadata from registry",
   description: "Fetches skill name, description, and content by slug",
   request: {
     query: z.object({ token: z.string().optional() }),
@@ -77,7 +70,7 @@ const skillFetchRoute = createRoute({
           schema: z.object({
             repo: z
               .string()
-              .openapi({ description: "ClawHub skill slug (e.g., 'pdf')" }),
+              .openapi({ description: "Skill slug (e.g., 'pdf')" }),
             refresh: z
               .boolean()
               .optional()
@@ -98,6 +91,32 @@ const skillFetchRoute = createRoute({
             description: z.string(),
             content: z.string(),
             fetchedAt: z.number(),
+            integrations: z
+              .array(
+                z.object({
+                  id: z.string(),
+                  label: z.string().optional(),
+                  authType: z.enum(["oauth", "api-key"]).optional(),
+                  scopes: z.array(z.string()).optional(),
+                  apiDomains: z.array(z.string()).optional(),
+                })
+              )
+              .optional(),
+            mcpServers: z
+              .array(
+                z.object({
+                  id: z.string(),
+                  name: z.string().optional(),
+                  url: z.string().optional(),
+                  type: z.enum(["sse", "stdio"]).optional(),
+                  command: z.string().optional(),
+                  args: z.array(z.string()).optional(),
+                })
+              )
+              .optional(),
+            nixPackages: z.array(z.string()).optional(),
+            permissions: z.array(z.string()).optional(),
+            providers: z.array(z.string()).optional(),
           }),
         },
       },
@@ -153,7 +172,7 @@ const mcpByIdRoute = createRoute({
 
 export function createIntegrationsRoutes(): OpenAPIHono {
   const app = new OpenAPIHono();
-  const skillsFetcher = new SkillsFetcherService();
+  const coordinator = new SkillRegistryCoordinator();
   const mcpRegistry = new McpRegistryService();
 
   app.openapi(registryRoute, async (c): Promise<any> => {
@@ -164,12 +183,8 @@ export function createIntegrationsRoutes(): OpenAPIHono {
     const maxLimit = Math.min(parseInt(limit || "20", 10), 50);
 
     if (q) {
-      const [skills, mcpResults] = await Promise.all([
-        skillsFetcher.searchSkills(q, maxLimit),
-        Promise.resolve(mcpRegistry.search(q, maxLimit)),
-      ]);
+      const mcpResults = mcpRegistry.search(q, maxLimit);
       return c.json({
-        skills,
         mcps: mcpResults.map((m) => ({
           id: m.id,
           name: m.name,
@@ -182,7 +197,6 @@ export function createIntegrationsRoutes(): OpenAPIHono {
 
     const mcps = mcpRegistry.getCurated();
     return c.json({
-      skills: skillsFetcher.getCuratedSkills(),
       mcps: mcps.map((m) => ({
         id: m.id,
         name: m.name,
@@ -197,18 +211,22 @@ export function createIntegrationsRoutes(): OpenAPIHono {
     if (!verifySettingsSession(c))
       return c.json({ error: "Unauthorized" }, 401);
 
-    const { repo, refresh } = c.req.valid("json");
+    const { repo } = c.req.valid("json");
     if (!repo?.trim()) return c.json({ error: "Missing skill slug" }, 400);
 
     try {
-      if (refresh) skillsFetcher.clearCache(repo);
-      const metadata = await skillsFetcher.fetchSkill(repo);
+      const skillContent = await coordinator.fetch(repo);
       return c.json({
         repo,
-        name: metadata.name,
-        description: metadata.description,
-        content: metadata.content,
+        name: skillContent.name,
+        description: skillContent.description,
+        content: skillContent.content,
         fetchedAt: Date.now(),
+        integrations: skillContent.integrations,
+        mcpServers: skillContent.mcpServers,
+        nixPackages: skillContent.nixPackages,
+        permissions: skillContent.permissions,
+        providers: skillContent.providers,
       });
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : "Failed" }, 400);

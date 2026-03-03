@@ -43,6 +43,10 @@ export interface SettingsPageConfig {
   userAgentsStore: UserAgentsStore;
   agentMetadataStore: AgentMetadataStore;
   channelBindingService: ChannelBindingService;
+  integrationConfigService?: import("../../auth/integration/config-service").IntegrationConfigService;
+  integrationCredentialStore?: import("../../auth/integration/credential-store").IntegrationCredentialStore;
+  connectionManager?: import("../../gateway/connection-manager").WorkerConnectionManager;
+  systemSkillsService?: import("../../services/system-skills-service").SystemSkillsService;
 }
 
 function buildProviderMeta(
@@ -265,6 +269,45 @@ export function createSettingsPageRoutes(
       }
     }
 
+    // Load system skills to prepend to initial skills
+    let systemSkills: import("@lobu/core").SkillConfig[] = [];
+    if (config.systemSkillsService) {
+      try {
+        systemSkills = await config.systemSkillsService.getSystemSkills();
+      } catch {
+        // System skills service may fail, continue without them
+      }
+    }
+
+    // Fetch integration status keyed by integration ID
+    const integrationStatus: Record<
+      string,
+      {
+        connected: boolean;
+        accounts: { accountId: string; grantedScopes: string[] }[];
+        availableScopes: string[];
+      }
+    > = {};
+    if (config.integrationConfigService && config.integrationCredentialStore) {
+      try {
+        const allConfigs = await config.integrationConfigService.getAll();
+        for (const [id, cfg] of Object.entries(allConfigs)) {
+          const accountList =
+            await config.integrationCredentialStore.listAccounts(agentId, id);
+          integrationStatus[id] = {
+            connected: accountList.length > 0,
+            accounts: accountList.map((a) => ({
+              accountId: a.accountId,
+              grantedScopes: a.credentials.grantedScopes,
+            })),
+            availableScopes: cfg.scopes?.available ?? [],
+          };
+        }
+      } catch {
+        // Integration services may not be configured
+      }
+    }
+
     // Ensure the payload has agentId for the template (may have been resolved from binding)
     const effectivePayload = { ...payload, agentId };
 
@@ -278,8 +321,100 @@ export function createSettingsPageRoutes(
         agentName: agentMetadata?.name,
         agentDescription: agentMetadata?.description,
         hasChannelId: !!payload.channelId,
+        systemSkills,
+        integrationStatus,
       })
     );
+  });
+
+  // Disconnect an OAuth integration account
+  app.post("/api/v1/integrations/oauth/disconnect", async (c) => {
+    const session = verifySettingsSession(c);
+    if (!session) return c.json({ error: "Not authenticated" }, 401);
+
+    const { agentId, integrationId, accountId } = await c.req.json<{
+      agentId: string;
+      integrationId: string;
+      accountId?: string;
+    }>();
+
+    if (!agentId || !integrationId) {
+      return c.json({ error: "Missing agentId or integrationId" }, 400);
+    }
+
+    if (!config.integrationCredentialStore) {
+      return c.json({ error: "Integration services not configured" }, 500);
+    }
+
+    await config.integrationCredentialStore.deleteCredentials(
+      agentId,
+      integrationId,
+      accountId || "default"
+    );
+
+    // Notify active workers so they get updated integration status
+    config.connectionManager?.notifyAgent(agentId, "config_changed", {
+      changes: [`integration:${integrationId}:disconnected`],
+    });
+
+    return c.json({ success: true });
+  });
+
+  // Save an API key for an api-key integration
+  app.post("/api/v1/integrations/apikey/save", async (c) => {
+    const session = verifySettingsSession(c);
+    if (!session) return c.json({ error: "Not authenticated" }, 401);
+
+    const { agentId, integrationId, apiKey } = await c.req.json<{
+      agentId: string;
+      integrationId: string;
+      apiKey: string;
+    }>();
+
+    if (!agentId || !integrationId || !apiKey) {
+      return c.json(
+        { error: "Missing agentId, integrationId, or apiKey" },
+        400
+      );
+    }
+
+    if (
+      !config.integrationConfigService ||
+      !config.integrationCredentialStore
+    ) {
+      return c.json({ error: "Integration services not configured" }, 500);
+    }
+
+    // Verify the integration exists and is api-key type
+    const integrationConfig =
+      await config.integrationConfigService.getIntegration(
+        integrationId,
+        agentId
+      );
+    if (!integrationConfig) {
+      return c.json({ error: "Integration not found" }, 404);
+    }
+    if ((integrationConfig.authType || "oauth") !== "api-key") {
+      return c.json({ error: "Integration is not an API key type" }, 400);
+    }
+
+    // Store the API key as a credential
+    await config.integrationCredentialStore.setCredentials(
+      agentId,
+      integrationId,
+      {
+        accessToken: apiKey,
+        tokenType: "api-key",
+        grantedScopes: [],
+      }
+    );
+
+    // Notify active workers
+    config.connectionManager?.notifyAgent(agentId, "config_changed", {
+      changes: [`integration:${integrationId}:default:connected`],
+    });
+
+    return c.json({ success: true });
   });
 
   return app;

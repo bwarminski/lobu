@@ -41,6 +41,15 @@ export interface SettingsPageOptions {
   agentName?: string;
   agentDescription?: string;
   hasChannelId?: boolean;
+  systemSkills?: import("@lobu/core").SkillConfig[];
+  integrationStatus?: Record<
+    string,
+    {
+      connected: boolean;
+      accounts: { accountId: string; grantedScopes: string[] }[];
+      availableScopes: string[];
+    }
+  >;
 }
 
 export function renderSettingsPage(
@@ -54,37 +63,6 @@ export function renderSettingsPage(
   const providerModelOptions: Record<string, ModelOption[]> =
     options?.providerModelOptions || {};
   const providerOrder = providers.map((p) => p.id);
-
-  const initialSecrets = (() => {
-    const existingEnvVars = s.envVars || {};
-    const prefillKeys = payload.prefillEnvVars || [];
-    const seen = new Set<string>();
-    const rows: Array<{ key: string; value: string }> = [];
-
-    for (const [rawKey, rawValue] of Object.entries(existingEnvVars)) {
-      const key = rawKey.trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push({
-        key,
-        value:
-          typeof rawValue === "string"
-            ? rawValue
-            : rawValue == null
-              ? ""
-              : String(rawValue),
-      });
-    }
-
-    for (const rawKey of prefillKeys) {
-      const key = (rawKey || "").trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push({ key, value: "" });
-    }
-
-    return rows;
-  })();
 
   const showSwitcher = options?.showSwitcher ?? false;
   const agents = options?.agents ?? [];
@@ -128,14 +106,16 @@ export function renderSettingsPage(
       apiKeyInstructions: p.apiKeyInstructions,
       apiKeyPlaceholder: p.apiKeyPlaceholder,
     })),
-    initialSkills: s.skillsConfig?.skills || [],
+    initialSkills: [
+      ...(options?.systemSkills || []),
+      ...(s.skillsConfig?.skills || []),
+    ],
     initialMcpServers: s.mcpServers || {},
     prefillSkills: payload.prefillSkills || [],
     prefillMcpServers: payload.prefillMcpServers || [],
     prefillGrants: payload.prefillGrants || [],
     prefillNixPackages: payload.prefillNixPackages || [],
     prefillEnvVars: payload.prefillEnvVars || [],
-    initialSecrets,
     initialNixPackages,
     agentName,
     agentDescription,
@@ -162,6 +142,7 @@ export function renderSettingsPage(
     providerIconUrls: Object.fromEntries(
       providers.map((p) => [p.id, p.iconUrl])
     ),
+    integrationStatus: options?.integrationStatus ?? {},
   };
 
   return `<!DOCTYPE html>

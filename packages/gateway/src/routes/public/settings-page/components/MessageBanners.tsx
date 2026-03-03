@@ -1,3 +1,4 @@
+import { useSignal } from "@preact/signals";
 import * as api from "../api";
 import { useSettings } from "../app";
 
@@ -24,8 +25,111 @@ export function MessageBanners() {
           </div>
         </div>
       )}
+      <PendingApiKeysBanner />
       <PrefillBanner />
     </>
+  );
+}
+
+function PendingApiKeysBanner() {
+  const ctx = useSettings();
+
+  // Derive pending API-key integrations from skills + integrationStatus
+  const pending: { id: string; label: string }[] = [];
+  const seen = new Set<string>();
+  for (const skill of ctx.skills.value) {
+    if (!skill.enabled || !skill.integrations) continue;
+    for (const ig of skill.integrations) {
+      if (ig.authType !== "api-key" || seen.has(ig.id)) continue;
+      seen.add(ig.id);
+      const status = ctx.integrationStatus.value[ig.id];
+      if (!status?.connected) {
+        pending.push({ id: ig.id, label: ig.label || ig.id });
+      }
+    }
+  }
+
+  if (pending.length === 0) return null;
+
+  return (
+    <div class="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-4">
+      <div class="flex items-start gap-2 mb-3">
+        <span class="text-lg">&#128273;</span>
+        <div>
+          <h3 class="text-sm font-semibold text-amber-900">API key required</h3>
+          <p class="text-xs text-amber-700 mt-0.5">
+            Enter your API key to activate{" "}
+            {pending.length === 1 ? "this integration" : "these integrations"}.
+          </p>
+        </div>
+      </div>
+      <div class="space-y-2">
+        {pending.map((integration) => (
+          <PendingApiKeyRow key={integration.id} integration={integration} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PendingApiKeyRow({
+  integration,
+}: {
+  integration: { id: string; label: string };
+}) {
+  const ctx = useSettings();
+  const keyValue = useSignal("");
+  const saving = useSignal(false);
+  const error = useSignal("");
+
+  async function handleSave() {
+    const key = keyValue.value.trim();
+    if (!key) return;
+    saving.value = true;
+    error.value = "";
+    try {
+      await api.saveIntegrationApiKey(ctx.agentId, integration.id, key);
+      ctx.integrationStatus.value = {
+        ...ctx.integrationStatus.value,
+        [integration.id]: {
+          connected: true,
+          accounts: [{ accountId: "default", grantedScopes: [] }],
+          availableScopes:
+            ctx.integrationStatus.value[integration.id]?.availableScopes || [],
+        },
+      };
+      keyValue.value = "";
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : "Failed to save";
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  return (
+    <div class="space-y-1">
+      <p class="text-xs font-medium text-amber-900">{integration.label}</p>
+      <div class="flex items-center gap-1.5">
+        <input
+          type="password"
+          value={keyValue.value}
+          onInput={(e) => {
+            keyValue.value = (e.target as HTMLInputElement).value;
+          }}
+          placeholder="Paste API key..."
+          class="flex-1 px-2 py-1.5 border border-amber-200 rounded text-xs bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-200 outline-none"
+        />
+        <button
+          type="button"
+          disabled={saving.value || !keyValue.value.trim()}
+          onClick={handleSave}
+          class="px-3 py-1.5 text-xs font-semibold rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+        >
+          {saving.value ? "Saving..." : "Save"}
+        </button>
+      </div>
+      {error.value && <p class="text-xs text-red-600">{error.value}</p>}
+    </div>
   );
 }
 
@@ -45,8 +149,6 @@ function PrefillBanner() {
     ctx.approvingPrefills.value = true;
     ctx.errorMsg.value = "";
     ctx.successMsg.value = "";
-    const hasEnvVars = ctx.prefillEnvVars.value.length > 0;
-
     try {
       // 1. Add grants to local state
       for (const d of ctx.prefillGrants.value) {
@@ -100,41 +202,9 @@ function PrefillBanner() {
         if (mcp.args) mcpConfig.args = mcp.args;
         if (mcp.name) mcpConfig.description = mcp.name;
         ctx.mcpServers.value = { ...ctx.mcpServers.value, [mcp.id]: mcpConfig };
-
-        // Add required env vars
-        if (mcp.envVars?.length) {
-          for (const envVar of mcp.envVars) {
-            const key = ctx.normalizeSecretKey(envVar);
-            if (!key) continue;
-            if (
-              !ctx.secrets.value.some(
-                (s) => ctx.normalizeSecretKey(s.key) === key
-              )
-            ) {
-              ctx.addSecret(key, "");
-            }
-          }
-        }
       }
 
-      // 5. Handle env vars
-      if (hasEnvVars) {
-        const existingKeys = new Set(
-          ctx.secrets.value
-            .map((s) => ctx.normalizeSecretKey(s.key))
-            .filter(Boolean)
-        );
-        for (const envKey of ctx.prefillEnvVars.value) {
-          const key = ctx.normalizeSecretKey(envKey);
-          if (key && !existingKeys.has(key)) {
-            ctx.addSecret(key, "");
-            existingKeys.add(key);
-          }
-        }
-        ctx.openSections.value = { ...ctx.openSections.value, envvars: true };
-      }
-
-      // 6. Dismiss + show result
+      // 5. Dismiss + show result
       ctx.prefillBannerDismissed.value = true;
       ctx.errorMsg.value = "";
       if (failures.length > 0) {

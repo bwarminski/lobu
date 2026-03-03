@@ -21,11 +21,21 @@ export interface ModelOption {
   value: string;
 }
 
-export interface SecretRow {
-  id: number;
-  key: string;
-  value: string;
-  reveal: boolean;
+export interface SkillIntegrationInfo {
+  id: string;
+  label?: string;
+  authType?: "oauth" | "api-key";
+  scopes?: string[];
+  apiDomains?: string[];
+}
+
+export interface SkillMcpServerInfo {
+  id: string;
+  name?: string;
+  url?: string;
+  type?: "sse" | "stdio";
+  command?: string;
+  args?: string[];
 }
 
 export interface Skill {
@@ -33,8 +43,14 @@ export interface Skill {
   name: string;
   description: string;
   enabled: boolean;
+  system?: boolean;
   content?: string;
   contentFetchedAt?: string;
+  integrations?: SkillIntegrationInfo[];
+  mcpServers?: SkillMcpServerInfo[];
+  nixPackages?: string[];
+  permissions?: string[];
+  providers?: string[];
 }
 
 export interface McpConfig {
@@ -103,18 +119,10 @@ export interface PermissionGrant {
   grantedAt?: number;
 }
 
-export interface CuratedSkill {
-  id: string;
-  repo: string;
-  name: string;
-  description: string;
-  installs?: number;
-}
-
-export interface CuratedMcp {
-  id: string;
-  name: string;
-  description: string;
+export interface IntegrationStatusEntry {
+  connected: boolean;
+  accounts: { accountId: string; grantedScopes: string[] }[];
+  availableScopes: string[];
 }
 
 export interface AgentInfo {
@@ -138,7 +146,6 @@ export interface SettingsState {
   prefillGrants: string[];
   prefillNixPackages: string[];
   prefillEnvVars: string[];
-  initialSecrets: { key: string; value: string }[];
   initialNixPackages: string[];
   agentName: string;
   agentDescription: string;
@@ -158,6 +165,8 @@ export interface SettingsState {
   hasNoProviders: boolean;
   // Provider icon URLs for rendering
   providerIconUrls: Record<string, string>;
+  // Integration connection status keyed by integration ID
+  integrationStatus: Record<string, IntegrationStatusEntry>;
 }
 
 export interface SettingsSnapshot {
@@ -168,7 +177,6 @@ export interface SettingsSnapshot {
   primaryProvider: string;
   providerOrder: string;
   nixPackages: string;
-  envVars: string;
   skills: string;
   mcpServers: string;
   permissions: string;

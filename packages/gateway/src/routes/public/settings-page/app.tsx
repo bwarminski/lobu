@@ -4,17 +4,15 @@ import { useContext, useEffect, useRef } from "preact/hooks";
 import * as api from "./api";
 import { Header } from "./components/Header";
 import { InstructionsSection } from "./components/InstructionsSection";
-import { IntegrationsSection } from "./components/IntegrationsSection";
 import { MessageBanners } from "./components/MessageBanners";
 import { NixPackagesSection } from "./components/NixPackagesSection";
 import { PermissionsSection } from "./components/PermissionsSection";
 import { ProviderSection } from "./components/ProviderSection";
 import { RemindersSection } from "./components/RemindersSection";
-import { SecretsSection } from "./components/SecretsSection";
+import { SkillsSection } from "./components/SkillsSection";
 import type {
   CatalogProvider,
-  CuratedMcp,
-  CuratedSkill,
+  IntegrationStatusEntry,
   McpConfig,
   ModelOption,
   PermissionGrant,
@@ -23,7 +21,6 @@ import type {
   ProviderInfo,
   ProviderState,
   Schedule,
-  SecretRow,
   SettingsSnapshot,
   SettingsState,
   Skill,
@@ -76,15 +73,10 @@ export interface SettingsContextValue {
   skills: Signal<Skill[]>;
   skillsLoading: Signal<boolean>;
   skillsError: Signal<string>;
-  curatedSkills: Signal<CuratedSkill[]>;
 
   mcpServers: Signal<Record<string, McpConfig>>;
-  mcpsLoading: Signal<boolean>;
-  mcpsError: Signal<string>;
-  curatedMcps: Signal<CuratedMcp[]>;
 
-  secrets: Signal<SecretRow[]>;
-  nextSecretId: Signal<number>;
+  integrationStatus: Signal<Record<string, IntegrationStatusEntry>>;
 
   nixPackages: Signal<string[]>;
 
@@ -122,10 +114,6 @@ export interface SettingsContextValue {
   openExternal(url: string): void;
   hasPendingSettingsChanges(): boolean;
   buildSettingsSnapshot(): SettingsSnapshot;
-  addSecret(key: string, value: string): void;
-  removeSecret(id: number): void;
-  normalizeSecretKey(key: string): string;
-  buildCurrentEnvVars(): Record<string, string>;
 }
 
 const SettingsContext = createContext<SettingsContextValue>(null!);
@@ -206,27 +194,15 @@ function App() {
   const skills = useSignal<Skill[]>(state.initialSkills || []);
   const skillsLoading = useSignal(false);
   const skillsError = useSignal("");
-  const curatedSkills = useSignal<CuratedSkill[]>([]);
 
   // MCPs
   const mcpServers = useSignal<Record<string, McpConfig>>(
     state.initialMcpServers || {}
   );
-  const mcpsLoading = useSignal(false);
-  const mcpsError = useSignal("");
-  const curatedMcps = useSignal<CuratedMcp[]>([]);
-
-  // Secrets
-  const initSecrets: SecretRow[] = Array.isArray(state.initialSecrets)
-    ? state.initialSecrets.map((s, idx) => ({
-        id: idx + 1,
-        key: s?.key || "",
-        value: s?.value || "",
-        reveal: false,
-      }))
-    : [];
-  const secrets = useSignal<SecretRow[]>(initSecrets);
-  const nextSecretId = useSignal(initSecrets.length + 1);
+  // Integration status (read-only, for display)
+  const integrationStatus = useSignal<Record<string, IntegrationStatusEntry>>(
+    state.integrationStatus || {}
+  );
 
   // Nix
   const nixPackages = useSignal<string[]>(
@@ -265,29 +241,6 @@ function App() {
 
   // ─── Helpers ─────────────────────────────────────────────────────────
 
-  function normalizeSecretKey(key: string): string {
-    return (key || "").trim();
-  }
-
-  function buildCurrentEnvVars(): Record<string, string> {
-    const envVars: Record<string, string> = {};
-    for (const secret of secrets.value) {
-      const key = normalizeSecretKey(secret?.key);
-      if (!key) continue;
-      if (envVars[key] === undefined) {
-        envVars[key] = secret?.value || "";
-      }
-    }
-    return envVars;
-  }
-
-  function envVarsSignature(envVars: Record<string, string>): string {
-    return Object.keys(envVars)
-      .sort()
-      .map((key) => `${key}=${envVars[key] || ""}`)
-      .join("\n");
-  }
-
   function nixPackagesSignature(): string {
     return nixPackages.value
       .map((pkg) => (pkg || "").trim())
@@ -297,7 +250,14 @@ function App() {
 
   function skillsSignature(): string {
     return JSON.stringify(
-      skills.value.map((s) => ({ repo: s.repo, enabled: s.enabled }))
+      skills.value.map((s) => ({
+        repo: s.repo,
+        enabled: s.enabled,
+        integrations: s.integrations,
+        mcpServers: s.mcpServers,
+        nixPackages: s.nixPackages,
+        permissions: s.permissions,
+      }))
     );
   }
 
@@ -327,7 +287,6 @@ function App() {
   }
 
   function buildSettingsSnapshot(): SettingsSnapshot {
-    const envVars = buildCurrentEnvVars();
     return {
       identityMd: identityMd.value || "",
       soulMd: soulMd.value || "",
@@ -336,7 +295,6 @@ function App() {
       primaryProvider: primaryProvider.value || "",
       providerOrder: providerOrder.value.join(","),
       nixPackages: nixPackagesSignature(),
-      envVars: envVarsSignature(envVars),
       skills: skillsSignature(),
       mcpServers: mcpServersSignature(),
       permissions: permissionsSignature(),
@@ -378,23 +336,6 @@ function App() {
     } else {
       window.open(url, "_blank");
     }
-  }
-
-  function addSecret(key: string, value: string) {
-    secrets.value = [
-      ...secrets.value,
-      {
-        id: nextSecretId.value,
-        key: normalizeSecretKey(key),
-        value: value || "",
-        reveal: false,
-      },
-    ];
-    nextSecretId.value++;
-  }
-
-  function removeSecret(id: number) {
-    secrets.value = secrets.value.filter((s) => s.id !== id);
   }
 
   // ─── Init ────────────────────────────────────────────────────────────
@@ -442,27 +383,6 @@ function App() {
           };
         }
         providerState.value = updated;
-      })
-      .catch(() => {
-        // noop
-      });
-
-    // Load curated integrations
-    api
-      .fetchIntegrationsRegistry()
-      .then((data) => {
-        curatedSkills.value = (data.skills || []).map((s) => ({
-          id: s.id,
-          repo: s.repo || s.id,
-          name: s.name,
-          description: s.description,
-          installs: s.installs,
-        }));
-        curatedMcps.value = (data.mcps || []).map((m) => ({
-          id: m.id,
-          name: m.name,
-          description: m.description,
-        }));
       })
       .catch(() => {
         // noop
@@ -542,15 +462,10 @@ function App() {
     skills,
     skillsLoading,
     skillsError,
-    curatedSkills,
 
     mcpServers,
-    mcpsLoading,
-    mcpsError,
-    curatedMcps,
 
-    secrets,
-    nextSecretId,
+    integrationStatus,
 
     nixPackages,
 
@@ -585,10 +500,6 @@ function App() {
     openExternal,
     hasPendingSettingsChanges,
     buildSettingsSnapshot,
-    addSecret,
-    removeSecret,
-    normalizeSecretKey,
-    buildCurrentEnvVars,
   };
 
   return (
@@ -614,11 +525,10 @@ function App() {
       >
         <ProviderSection />
         <InstructionsSection />
-        <IntegrationsSection />
+        <SkillsSection />
         <RemindersSection />
         <PermissionsSection />
         <NixPackagesSection />
-        <SecretsSection />
 
         {/* Verbose toggle */}
         <div class="bg-gray-50 rounded-lg p-3">
@@ -693,16 +603,16 @@ async function handleSave(ctx: SettingsContextValue) {
       .map((pkg) => (pkg || "").trim())
       .filter(Boolean);
     settings.nixConfig = nixPkgs.length ? { packages: nixPkgs } : null;
-    settings.envVars = ctx.buildCurrentEnvVars();
 
     await api.saveSettings(ctx.agentId, settings);
 
     const snap = ctx.initialSettingsSnapshot.value;
     const currentSnap = ctx.buildSettingsSnapshot();
 
-    // Save skills (only if changed)
+    // Save skills (only if changed), filter out system skills
     if (!snap || snap.skills !== currentSnap.skills) {
-      await api.saveSkills(ctx.agentId, ctx.skills.value);
+      const userSkills = ctx.skills.value.filter((s) => !s.system);
+      await api.saveSkills(ctx.agentId, userSkills);
     }
 
     // Save MCPs (only if changed)

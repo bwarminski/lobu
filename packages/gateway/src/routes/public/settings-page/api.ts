@@ -246,13 +246,6 @@ export async function disconnectProvider(
 // ─── Integrations ──────────────────────────────────────────────────────────
 
 export async function fetchIntegrationsRegistry(query?: string): Promise<{
-  skills: Array<{
-    id: string;
-    repo: string;
-    name: string;
-    description: string;
-    installs?: number;
-  }>;
   mcps: Array<{ id: string; name: string; description: string }>;
 }> {
   const url = query
@@ -296,6 +289,24 @@ export async function saveMcpServers(
   if (!resp.ok) {
     const data = await parseJsonSafe(resp);
     throw new Error(data.error || "Failed to save MCP servers");
+  }
+}
+
+// ─── Integrations ─────────────────────────────────────────────────────────
+
+export async function saveIntegrationApiKey(
+  agentId: string,
+  integrationId: string,
+  apiKey: string
+): Promise<void> {
+  const resp = await jsonPost("/api/v1/integrations/apikey/save", {
+    agentId,
+    integrationId,
+    apiKey,
+  });
+  if (!resp.ok) {
+    const data = await parseJsonSafe(resp);
+    throw new Error(data.error || "Failed to save API key");
   }
 }
 

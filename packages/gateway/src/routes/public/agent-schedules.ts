@@ -97,18 +97,29 @@ export function createAgentSchedulesRoutes(
 
     if (payload.agentId) {
       if (payload.agentId !== agentId) return null;
-    } else if (config.userAgentsStore) {
-      const owns = await config.userAgentsStore.ownsAgent(
-        payload.platform,
-        payload.userId,
-        agentId
-      );
+    } else {
+      const owns = config.userAgentsStore
+        ? await config.userAgentsStore.ownsAgent(
+            payload.platform,
+            payload.userId,
+            agentId
+          )
+        : false;
+
       if (!owns) {
-        if (config.agentMetadataStore) {
-          const metadata = await config.agentMetadataStore.getMetadata(agentId);
-          if (!metadata?.isWorkspaceAgent) return null;
-        } else {
-          return null;
+        if (!config.agentMetadataStore) return null;
+        const metadata = await config.agentMetadataStore.getMetadata(agentId);
+        const isOwner =
+          metadata?.owner?.platform === payload.platform &&
+          metadata?.owner?.userId === payload.userId;
+        if (!isOwner && !metadata?.isWorkspaceAgent) return null;
+
+        if (isOwner && config.userAgentsStore) {
+          config.userAgentsStore
+            .addAgent(payload.platform, payload.userId, agentId)
+            .catch(() => {
+              /* best-effort reconciliation */
+            });
         }
       }
     }

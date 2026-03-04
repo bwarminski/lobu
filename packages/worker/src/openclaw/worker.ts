@@ -10,7 +10,7 @@ import {
   type ToolsConfig,
   type WorkerTransport,
 } from "@lobu/core";
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel, type ImageContent } from "@mariozechner/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
@@ -757,8 +757,14 @@ Use it when the user references past discussions or you need context.`);
         })
         .join("\n\n");
 
-      const effectivePrompt = `${configNotice}${sessionSummary ? `${sessionSummary}\n\n` : ""}${prependContexts ? `${prependContexts}\n\n` : ""}${userPrompt}`;
-      await session.prompt(effectivePrompt);
+      const effectivePromptText = `${configNotice}${sessionSummary ? `${sessionSummary}\n\n` : ""}${prependContexts ? `${prependContexts}\n\n` : ""}${userPrompt}`;
+
+      // Load image attachments for vision-capable models
+      const images = await this.loadImageAttachments();
+      if (images.length > 0) {
+        logger.info(`Including ${images.length} image(s) in prompt for vision`);
+      }
+      await session.prompt(effectivePromptText, { images });
       await done;
 
       const sessionError = this.progressProcessor.consumeFatalErrorMessage();
@@ -882,7 +888,7 @@ Use it when the user references past discussions or you need context.`);
   }
 
   private async downloadInputFiles(): Promise<void> {
-    const files = (this.config as any).platformMetadata?.files || [];
+    const files = this.uploadedFiles;
     if (files.length === 0) {
       return;
     }
@@ -928,19 +934,55 @@ Use it when the user references past discussions or you need context.`);
     }
   }
 
+  private get uploadedFiles(): Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+  }> {
+    return (this.config as any).platformMetadata?.files || [];
+  }
+
+  private static isImage(mimetype?: string): boolean {
+    return !!mimetype?.startsWith("image/");
+  }
+
   private getFileIOInstructions(): string {
     const workspaceDir = this.workspaceManager.getCurrentWorkingDirectory();
-    const files = (this.config as any).platformMetadata?.files || [];
+    const files = this.uploadedFiles;
 
-    let userFilesSection = "";
-    if (files.length > 0) {
-      userFilesSection = `
+    if (files.length === 0) {
+      return `
 
-### User-Uploaded Files
-The user has uploaded ${files.length} file(s) for you to analyze:
-${files.map((f: any) => `- \`${workspaceDir}/input/${f.name}\` (${f.mimetype || "unknown type"})`).join("\n")}
+## File Generation & Output
 
-**Use these files to answer the user's request.** You can read them with standard commands like \`cat\`, \`less\`, or \`head\`.`;
+**When to Create Files:**
+Create and show files for any output that helps answer the user's request by using \`UploadUserFile\` tool:
+- **Charts & visualizations**: pie charts, bar graphs, plots, diagrams via \`matplotlib\`
+- **Reports & documents**: analysis reports, summaries, PDFs
+- **Data files**: CSV exports, JSON data, spreadsheets
+- **Code files**: scripts, configurations, examples
+- **Images**: generated images, processed photos, screenshots.
+`;
+    }
+
+    const fileListing = files
+      .map(
+        (f) =>
+          `- \`${workspaceDir}/input/${f.name}\` (${f.mimetype || "unknown type"})`
+      )
+      .join("\n");
+
+    const hasImages = files.some((f) => OpenClawWorker.isImage(f.mimetype));
+    const hasNonImages = files.some((f) => !OpenClawWorker.isImage(f.mimetype));
+
+    let hints = "";
+    if (hasImages) {
+      hints +=
+        "\nImage files have been included directly in this message for visual analysis.";
+    }
+    if (hasNonImages) {
+      hints +=
+        "\nYou can read non-image files with standard commands like `cat`, `less`, or `head`.";
     }
 
     return `
@@ -953,8 +995,54 @@ Create and show files for any output that helps answer the user's request by usi
 - **Reports & documents**: analysis reports, summaries, PDFs
 - **Data files**: CSV exports, JSON data, spreadsheets
 - **Code files**: scripts, configurations, examples
-- **Images**: generated images, processed photos, screenshots.${userFilesSection}
+- **Images**: generated images, processed photos, screenshots.
+
+### User-Uploaded Files
+The user has uploaded ${files.length} file(s) for you to analyze:
+${fileListing}
+
+**Use these files to answer the user's request.**${hints}
 `;
+  }
+
+  /** Max image size to embed in prompt (20 MB). Larger files are skipped. */
+  private static readonly MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+  private async loadImageAttachments(): Promise<ImageContent[]> {
+    const imageFiles = this.uploadedFiles.filter((f) =>
+      OpenClawWorker.isImage(f.mimetype)
+    );
+    if (imageFiles.length === 0) return [];
+
+    const inputDir = path.join(
+      this.workspaceManager.getCurrentWorkingDirectory(),
+      "input"
+    );
+    const results: ImageContent[] = [];
+
+    for (const file of imageFiles) {
+      try {
+        const data = await fs.readFile(path.join(inputDir, file.name));
+        if (data.length > OpenClawWorker.MAX_IMAGE_BYTES) {
+          logger.warn(
+            `Skipping image ${file.name}: ${Math.round(data.length / 1024 / 1024)}MB exceeds limit`
+          );
+          continue;
+        }
+        results.push({
+          type: "image",
+          data: data.toString("base64"),
+          mimeType: file.mimetype,
+        });
+        logger.info(
+          `Loaded image: ${file.name} (${file.mimetype}, ${Math.round(data.length / 1024)}KB)`
+        );
+      } catch (error) {
+        logger.warn(`Failed to load image ${file.name}:`, error);
+      }
+    }
+
+    return results;
   }
 
   private async maybeBuildAuthHintMessage(

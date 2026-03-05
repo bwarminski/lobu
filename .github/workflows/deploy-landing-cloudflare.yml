@@ -1,0 +1,41 @@
+name: Deploy Landing to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-landing-cloudflare
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy landing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build landing
+        run: bun run --filter @lobu/landing build
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+        run: |
+          bunx wrangler pages deploy packages/landing/dist \
+            --project-name lobu-ai \
+            --branch main \
+            --commit-hash "${{ github.sha }}" \
+            --commit-message "${{ github.event.head_commit.message }}"

@@ -35,7 +35,13 @@ describe("capabilities types", () => {
       result: "allow",
       reasonCode: "allowed_by_policy",
       message: "ok",
-      suggestedRoutes: [],
+      suggestedRoutes: [
+        {
+          kind: "request_approval",
+          target: "example.com",
+          message: "Request approval for this destination.",
+        },
+      ],
       approval: {
         required: false,
       },
@@ -50,5 +56,6 @@ describe("capabilities types", () => {
 
     expect(response.result).toBe("allow");
     expect(response.audit.decisionId).toBe("d-1");
+    expect(response.suggestedRoutes[0]?.kind).toBe("request_approval");
   });
 });

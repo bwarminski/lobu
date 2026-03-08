@@ -18,11 +18,17 @@ export interface DecisionRequest {
   context?: Record<string, unknown>;
 }
 
+export interface SuggestedRoute {
+  kind: string;
+  target?: string;
+  message: string;
+}
+
 export interface DecisionResponse {
   result: DecisionResult;
   reasonCode: string;
   message: string;
-  suggestedRoutes: string[];
+  suggestedRoutes: SuggestedRoute[];
   approval: {
     required: boolean;
     scopeHint?: string;

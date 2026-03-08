@@ -67,4 +67,43 @@ describe("capability registry", () => {
     const record = await registry.get("agent-1");
     expect(record?.trustZone).toBe("unknown");
   });
+
+  test("filters malformed capability entries from stored records", async () => {
+    await redis.set(
+      "capreg:agent-1",
+      JSON.stringify({
+        capabilities: [
+          {
+            operation: "egress_http",
+            destinations: ["api.openai.com", 123],
+          },
+          {
+            operation: "not_supported",
+            destinations: ["example.com"],
+          },
+          {
+            operation: "egress_http",
+            destinations: [],
+          },
+          {
+            operation: "egress_http",
+            destinations: ["github.com"],
+            requiredTrustZone: "bad-zone",
+          },
+        ],
+      })
+    );
+
+    const record = await registry.get("agent-1");
+    expect(record?.capabilities).toEqual([
+      {
+        operation: "egress_http",
+        destinations: ["api.openai.com"],
+      },
+      {
+        operation: "egress_http",
+        destinations: ["github.com"],
+      },
+    ]);
+  });
 });

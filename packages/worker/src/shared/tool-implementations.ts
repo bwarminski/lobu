@@ -791,19 +791,30 @@ export async function requestNetworkAccess(
   args: { domains: string[]; reason: string }
 ): Promise<TextResult> {
   return withErrorHandling("RequestNetworkAccess", async () => {
-    const domain = args.domains[0];
-    if (!domain) {
+    if (args.domains.length === 0) {
       return textResult("Error: At least one domain is required.");
     }
 
-    const decision = await requestCapabilityDecision(gw, {
-      operation: "egress_http",
-      destination: domain,
-    });
+    const decisions = await Promise.all(
+      args.domains.map(async (domain) => ({
+        domain,
+        decision: await requestCapabilityDecision(gw, {
+          operation: "egress_http",
+          destination: domain,
+        }),
+      }))
+    );
 
-    if (decision?.result === "allow") {
+    const hasNonAllowDecision = decisions.some(
+      ({ decision }) => !decision || decision.result !== "allow"
+    );
+
+    if (!hasNonAllowDecision) {
+      const allowedSummary = decisions
+        .map(({ domain, decision }) => `${domain} (${decision?.reasonCode})`)
+        .join(", ");
       return textResult(
-        `Gateway decision: allow (${decision.reasonCode}) for ${domain}. No additional approval is required.`
+        `Gateway decisions: allow for all requested domains: ${allowedSummary}. No additional approval is required.`
       );
     }
 
@@ -812,20 +823,23 @@ export async function requestNetworkAccess(
       grants: args.domains,
     });
 
-    if (!decision) {
+    const firstBlockedDecision = decisions.find(
+      ({ decision }) => decision && decision.result !== "allow"
+    )?.decision;
+    if (!firstBlockedDecision) {
       return configureResult;
     }
 
     const configureText = String(
       configureResult.content.find((item) => item.type === "text")?.text || ""
     );
-    const suggestion = decision.suggestedRoutes[0];
+    const suggestion = firstBlockedDecision.suggestedRoutes[0];
     const suggestionText = suggestion
       ? ` Suggested route: ${suggestion.kind}${suggestion.target ? ` (${suggestion.target})` : ""}.`
       : "";
 
     return textResult(
-      `Gateway decision: ${decision.result} (${decision.reasonCode}) for ${domain}. ${decision.message}${suggestionText}\n\n${configureText}`
+      `Gateway decision: ${firstBlockedDecision.result} (${firstBlockedDecision.reasonCode}). ${firstBlockedDecision.message}${suggestionText}\n\n${configureText}`
     );
   });
 }

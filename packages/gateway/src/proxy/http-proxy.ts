@@ -189,6 +189,7 @@ async function evaluateProxyAccess(
     destination: hostname,
     ...(method && { method }),
     trustZone: "unknown",
+    trustZoneSource: "fallback",
   });
 
   return {

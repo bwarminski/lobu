@@ -58,6 +58,21 @@ describe("decision service", () => {
     expect(response.reasonCode).toBe("allowed_by_policy");
   });
 
+  test("falls back to legacy allowlist behavior when capability record is missing", async () => {
+    capabilityRegistry.get = async () => null;
+
+    const response = await decisionService.decide({
+      agentId: "agent-1",
+      sessionId: "session-1",
+      operation: "egress_http",
+      destination: "example.com",
+      trustZone: "personal",
+    });
+
+    expect(response.result).toBe("allow");
+    expect(response.reasonCode).toBe("allowed_by_legacy_policy");
+  });
+
   test("denies when destination is not in assigned capabilities", async () => {
     const response = await decisionService.decide({
       agentId: "agent-1",
@@ -89,6 +104,29 @@ describe("decision service", () => {
 
     expect(response.result).toBe("approval_required");
     expect(response.reasonCode).toBe("approval_required");
+  });
+
+  test("matches wildcard destination entries in *.example.com format", async () => {
+    capabilityRegistry.get = async () => ({
+      capabilities: [
+        {
+          operation: "egress_http",
+          destinations: ["*.example.com"],
+        },
+      ],
+      trustZone: "personal",
+    });
+
+    const response = await decisionService.decide({
+      agentId: "agent-1",
+      sessionId: "session-1",
+      operation: "egress_http",
+      destination: "api.example.com",
+      trustZone: "personal",
+    });
+
+    expect(response.result).toBe("allow");
+    expect(response.reasonCode).toBe("allowed_by_policy");
   });
 
   test("denies work-scoped capability when trust-zone is personal", async () => {
@@ -137,5 +175,18 @@ describe("decision service", () => {
 
     expect(response.result).toBe("deny");
     expect(response.reasonCode).toBe("trust_zone_mismatch");
+  });
+
+  test("records fallback trustZoneSource in audit when provided", async () => {
+    const response = await decisionService.decide({
+      agentId: "agent-1",
+      sessionId: "session-1",
+      operation: "egress_http",
+      destination: "example.com",
+      trustZone: "unknown",
+      trustZoneSource: "fallback",
+    });
+
+    expect(response.audit.trustZoneSource).toBe("fallback");
   });
 });

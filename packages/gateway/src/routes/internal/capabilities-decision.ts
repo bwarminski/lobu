@@ -51,6 +51,7 @@ export function createCapabilitiesDecisionRoutes(
       const operation = body.operation;
       const destination = body.destination;
       const trustZone = body.trustZone;
+      const hasExplicitTrustZone = isTrustZone(trustZone);
 
       if (operation !== "egress_http") {
         return c.json({ error: "operation is required and must be egress_http" }, 400);
@@ -70,7 +71,8 @@ export function createCapabilitiesDecisionRoutes(
         operation,
         destination,
         ...(typeof body.method === "string" && { method: body.method }),
-        trustZone: isTrustZone(trustZone) ? trustZone : "unknown",
+        trustZone: hasExplicitTrustZone ? trustZone : "unknown",
+        trustZoneSource: hasExplicitTrustZone ? "agent_config" : "fallback",
       });
 
       return c.json(decision);

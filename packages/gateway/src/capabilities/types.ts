@@ -15,6 +15,7 @@ export interface DecisionRequest {
   destination: string;
   method?: string;
   trustZone: TrustZone;
+  trustZoneSource?: TrustZoneSource;
   context?: Record<string, unknown>;
 }
 

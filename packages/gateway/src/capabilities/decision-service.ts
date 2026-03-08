@@ -20,6 +20,14 @@ function matchesDomainPattern(hostname: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
     const lowerPattern = pattern.toLowerCase();
 
+    if (lowerPattern.startsWith("*.")) {
+      const domain = lowerPattern.substring(2);
+      if (lowerHostname === domain || lowerHostname.endsWith(`.${domain}`)) {
+        return true;
+      }
+      continue;
+    }
+
     if (lowerPattern.startsWith(".")) {
       const domain = lowerPattern.substring(1);
       if (lowerHostname === domain || lowerHostname.endsWith(`.${domain}`)) {
@@ -106,11 +114,79 @@ function buildBaseResponse(
       decisionId,
       timestamp: new Date().toISOString(),
       trustZone: request.trustZone,
-      trustZoneSource: "agent_config",
+      trustZoneSource: request.trustZoneSource ?? "fallback",
       ...(requiredZone && { requiredZone }),
       zoneMatch,
     },
   };
+}
+
+async function evaluateLegacyPolicy(
+  request: DecisionRequest,
+  options: DecisionServiceOptions
+): Promise<DecisionResponse> {
+  if (
+    options.globalDeniedDomains.length > 0 &&
+    matchesDomainPattern(request.destination, options.globalDeniedDomains)
+  ) {
+    return buildBaseResponse(
+      request,
+      "deny",
+      "denied_by_legacy_policy",
+      "Destination is denied by legacy policy."
+    );
+  }
+
+  const globallyAllowed = isHostnameAllowed(
+    request.destination,
+    options.globalAllowedDomains,
+    options.globalDeniedDomains
+  );
+  if (globallyAllowed) {
+    if (options.grantStore) {
+      const denied = await options.grantStore.isDenied(
+        request.agentId,
+        request.destination
+      );
+      if (denied) {
+        return buildBaseResponse(
+          request,
+          "deny",
+          "denied_by_grant",
+          "Destination is denied by agent grant policy."
+        );
+      }
+    }
+
+    return buildBaseResponse(
+      request,
+      "allow",
+      "allowed_by_legacy_policy",
+      "Destination is allowed by legacy policy."
+    );
+  }
+
+  if (options.grantStore) {
+    const granted = await options.grantStore.hasGrant(
+      request.agentId,
+      request.destination
+    );
+    if (granted) {
+      return buildBaseResponse(
+        request,
+        "allow",
+        "allowed_by_grant",
+        "Destination is allowed by grant."
+      );
+    }
+  }
+
+  return buildBaseResponse(
+    request,
+    "deny",
+    "denied_by_legacy_policy",
+    "Destination is denied by legacy policy."
+  );
 }
 
 export class DecisionService {
@@ -130,12 +206,7 @@ export class DecisionService {
       request.agentId
     );
     if (!capabilityRecord) {
-      return buildBaseResponse(
-        request,
-        "deny",
-        "capability_record_missing",
-        "No capability assignment exists for this agent."
-      );
+      return evaluateLegacyPolicy(request, this.options);
     }
 
     const capability = findMatchingCapability(

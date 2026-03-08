@@ -309,3 +309,16 @@ Or use `tguser` CLI (requires `TG_API_ID` and `TG_API_HASH` from `.env`):
 ```bash
 tguser send @lobuaibot "hello test"
 ```
+
+### Capability Decision Compose Integration Test
+Run the worker-to-gateway capability decision integration suite:
+```bash
+bun run test:integration:capabilities
+```
+
+Notes:
+- Requires Docker daemon access (`docker compose` + `docker exec`).
+- Requires an already running dev stack (`make dev`).
+- Auto-bootstrap: if `.env` is missing `ENCRYPTION_KEY`, the helper adds it and exits once so you can restart `make dev`.
+- Writes troubleshooting artifacts under `tmp/integration-artifacts/`.
+- Focuses on structured outcomes for `deny`, `approval_required`, `allow`, and fallback behavior.

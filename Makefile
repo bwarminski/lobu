@@ -1,12 +1,13 @@
 # Development Makefile for Lobu
 
-.PHONY: help setup build test clean logs deploy down build-packages dev
+.PHONY: help setup build test clean logs deploy down build-packages dev link-shared-env
 
 # Default target
 help:
 	@echo "Available commands:"
 	@echo "  make setup                                 - Setup development environment (run once)"
 	@echo "  make dev                                   - Start dev environment (Docker Compose Watch)"
+	@echo "  make link-shared-env                       - Link .env to shared env file across worktrees"
 	@echo "  make build-packages                        - Build all TypeScript packages"
 	@echo "  make build-worker                          - Build worker Docker image"
 	@echo "  make deploy                                - Deploy to K8s using values-local.yaml"
@@ -33,6 +34,24 @@ dev:
 # Setup development environment (run once)
 setup:
 	@./scripts/setup-dev.sh
+
+# Link worktree-local .env to a shared env file in the common repo root.
+# Override with: SHARED_ENV=/abs/path/to/env make link-shared-env
+link-shared-env:
+	@COMMON_ROOT="$$(cd "$$(git rev-parse --git-common-dir)/.." && pwd)"; \
+	SHARED_ENV_PATH="$${SHARED_ENV:-$$COMMON_ROOT/.env.shared}"; \
+	if [ ! -f "$$SHARED_ENV_PATH" ]; then \
+		echo "❌ Shared env file not found: $$SHARED_ENV_PATH"; \
+		echo "Create it first (example): cp .env.example $$SHARED_ENV_PATH"; \
+		exit 1; \
+	fi; \
+	if [ -e .env ] && [ ! -L .env ]; then \
+		echo "❌ .env exists and is not a symlink."; \
+		echo "Move it first (example): mv .env .env.local"; \
+		exit 1; \
+	fi; \
+	ln -sfn "$$SHARED_ENV_PATH" .env; \
+	echo "✅ Linked .env -> $$SHARED_ENV_PATH"
 
 # Build the worker image
 build-worker:

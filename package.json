@@ -38,7 +38,8 @@
     "k8s:uninstall": "helm uninstall lobu",
     "slack:manifest:print": "bun run scripts/slack-manifest.ts print",
     "slack:manifest:validate": "bun run scripts/slack-manifest.ts validate",
-    "slack:manifest:update": "bun run scripts/slack-manifest.ts update"
+    "slack:manifest:update": "bun run scripts/slack-manifest.ts update",
+    "test:integration:capabilities": "cd packages/gateway && bun run generate:css && cd ../.. && RUN_COMPOSE_INTEGRATION=1 bun test packages/gateway/src/__tests__/integration/capability-decision-compose.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",

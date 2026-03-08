@@ -11,7 +11,7 @@ import {
 } from "@lobu/core";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { z } from "zod";
+import { z } from "@hono/zod-openapi";
 import type { QueueProducer } from "../../infrastructure/queue/queue-producer";
 import type { ISessionManager, ThreadSession } from "../../session";
 

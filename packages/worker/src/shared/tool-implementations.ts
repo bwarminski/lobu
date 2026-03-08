@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "@lobu/core";
 import FormData from "form-data";
+import { requestCapabilityDecision } from "../gateway/capability-decision-client";
 import { fetchAudioProviderSuggestions } from "./audio-provider-suggestions";
 
 const logger = createLogger("shared-tools");
@@ -789,9 +790,57 @@ export async function requestNetworkAccess(
   gw: GatewayParams,
   args: { domains: string[]; reason: string }
 ): Promise<TextResult> {
-  return configure(gw, {
-    reason: args.reason,
-    grants: args.domains,
+  return withErrorHandling("RequestNetworkAccess", async () => {
+    if (args.domains.length === 0) {
+      return textResult("Error: At least one domain is required.");
+    }
+
+    const decisions = await Promise.all(
+      args.domains.map(async (domain) => ({
+        domain,
+        decision: await requestCapabilityDecision(gw, {
+          operation: "egress_http",
+          destination: domain,
+        }),
+      }))
+    );
+
+    const hasNonAllowDecision = decisions.some(
+      ({ decision }) => !decision || decision.result !== "allow"
+    );
+
+    if (!hasNonAllowDecision) {
+      const allowedSummary = decisions
+        .map(({ domain, decision }) => `${domain} (${decision?.reasonCode})`)
+        .join(", ");
+      return textResult(
+        `Gateway decisions: allow for all requested domains: ${allowedSummary}. No additional approval is required.`
+      );
+    }
+
+    const configureResult = await configure(gw, {
+      reason: args.reason,
+      grants: args.domains,
+    });
+
+    const firstBlockedDecision = decisions.find(
+      ({ decision }) => decision && decision.result !== "allow"
+    )?.decision;
+    if (!firstBlockedDecision) {
+      return configureResult;
+    }
+
+    const configureText = String(
+      configureResult.content.find((item) => item.type === "text")?.text || ""
+    );
+    const suggestion = firstBlockedDecision.suggestedRoutes[0];
+    const suggestionText = suggestion
+      ? ` Suggested route: ${suggestion.kind}${suggestion.target ? ` (${suggestion.target})` : ""}.`
+      : "";
+
+    return textResult(
+      `Gateway decision: ${firstBlockedDecision.result} (${firstBlockedDecision.reasonCode}). ${firstBlockedDecision.message}${suggestionText}\n\n${configureText}`
+    );
   });
 }
 

@@ -2,7 +2,7 @@
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { createLogger } from "@lobu/core";
-import { z } from "zod";
+import { z } from "@hono/zod-openapi";
 import type { PlatformRegistry } from "../../platform";
 
 const logger = createLogger("messaging-routes");

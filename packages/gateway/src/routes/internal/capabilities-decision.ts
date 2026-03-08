@@ -3,7 +3,6 @@
 import { createLogger, verifyWorkerToken } from "@lobu/core";
 import { Hono } from "hono";
 import type { DecisionService } from "../../capabilities/decision-service";
-import { TRUST_ZONES, type TrustZone } from "../../capabilities/types";
 
 const logger = createLogger("capabilities-decision-routes");
 
@@ -15,13 +14,6 @@ type WorkerContext = {
     };
   };
 };
-
-function isTrustZone(value: unknown): value is TrustZone {
-  return (
-    typeof value === "string" &&
-    (TRUST_ZONES as readonly string[]).includes(value)
-  );
-}
 
 export function createCapabilitiesDecisionRoutes(
   decisionService: DecisionService
@@ -50,8 +42,6 @@ export function createCapabilitiesDecisionRoutes(
       const body = await c.req.json().catch(() => ({}));
       const operation = body.operation;
       const destination = body.destination;
-      const trustZone = body.trustZone;
-      const hasExplicitTrustZone = isTrustZone(trustZone);
 
       if (operation !== "egress_http") {
         return c.json({ error: "operation is required and must be egress_http" }, 400);
@@ -71,8 +61,8 @@ export function createCapabilitiesDecisionRoutes(
         operation,
         destination,
         ...(typeof body.method === "string" && { method: body.method }),
-        trustZone: hasExplicitTrustZone ? trustZone : "unknown",
-        trustZoneSource: hasExplicitTrustZone ? "agent_config" : "fallback",
+        trustZone: "unknown",
+        trustZoneSource: "fallback",
       });
 
       return c.json(decision);

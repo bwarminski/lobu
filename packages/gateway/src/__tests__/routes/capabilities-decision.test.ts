@@ -98,5 +98,11 @@ describe("capabilities decision routes", () => {
     expect(json.result).toBe("allow");
     expect(json.reasonCode).toBe("allowed_by_policy");
     expect(decisionService.decide).toHaveBeenCalledTimes(1);
+    expect(decisionService.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trustZone: "unknown",
+        trustZoneSource: "fallback",
+      })
+    );
   });
 });

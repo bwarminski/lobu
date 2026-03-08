@@ -11,6 +11,7 @@ import {
   loadAllowedDomains,
   loadDisallowedDomains,
 } from "../config/network-allowlist";
+import type { DecisionService } from "../capabilities/decision-service";
 import type { GrantStore } from "../permissions/grant-store";
 
 const logger = createLogger("http-proxy");
@@ -64,6 +65,7 @@ let globalConfig: ResolvedNetworkConfig | null = null;
 
 // Module-level grant store reference for domain grant checks
 let proxyGrantStore: GrantStore | null = null;
+let proxyDecisionService: DecisionService | null = null;
 
 /**
  * Set the grant store for the HTTP proxy to check domain grants.
@@ -71,6 +73,10 @@ let proxyGrantStore: GrantStore | null = null;
  */
 export function setProxyGrantStore(store: GrantStore): void {
   proxyGrantStore = store;
+}
+
+export function setProxyDecisionService(service: DecisionService): void {
+  proxyDecisionService = service;
 }
 
 /**
@@ -136,6 +142,42 @@ async function checkDomainAccess(
   }
 
   return false;
+}
+
+interface ProxyDecisionOutcome {
+  allowed: boolean;
+  result: "allow" | "deny" | "approval_required";
+  reasonCode: string;
+}
+
+async function evaluateProxyAccess(
+  hostname: string,
+  tokenData: WorkerTokenData,
+  method?: string
+): Promise<ProxyDecisionOutcome> {
+  if (!proxyDecisionService) {
+    const allowed = await checkDomainAccess(hostname, tokenData.agentId);
+    return {
+      allowed,
+      result: allowed ? "allow" : "deny",
+      reasonCode: allowed ? "allowed_by_legacy_policy" : "denied_by_legacy_policy",
+    };
+  }
+
+  const decision = await proxyDecisionService.decide({
+    agentId: tokenData.agentId || "",
+    sessionId: tokenData.conversationId,
+    operation: "egress_http",
+    destination: hostname,
+    ...(method && { method }),
+    trustZone: "unknown",
+  });
+
+  return {
+    allowed: decision.result === "allow",
+    result: decision.result,
+    reasonCode: decision.reasonCode,
+  };
 }
 
 interface ProxyCredentials {
@@ -446,10 +488,10 @@ async function handleConnect(
   const { deploymentName, tokenData } = auth;
 
   // Check domain access: global config → grant store
-  const allowed = await checkDomainAccess(hostname, tokenData.agentId);
-  if (!allowed) {
+  const decision = await evaluateProxyAccess(hostname, tokenData, "CONNECT");
+  if (!decision.allowed) {
     logger.warn(
-      `Blocked CONNECT to ${hostname} (deployment: ${deploymentName})`
+      `Blocked CONNECT to ${hostname} (deployment: ${deploymentName}, result: ${decision.result}, reason: ${decision.reasonCode})`
     );
     try {
       clientSocket.write(
@@ -593,10 +635,10 @@ async function handleProxyRequest(
   const { deploymentName, tokenData } = auth;
 
   // Check domain access: global config → grant store
-  const allowed = await checkDomainAccess(hostname, tokenData.agentId);
-  if (!allowed) {
+  const decision = await evaluateProxyAccess(hostname, tokenData, req.method);
+  if (!decision.allowed) {
     logger.warn(
-      `Blocked request to ${hostname} (deployment: ${deploymentName})`
+      `Blocked request to ${hostname} (deployment: ${deploymentName}, result: ${decision.result}, reason: ${decision.reasonCode})`
     );
     res.writeHead(403, `Domain not allowed: ${hostname}`, {
       "Content-Type": "text/plain",

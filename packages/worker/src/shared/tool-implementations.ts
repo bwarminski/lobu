@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "@lobu/core";
 import FormData from "form-data";
+import { requestCapabilityDecision } from "../gateway/capability-decision-client";
 import { fetchAudioProviderSuggestions } from "./audio-provider-suggestions";
 
 const logger = createLogger("shared-tools");
@@ -789,9 +790,43 @@ export async function requestNetworkAccess(
   gw: GatewayParams,
   args: { domains: string[]; reason: string }
 ): Promise<TextResult> {
-  return configure(gw, {
-    reason: args.reason,
-    grants: args.domains,
+  return withErrorHandling("RequestNetworkAccess", async () => {
+    const domain = args.domains[0];
+    if (!domain) {
+      return textResult("Error: At least one domain is required.");
+    }
+
+    const decision = await requestCapabilityDecision(gw, {
+      operation: "egress_http",
+      destination: domain,
+    });
+
+    if (decision?.result === "allow") {
+      return textResult(
+        `Gateway decision: allow (${decision.reasonCode}) for ${domain}. No additional approval is required.`
+      );
+    }
+
+    const configureResult = await configure(gw, {
+      reason: args.reason,
+      grants: args.domains,
+    });
+
+    if (!decision) {
+      return configureResult;
+    }
+
+    const configureText = String(
+      configureResult.content.find((item) => item.type === "text")?.text || ""
+    );
+    const suggestion = decision.suggestedRoutes[0];
+    const suggestionText = suggestion
+      ? ` Suggested route: ${suggestion.kind}${suggestion.target ? ` (${suggestion.target})` : ""}.`
+      : "";
+
+    return textResult(
+      `Gateway decision: ${decision.result} (${decision.reasonCode}) for ${domain}. ${decision.message}${suggestionText}\n\n${configureText}`
+    );
   });
 }
 

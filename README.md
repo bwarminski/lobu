@@ -48,6 +48,39 @@ helm install lobu oci://ghcr.io/lobu-ai/charts/lobu \
   2. `make setup`
   3. `make dev` (Uses Docker Compose Watch for hot-reloading)
 
+### Validate Capability Decisions (Compose)
+
+Use this flow to validate worker-to-gateway capability decision behavior locally.
+
+1. Start dev stack in one terminal:
+
+```bash
+make dev
+```
+
+2. From repo root in a second terminal, run:
+
+```bash
+bun run test:integration:capabilities
+```
+
+If `.env` is missing `ENCRYPTION_KEY`, the test helper will generate one automatically, then exit and ask you to restart `make dev` once.
+After restarting `make dev`, run the same test command again.
+
+3. Expected result:
+   - `4 pass`
+   - `0 fail`
+
+4. If a check fails, inspect artifacts:
+
+```bash
+ls -lah tmp/integration-artifacts
+cat tmp/integration-artifacts/gateway.log
+cat tmp/integration-artifacts/redis.log
+```
+
+This validation covers structured outcomes for `deny`, `approval_required`, `allow`, and fallback behavior when no capability record is present.
+
 ## Architecture
 
 ```mermaid

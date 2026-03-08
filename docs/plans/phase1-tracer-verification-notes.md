@@ -27,3 +27,12 @@
 - `packages/gateway/src/__tests__/http-proxy.test.ts`: pass (18/18)
 - `packages/worker/src/__tests__/capability-decision-client.test.ts`: pass (4/4)
 - Helm template smoke check: blocked (`helm` binary is not installed in this runtime).
+- `bun run test:integration:capabilities`
+
+### Compose Integration Command
+
+- Command: `bun run test:integration:capabilities`
+- Scope: Compose-backed worker/gateway boundary verification for capability decisions.
+- Prerequisite: run `make dev` first.
+- Helper behavior: auto-generates `.env` `ENCRYPTION_KEY` if missing, then asks for a one-time `make dev` restart.
+- Artifacts: `tmp/integration-artifacts/gateway.log`, `tmp/integration-artifacts/redis.log`.

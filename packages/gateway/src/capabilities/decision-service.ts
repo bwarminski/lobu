@@ -1,8 +1,11 @@
 // ABOUTME: Evaluates capability decisions for governed egress_http operations.
 // ABOUTME: Maps global policy, grants, and trust-zone constraints to structured outcomes.
 import crypto from "node:crypto";
+import { createLogger } from "@lobu/core";
 import { type AgentCapability, type CapabilityRegistry } from "./registry";
 import type { DecisionRequest, DecisionResponse, TrustZone } from "./types";
+
+const logger = createLogger("capability-decision-service");
 
 interface DecisionServiceOptions {
   grantStore?: {
@@ -12,6 +15,18 @@ interface DecisionServiceOptions {
   capabilityRegistry: CapabilityRegistry;
   globalAllowedDomains: string[];
   globalDeniedDomains: string[];
+  auditLogger?: (event: {
+    decisionId: string;
+    agentId: string;
+    sessionId: string;
+    destination: string;
+    result: "allow" | "deny" | "approval_required";
+    reasonCode: string;
+    trustZone: TrustZone;
+    trustZoneSource: "agent_config" | "node_label" | "fallback";
+    requiredZone?: TrustZone;
+    zoneMatch: boolean;
+  }) => void;
 }
 
 function matchesDomainPattern(hostname: string, patterns: string[]): boolean {
@@ -192,21 +207,50 @@ async function evaluateLegacyPolicy(
 export class DecisionService {
   constructor(private readonly options: DecisionServiceOptions) {}
 
+  private emitAudit(
+    request: DecisionRequest,
+    response: DecisionResponse
+  ): DecisionResponse {
+    const event = {
+      decisionId: response.audit.decisionId,
+      agentId: request.agentId,
+      sessionId: request.sessionId,
+      destination: request.destination,
+      result: response.result,
+      reasonCode: response.reasonCode,
+      trustZone: response.audit.trustZone,
+      trustZoneSource: response.audit.trustZoneSource,
+      requiredZone: response.audit.requiredZone,
+      zoneMatch: response.audit.zoneMatch,
+    };
+
+    if (this.options.auditLogger) {
+      this.options.auditLogger(event);
+    } else {
+      logger.info("Capability decision audit", event);
+    }
+
+    return response;
+  }
+
   async decide(request: DecisionRequest): Promise<DecisionResponse> {
     if (request.operation !== "egress_http") {
-      return buildBaseResponse(
+      return this.emitAudit(request, buildBaseResponse(
         request,
         "deny",
         "unsupported_operation",
         "Operation is not supported by capability policy."
-      );
+      ));
     }
 
     const capabilityRecord = await this.options.capabilityRegistry.get(
       request.agentId
     );
     if (!capabilityRecord) {
-      return evaluateLegacyPolicy(request, this.options);
+      return this.emitAudit(
+        request,
+        await evaluateLegacyPolicy(request, this.options)
+      );
     }
 
     const capability = findMatchingCapability(
@@ -214,37 +258,37 @@ export class DecisionService {
       capabilityRecord.capabilities
     );
     if (!capability) {
-      return buildBaseResponse(
+      return this.emitAudit(request, buildBaseResponse(
         request,
         "deny",
         "capability_missing",
         "Destination is not assigned in capabilities.",
-      );
+      ));
     }
 
     if (
       capability.requiredTrustZone &&
       capability.requiredTrustZone !== request.trustZone
     ) {
-      return buildBaseResponse(
+      return this.emitAudit(request, buildBaseResponse(
         request,
         "deny",
         "trust_zone_mismatch",
         "Destination requires a different trust-zone.",
         capability.requiredTrustZone
-      );
+      ));
     }
 
     if (
       this.options.globalDeniedDomains.length > 0 &&
       matchesDomainPattern(request.destination, this.options.globalDeniedDomains)
     ) {
-      return buildBaseResponse(
+      return this.emitAudit(request, buildBaseResponse(
         request,
         "deny",
         "denied_by_global_policy",
         "Destination is denied by policy."
-      );
+      ));
     }
 
     const globallyAllowed = isHostnameAllowed(
@@ -260,21 +304,21 @@ export class DecisionService {
           request.destination
         );
         if (denied) {
-          return buildBaseResponse(
+          return this.emitAudit(request, buildBaseResponse(
             request,
             "deny",
             "denied_by_grant",
             "Destination is denied by agent grant policy."
-          );
+          ));
         }
       }
 
-      return buildBaseResponse(
+      return this.emitAudit(request, buildBaseResponse(
         request,
         "allow",
         "allowed_by_policy",
         "Destination is allowed."
-      );
+      ));
     }
 
     if (this.options.grantStore) {
@@ -283,12 +327,12 @@ export class DecisionService {
         request.destination
       );
       if (granted) {
-        return buildBaseResponse(
+        return this.emitAudit(request, buildBaseResponse(
           request,
           "allow",
           "allowed_by_grant",
           "Destination is allowed by grant."
-        );
+        ));
       }
     }
 
@@ -305,6 +349,6 @@ export class DecisionService {
         message: "Request destination access approval from settings.",
       },
     ];
-    return approvalRequired;
+    return this.emitAudit(request, approvalRequired);
   }
 }

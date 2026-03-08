@@ -189,4 +189,37 @@ describe("decision service", () => {
 
     expect(response.audit.trustZoneSource).toBe("fallback");
   });
+
+  test("emits audit metadata with decision outcome", async () => {
+    const auditEvents: Array<Record<string, unknown>> = [];
+    decisionService = new DecisionService({
+      grantStore,
+      capabilityRegistry: capabilityRegistry as CapabilityRegistry,
+      globalAllowedDomains: ["*"],
+      globalDeniedDomains: [],
+      auditLogger: (event) => {
+        auditEvents.push(event as Record<string, unknown>);
+      },
+    });
+
+    const response = await decisionService.decide({
+      agentId: "agent-1",
+      sessionId: "session-1",
+      operation: "egress_http",
+      destination: "example.com",
+      trustZone: "unknown",
+      trustZoneSource: "fallback",
+    });
+
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toEqual(
+      expect.objectContaining({
+        decisionId: response.audit.decisionId,
+        result: "allow",
+        trustZone: "unknown",
+        trustZoneSource: "fallback",
+        zoneMatch: true,
+      })
+    );
+  });
 });

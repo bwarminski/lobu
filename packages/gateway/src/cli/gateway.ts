@@ -31,7 +31,8 @@ function setupServer(
   platformRegistry?: any,
   coreServices?: any,
   telegramPlatform?: TelegramPlatform | null,
-  slackExpressApp?: any
+  slackExpressApp?: any,
+  decisionService?: any
 ) {
   if (httpServer) return;
 
@@ -229,6 +230,19 @@ function setupServer(
     );
     app.route("", settingsLinkRouter);
     logger.info("Settings link routes enabled at :8080/internal/settings-link");
+  }
+
+  // Capability decision routes (worker capability diagnostics)
+  if (decisionService) {
+    const {
+      createCapabilitiesDecisionRoutes,
+    } = require("../routes/internal/capabilities-decision");
+    const capabilitiesDecisionRouter =
+      createCapabilitiesDecisionRoutes(decisionService);
+    app.route("", capabilitiesDecisionRouter);
+    logger.info(
+      "Capabilities decision routes enabled at :8080/internal/capabilities/decide"
+    );
   }
 
   // MCP login routes (worker can trigger MCP OAuth login for users)
@@ -1260,6 +1274,25 @@ export async function startGateway(
     logger.info("Grant store connected to HTTP proxy");
   }
 
+  const { CapabilityRegistry } = await import("../capabilities/registry");
+  const { DecisionService } = await import("../capabilities/decision-service");
+  const {
+    loadAllowedDomains,
+    loadDisallowedDomains,
+  } = await import("../config/network-allowlist");
+  const capabilityRegistry = new CapabilityRegistry(
+    coreServices.getQueue().getRedisClient()
+  );
+  const decisionService = new DecisionService({
+    grantStore,
+    capabilityRegistry,
+    globalAllowedDomains: loadAllowedDomains(),
+    globalDeniedDomains: loadDisallowedDomains(),
+  });
+  const { setProxyDecisionService } = await import("../proxy/http-proxy");
+  setProxyDecisionService(decisionService);
+  logger.info("Decision service connected to HTTP proxy");
+
   // Inject core services into orchestrator (provider modules carry their own credential stores)
   await orchestrator.injectCoreServices(
     coreServices.getQueue().getRedisClient(),
@@ -1277,7 +1310,8 @@ export async function startGateway(
     gateway.getPlatformRegistry(),
     coreServices,
     telegramPlatform,
-    slackPlatform?.getExpressApp()
+    slackPlatform?.getExpressApp(),
+    decisionService
   );
 
   logger.info("Lobu Gateway is running!");

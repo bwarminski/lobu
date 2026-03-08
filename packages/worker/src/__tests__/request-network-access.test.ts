@@ -1,9 +1,9 @@
 // ABOUTME: Verifies network access requests evaluate all requested domains.
 // ABOUTME: Prevents multi-domain requests from skipping needed approval creation.
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { requestNetworkAccess } from "../shared/tool-implementations";
 
-const originalFetch = globalThis.fetch;
+let server: Bun.Server | null = null;
 
 function extractText(result: {
   content: Array<{ type: "text"; text: string }>;
@@ -11,85 +11,86 @@ function extractText(result: {
   return result.content[0]?.text || "";
 }
 
+function startGatewayStub(
+  handler: (request: Request) => Response | Promise<Response>
+): string {
+  server = Bun.serve({
+    port: 0,
+    fetch: handler,
+  });
+  return `http://127.0.0.1:${server.port}`;
+}
+
 describe("requestNetworkAccess", () => {
   afterEach(() => {
-    globalThis.fetch = originalFetch;
-    mock.restore();
+    server?.stop(true);
+    server = null;
   });
 
   test("requests approvals when any requested domain is not allowed", async () => {
     const calls: string[] = [];
     let settingsLinkBody: Record<string, unknown> | null = null;
 
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      calls.push(url);
+    const gatewayUrl = startGatewayStub(async (request) => {
+      const url = new URL(request.url);
+      calls.push(url.pathname);
 
-      if (url.endsWith("/internal/capabilities/decide")) {
-        const payload = JSON.parse(String(init?.body || "{}")) as {
+      if (url.pathname === "/internal/capabilities/decide") {
+        const payload = (await request.json()) as {
           destination?: string;
         };
         if (payload.destination === "allowed.example.com") {
-          return new Response(
-            JSON.stringify({
-              result: "allow",
-              reasonCode: "allowed_by_policy",
-              message: "ok",
-              suggestedRoutes: [],
-              approval: { required: false },
-              audit: {
-                decisionId: "d-1",
-                timestamp: "2026-03-08T00:00:00.000Z",
-                trustZone: "unknown",
-                trustZoneSource: "fallback",
-                zoneMatch: true,
-              },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        return new Response(
-          JSON.stringify({
-            result: "approval_required",
-            reasonCode: "approval_required",
-            message: "needs approval",
-            suggestedRoutes: [
-              {
-                kind: "request_approval",
-                target: "blocked.example.com",
-                message: "request approval",
-              },
-            ],
-            approval: { required: true, scopeHint: "blocked.example.com" },
+          return Response.json({
+            result: "allow",
+            reasonCode: "allowed_by_policy",
+            message: "ok",
+            suggestedRoutes: [],
+            approval: { required: false },
             audit: {
-              decisionId: "d-2",
+              decisionId: "d-1",
               timestamp: "2026-03-08T00:00:00.000Z",
               trustZone: "unknown",
               trustZoneSource: "fallback",
               zoneMatch: true,
             },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+          });
+        }
+        return Response.json({
+          result: "approval_required",
+          reasonCode: "approval_required",
+          message: "needs approval",
+          suggestedRoutes: [
+            {
+              kind: "request_approval",
+              target: "blocked.example.com",
+              message: "request approval",
+            },
+          ],
+          approval: { required: true, scopeHint: "blocked.example.com" },
+          audit: {
+            decisionId: "d-2",
+            timestamp: "2026-03-08T00:00:00.000Z",
+            trustZone: "unknown",
+            trustZoneSource: "fallback",
+            zoneMatch: true,
+          },
+        });
       }
 
-      if (url.endsWith("/internal/settings-link")) {
-        settingsLinkBody = JSON.parse(String(init?.body || "{}")) as Record<
+      if (url.pathname === "/internal/settings-link") {
+        settingsLinkBody = (await request.json()) as Record<
           string,
           unknown
         >;
-        return new Response(
-          JSON.stringify({ message: "approval request sent" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+        return Response.json({ message: "approval request sent" });
       }
 
-      throw new Error(`Unexpected URL: ${url}`);
-    }) as unknown as typeof fetch;
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
 
     const result = await requestNetworkAccess(
       {
-        gatewayUrl: "http://gateway",
+        gatewayUrl,
         workerToken: "worker-token",
         channelId: "ch",
         conversationId: "conv",
@@ -100,8 +101,12 @@ describe("requestNetworkAccess", () => {
       }
     );
 
-    expect(calls.filter((url) => url.endsWith("/internal/capabilities/decide"))).toHaveLength(2);
-    expect(calls.some((url) => url.endsWith("/internal/settings-link"))).toBe(true);
+    expect(
+      calls.filter((pathname) => pathname === "/internal/capabilities/decide")
+    ).toHaveLength(2);
+    expect(calls.some((pathname) => pathname === "/internal/settings-link")).toBe(
+      true
+    );
     expect(settingsLinkBody?.grants).toEqual([
       "allowed.example.com",
       "blocked.example.com",
@@ -114,36 +119,33 @@ describe("requestNetworkAccess", () => {
   test("does not create approval when all requested domains are allowed", async () => {
     const calls: string[] = [];
 
-    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      calls.push(url);
+    const gatewayUrl = startGatewayStub(async (request) => {
+      const url = new URL(request.url);
+      calls.push(url.pathname);
 
-      if (url.endsWith("/internal/capabilities/decide")) {
-        return new Response(
-          JSON.stringify({
-            result: "allow",
-            reasonCode: "allowed_by_policy",
-            message: "ok",
-            suggestedRoutes: [],
-            approval: { required: false },
-            audit: {
-              decisionId: "d-allow",
-              timestamp: "2026-03-08T00:00:00.000Z",
-              trustZone: "unknown",
-              trustZoneSource: "fallback",
-              zoneMatch: true,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+      if (url.pathname === "/internal/capabilities/decide") {
+        return Response.json({
+          result: "allow",
+          reasonCode: "allowed_by_policy",
+          message: "ok",
+          suggestedRoutes: [],
+          approval: { required: false },
+          audit: {
+            decisionId: "d-allow",
+            timestamp: "2026-03-08T00:00:00.000Z",
+            trustZone: "unknown",
+            trustZoneSource: "fallback",
+            zoneMatch: true,
+          },
+        });
       }
 
-      throw new Error(`Unexpected URL: ${url}`);
-    }) as unknown as typeof fetch;
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
 
     const result = await requestNetworkAccess(
       {
-        gatewayUrl: "http://gateway",
+        gatewayUrl,
         workerToken: "worker-token",
         channelId: "ch",
         conversationId: "conv",
@@ -154,8 +156,14 @@ describe("requestNetworkAccess", () => {
       }
     );
 
-    expect(calls.filter((url) => url.endsWith("/internal/capabilities/decide"))).toHaveLength(2);
-    expect(calls.some((url) => url.endsWith("/internal/settings-link"))).toBe(false);
-    expect(extractText(result as any)).toContain("No additional approval is required");
+    expect(
+      calls.filter((pathname) => pathname === "/internal/capabilities/decide")
+    ).toHaveLength(2);
+    expect(calls.some((pathname) => pathname === "/internal/settings-link")).toBe(
+      false
+    );
+    expect(extractText(result as any)).toContain(
+      "No additional approval is required"
+    );
   });
 });

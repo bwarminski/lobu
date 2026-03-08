@@ -3,7 +3,12 @@ import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import { generateWorkerToken } from "@lobu/core";
-import { __testOnly, startHttpProxy, stopHttpProxy } from "../proxy/http-proxy";
+import {
+  __testOnly,
+  setProxyDecisionService,
+  startHttpProxy,
+  stopHttpProxy,
+} from "../proxy/http-proxy";
 
 // Generate a stable 32-byte encryption key for tests
 const TEST_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64");
@@ -12,12 +17,35 @@ const TEST_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64");
 let proxyPort: number;
 let proxyServer: http.Server;
 
+async function allocateFreePort(): Promise<number> {
+  const server = http.createServer();
+  return new Promise<number>((resolve, reject) => {
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Failed to allocate free port"));
+        return;
+      }
+      const { port } = address;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
 beforeAll(async () => {
   process.env.ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
   // Default to unrestricted for auth tests; domain tests use per-deployment config
   process.env.WORKER_ALLOWED_DOMAINS = "*";
 
-  proxyPort = 10000 + Math.floor(Math.random() * 50000);
+  proxyPort = await allocateFreePort();
   proxyServer = await startHttpProxy(proxyPort, "127.0.0.1");
 });
 
@@ -200,7 +228,7 @@ describe("HTTP Proxy Authentication", () => {
 
 describe("HTTP Proxy Startup", () => {
   test("rejects on port conflict (EADDRINUSE)", async () => {
-    const blockingPort = 10000 + Math.floor(Math.random() * 50000);
+    const blockingPort = await allocateFreePort();
     const blocker = http.createServer();
     await new Promise<void>((resolve) =>
       blocker.listen(blockingPort, "127.0.0.1", resolve)
@@ -218,7 +246,7 @@ describe("HTTP Proxy Startup", () => {
   });
 
   test("binds to specified host and port", async () => {
-    const port = 10000 + Math.floor(Math.random() * 50000);
+    const port = await allocateFreePort();
     const server = await startHttpProxy(port, "127.0.0.1");
     try {
       const addr = server.address();
@@ -277,5 +305,74 @@ describe("HTTP Proxy Domain Filtering (unrestricted mode)", () => {
       proxyAuth: makeBasicAuth(deploymentName, token),
     });
     expect(res.statusLine).toContain("200");
+  });
+
+  test("returns structured payload when decision service denies", async () => {
+    setProxyDecisionService({
+      decide: async () => ({
+        result: "deny",
+        reasonCode: "capability_missing",
+        message: "Destination is not assigned in capabilities.",
+        suggestedRoutes: [],
+        approval: { required: false },
+        audit: {
+          decisionId: "decision-1",
+          timestamp: "2026-03-08T00:00:00.000Z",
+          trustZone: "unknown",
+          trustZoneSource: "fallback",
+          zoneMatch: true,
+        },
+      }),
+    } as any);
+
+    const token = createValidToken(deploymentName);
+    const res = await rawProxyRequest("http://example.com/", {
+      proxyAuth: makeBasicAuth(deploymentName, token),
+    });
+
+    expect(res.statusCode).toBe(403);
+    const payload = JSON.parse(res.body.trim());
+    expect(payload.result).toBe("deny");
+    expect(payload.reasonCode).toBe("capability_missing");
+
+    setProxyDecisionService(null);
+  });
+
+  test("returns structured payload when decision service requires approval", async () => {
+    setProxyDecisionService({
+      decide: async () => ({
+        result: "approval_required",
+        reasonCode: "approval_required",
+        message: "Destination requires approval.",
+        suggestedRoutes: [
+          {
+            kind: "request_approval",
+            target: "example.com",
+            message: "Request destination access approval from settings.",
+          },
+        ],
+        approval: { required: true, scopeHint: "example.com" },
+        audit: {
+          decisionId: "decision-2",
+          timestamp: "2026-03-08T00:00:00.000Z",
+          trustZone: "unknown",
+          trustZoneSource: "fallback",
+          zoneMatch: true,
+        },
+      }),
+    } as any);
+
+    const token = createValidToken(deploymentName);
+    const res = await rawProxyRequest("http://example.com/", {
+      proxyAuth: makeBasicAuth(deploymentName, token),
+    });
+
+    expect(res.statusCode).toBe(403);
+    const payload = JSON.parse(res.body.trim());
+    expect(payload.result).toBe("approval_required");
+    expect(payload.approval.required).toBe(true);
+    expect(payload.suggestedRoutes[0]?.kind).toBe("request_approval");
+
+    setProxyDecisionService(null);
   });
 });

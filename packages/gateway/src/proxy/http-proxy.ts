@@ -12,6 +12,7 @@ import {
   loadDisallowedDomains,
 } from "../config/network-allowlist";
 import type { DecisionService } from "../capabilities/decision-service";
+import type { DecisionResponse } from "../capabilities/types";
 import type { GrantStore } from "../permissions/grant-store";
 
 const logger = createLogger("http-proxy");
@@ -75,7 +76,7 @@ export function setProxyGrantStore(store: GrantStore): void {
   proxyGrantStore = store;
 }
 
-export function setProxyDecisionService(service: DecisionService): void {
+export function setProxyDecisionService(service: DecisionService | null): void {
   proxyDecisionService = service;
 }
 
@@ -146,8 +147,7 @@ async function checkDomainAccess(
 
 interface ProxyDecisionOutcome {
   allowed: boolean;
-  result: "allow" | "deny" | "approval_required";
-  reasonCode: string;
+  decision: DecisionResponse;
 }
 
 async function evaluateProxyAccess(
@@ -157,10 +157,28 @@ async function evaluateProxyAccess(
 ): Promise<ProxyDecisionOutcome> {
   if (!proxyDecisionService) {
     const allowed = await checkDomainAccess(hostname, tokenData.agentId);
-    return {
-      allowed,
+    const now = new Date().toISOString();
+    const decision: DecisionResponse = {
       result: allowed ? "allow" : "deny",
       reasonCode: allowed ? "allowed_by_legacy_policy" : "denied_by_legacy_policy",
+      message: allowed
+        ? "Destination allowed by proxy policy."
+        : "Destination denied by proxy policy.",
+      suggestedRoutes: [],
+      approval: {
+        required: false,
+      },
+      audit: {
+        decisionId: crypto.randomUUID(),
+        timestamp: now,
+        trustZone: "unknown",
+        trustZoneSource: "fallback",
+        zoneMatch: true,
+      },
+    };
+    return {
+      allowed,
+      decision,
     };
   }
 
@@ -175,8 +193,7 @@ async function evaluateProxyAccess(
 
   return {
     allowed: decision.result === "allow",
-    result: decision.result,
-    reasonCode: decision.reasonCode,
+    decision,
   };
 }
 
@@ -490,12 +507,20 @@ async function handleConnect(
   // Check domain access: global config → grant store
   const decision = await evaluateProxyAccess(hostname, tokenData, "CONNECT");
   if (!decision.allowed) {
+    const payload = {
+      result: decision.decision.result,
+      reasonCode: decision.decision.reasonCode,
+      message: decision.decision.message,
+      suggestedRoutes: decision.decision.suggestedRoutes,
+      approval: decision.decision.approval,
+    };
+
     logger.warn(
-      `Blocked CONNECT to ${hostname} (deployment: ${deploymentName}, result: ${decision.result}, reason: ${decision.reasonCode})`
+      `Blocked CONNECT to ${hostname} (deployment: ${deploymentName}, result: ${decision.decision.result}, reason: ${decision.decision.reasonCode})`
     );
     try {
       clientSocket.write(
-        `HTTP/1.1 403 Domain not allowed: ${hostname}. Use Sudo with grants to request access.\r\nContent-Type: text/plain\r\n\r\n403 Forbidden - Domain not allowed: ${hostname}. Use Sudo with grants to request access.\r\n`
+        `HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n`
       );
       clientSocket.end();
     } catch {
@@ -637,15 +662,21 @@ async function handleProxyRequest(
   // Check domain access: global config → grant store
   const decision = await evaluateProxyAccess(hostname, tokenData, req.method);
   if (!decision.allowed) {
+    const payload = {
+      result: decision.decision.result,
+      reasonCode: decision.decision.reasonCode,
+      message: decision.decision.message,
+      suggestedRoutes: decision.decision.suggestedRoutes,
+      approval: decision.decision.approval,
+    };
+
     logger.warn(
-      `Blocked request to ${hostname} (deployment: ${deploymentName}, result: ${decision.result}, reason: ${decision.reasonCode})`
+      `Blocked request to ${hostname} (deployment: ${deploymentName}, result: ${decision.decision.result}, reason: ${decision.decision.reasonCode})`
     );
-    res.writeHead(403, `Domain not allowed: ${hostname}`, {
-      "Content-Type": "text/plain",
+    res.writeHead(403, {
+      "Content-Type": "application/json",
     });
-    res.end(
-      `403 Forbidden - Domain not allowed: ${hostname}. Use Sudo with grants to request access.\n`
-    );
+    res.end(`${JSON.stringify(payload)}\n`);
     return;
   }
 
